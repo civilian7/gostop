@@ -27,6 +27,9 @@ type
     /// <summary>SVG 카드 이미지 폴더(<c>assets\hwatu\svg</c>) 경로를 반환합니다. 못 찾으면 빈 문자열.</summary>
     /// <param name="ARoot">에셋 루트. 빈 문자열이면 <see cref="FindRoot"/>로 자동 탐색.</param>
     class function SvgDir(const ARoot: string = ''): string; static;
+    /// <summary>오디오 효과음 폴더(<c>assets\audio</c>) 경로를 반환합니다. 못 찾으면 빈 문자열.</summary>
+    /// <param name="ARoot">에셋 루트(<c>assets\hwatu</c>). 빈 문자열이면 <see cref="FindRoot"/>로 자동 탐색.</param>
+    class function AudioDir(const ARoot: string = ''): string; static;
   end;
 
 implementation
@@ -96,6 +99,24 @@ begin
   end;
 
   Result := TPath.Combine(LRoot, 'svg');
+end;
+
+class function THwatuAssets.AudioDir(const ARoot: string): string;
+begin
+  var LRoot := ARoot;
+  if LRoot = '' then
+  begin
+    LRoot := FindRoot;
+  end;
+
+  if LRoot = '' then
+  begin
+    Result := '';
+    Exit;
+  end;
+
+  // LRoot = <...>\assets\hwatu → 형제 폴더 <...>\assets\audio
+  Result := TPath.Combine(TDirectory.GetParent(LRoot), 'audio');
 end;
 {$ENDREGION}
 

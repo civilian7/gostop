@@ -14,10 +14,6 @@ type
   ///   점수 계산 규칙 옵션(지역 룰 편차 흡수용). <see cref="Default"/>는 널리 쓰이는 표준값을 반환한다.
   /// </summary>
   TScoreOptions = record
-    /// <summary>국진(9월 열끗)을 쌍피(피값 2)로 계산할지 여부. GukjinAuto가 False일 때만 적용.</summary>
-    GukjinAsDoubleJunk: Boolean;
-    /// <summary>국진을 열끗/쌍피 중 총점이 높은 쪽으로 자동 산입(기본 True). True면 GukjinAsDoubleJunk 무시.</summary>
-    GukjinAuto: Boolean;
     /// <summary>일반 3광 점수(기본 3).</summary>
     Bright3: Integer;
     /// <summary>비광 포함 3광 점수(기본 2).</summary>
@@ -47,6 +43,11 @@ type
     PibakMaxJunk: Integer;
     /// <summary>광박 활성화(기본 True). 승자가 광 점수를 냈고 패자 광 0장이면 2배.</summary>
     GwangbakEnabled: Boolean;
+    /// <summary>
+    ///   고박 배수(기본 2). 고를 부른 사람이 그 판에서 못 이기고 상대가 스톱해 이기면,
+    ///   고를 부른 사람이 다른 패자 몫까지 전액을 이 배수로 물어준다(나머지 패자는 면제). 1이면 배수 없음.
+    /// </summary>
+    GobakMultiplier: Integer;
 
     /// <summary>널리 쓰이는 표준 규칙값을 반환합니다.</summary>
     class function Default: TScoreOptions; static;
@@ -58,7 +59,7 @@ type
     BrightCount: Integer;
     /// <summary>광 점수.</summary>
     BrightPoints: Integer;
-    /// <summary>열끗 장수(국진을 쌍피로 계산 시 제외).</summary>
+    /// <summary>열끗 장수(피로 지급된 국진은 쌍피로 계산되어 제외).</summary>
     AnimalCount: Integer;
     /// <summary>열끗 개수 점수.</summary>
     AnimalPoints: Integer;
@@ -127,8 +128,6 @@ implementation
 {$REGION 'TScoreOptions'}
 class function TScoreOptions.Default: TScoreOptions;
 begin
-  Result.GukjinAsDoubleJunk := False;
-  Result.GukjinAuto := True;
   Result.Bright3 := 3;
   Result.Bright3WithBi := 2;
   Result.Bright4 := 4;
@@ -143,6 +142,7 @@ begin
   Result.PibakEnabled := True;
   Result.PibakMaxJunk := 7;
   Result.GwangbakEnabled := True;
+  Result.GobakMultiplier := 2;
 end;
 {$ENDREGION}
 
@@ -174,8 +174,9 @@ begin
   end;
 end;
 
-// 국진 처리를 파라미터로 강제하는 단일-패스 계산(내부용)
-function DoEvaluate(const ACaptured: TList<THwatuCard>; const AOptions: TScoreOptions; const AGukjinAsJunk: Boolean): TScoreBreakdown;
+// 먹은 패의 족보 점수를 단일-패스로 계산(내부용).
+// 국진은 쪽/쓸 등으로 남에게서 '피로 받은 것(GivenAsPi)'이면 쌍피로만, 직접 소유한 것이면 열끗으로만 계산한다.
+function DoEvaluate(const ACaptured: TList<THwatuCard>; const AOptions: TScoreOptions): TScoreBreakdown;
 var
   LHasBi: Boolean;
   LGodoriCount: Integer;
@@ -205,8 +206,8 @@ begin
 
       hkAnimal:
         begin
-          // 국진을 쌍피로 계산하면 열끗에서 제외하고 피값에 가산
-          if LCard.IsGukjin and AGukjinAsJunk then
+          // 남에게서 피로 받은 국진은 쌍피(피값 2)로만, 그 외(직접 소유)는 열끗으로만 계산
+          if LCard.IsGukjin and LCard.GivenAsPi then
           begin
             Inc(Result.JunkValue, 2);
           end
@@ -316,35 +317,8 @@ end;
 
 class function TScorer.Evaluate(const ACaptured: TList<THwatuCard>; const AOptions: TScoreOptions): TScoreBreakdown;
 begin
-  // 국진 존재 여부 확인
-  var LHasGukjin := False;
-  for var LI := 0 to ACaptured.Count - 1 do
-  begin
-    if ACaptured[LI].IsGukjin then
-    begin
-      LHasGukjin := True;
-      Break;
-    end;
-  end;
-
-  // 국진이 없거나 자동 최적이 꺼져 있으면 옵션대로 단일 계산
-  if (not LHasGukjin) or (not AOptions.GukjinAuto) then
-  begin
-    Result := DoEvaluate(ACaptured, AOptions, AOptions.GukjinAsDoubleJunk);
-    Exit;
-  end;
-
-  // 국진을 열끗/쌍피 양쪽으로 계산해 총점이 높은 쪽 채택
-  var LAsAnimal := DoEvaluate(ACaptured, AOptions, False);
-  var LAsJunk := DoEvaluate(ACaptured, AOptions, True);
-  if LAsJunk.Total > LAsAnimal.Total then
-  begin
-    Result := LAsJunk;
-  end
-  else
-  begin
-    Result := LAsAnimal;
-  end;
+  // 국진의 쌍피/열끗은 카드별 GivenAsPi(피로 받았는가)로 이미 확정되므로 단일-패스로 계산한다.
+  Result := DoEvaluate(ACaptured, AOptions);
 end;
 
 class function TScorer.Settle(const AWinner: TScoreBreakdown; const ALoser: TScoreBreakdown;

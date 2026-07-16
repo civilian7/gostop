@@ -34,3 +34,6 @@ Linux64/
 # OS
 Thumbs.db
 .DS_Store
+
+# Generated resource (rebuilt from Gostop.manifest by build.ps1)
+*.res

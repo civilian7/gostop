@@ -60,6 +60,11 @@ type
     IsBiGwang: Boolean;
     /// <summary>국진(9월 국화 열끗)이면 True. 룰에 따라 쌍피로 사용 가능.</summary>
     IsGukjin: Boolean;
+    /// <summary>
+    ///   피 뺏기로 상대에게 넘어가며 '피'로 지급된 카드이면 True. 국진은 이 플래그가 True일 때만
+    ///   쌍피(피값 2)로 계산되고, 그 외에는 열끗으로만 계산된다. 일반 피/쌍피는 이 값과 무관.
+    /// </summary>
+    GivenAsPi: Boolean;
 
     /// <summary>사람이 읽을 수 있는 한글 카드 이름을 반환합니다. 예: '11월 오동 광'.</summary>
     function DisplayName: string;

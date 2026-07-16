@@ -209,10 +209,22 @@ type
     function ScoreOf(const APlayerIndex: Integer): TScoreBreakdown;
 
     /// <summary>
-    ///   딜 직후 손패 총통(같은 월 4장)을 검사해, 있으면 그 플레이어를 승자로 게임을 즉시 종료합니다.
+    ///   딜 직후 손패 총통(같은 월 4장)을 검사해, 있으면 그 플레이어를 승자로 게임을 즉시 종료합니다(자동 처리용).
     /// </summary>
     /// <returns>총통으로 종료되면 True.</returns>
     function ApplyHandChongtong: Boolean;
+    /// <summary>
+    ///   지정 플레이어가 손패에 같은 월 4장을 들고 있어 총통을 선언할 수 있으면 True(딜 직후·플레이 중 모두).
+    /// </summary>
+    /// <param name="APlayerIndex">검사할 플레이어.</param>
+    /// <param name="AMonth">4장이 모인 월(없으면 0).</param>
+    function CanDeclareChongtong(const APlayerIndex: Integer; out AMonth: Integer): Boolean;
+    /// <summary>
+    ///   지정 플레이어가 총통을 선언해 즉시 승리로 게임을 끝냅니다(플레이어 선택). 계속 진행할지 끝낼지는 선택 사항.
+    /// </summary>
+    /// <param name="APlayerIndex">선언 플레이어.</param>
+    /// <exception cref="EHwatuError">같은 월 4장 조건을 만족하지 않으면 발생.</exception>
+    procedure DeclareChongtong(const APlayerIndex: Integer);
     /// <summary>현재 플레이어가 손패에 같은 월 3장을 들고 있어 흔들 수 있는 월이면 True를 반환합니다.</summary>
     /// <param name="AMonth">검사할 월(1~12).</param>
     function CanShake(const AMonth: Integer): Boolean;
@@ -732,7 +744,7 @@ begin
     var LPlayedCaptured := False;
     if LHand.Kind = hkBonus then
     begin
-      // 조커/보너스패를 손패로 내면 즉시 획득 + 바닥패 1장(값 높은 것) 가져오는 권리
+      // 조커/보너스패는 즉시 획득. 대가로 바닥패 1장(값 높은 것)을 가져와 손패에 넣는다(총통 성립 가능).
       LCaptured.Add(LHand);
       if FRules.JokerGrabsFloor and (FState.Floor.Count > 0) then
       begin
@@ -745,8 +757,10 @@ begin
           end;
         end;
 
-        LCaptured.Add(FState.Floor[LGrabIdx]);
+        var LGrabbed := FState.Floor[LGrabIdx];
         FState.Floor.Delete(LGrabIdx);
+        LPlayer.Hand.Add(LGrabbed);
+        AddEvent(pekCapture, FState.Current, LGrabbed.Month, Format('%s 조커로 바닥패 1장을 손패로 가져옴', [LPlayer.Name]));
       end;
     end
     else
@@ -941,43 +955,55 @@ begin
   Result[LWinner].Net := LTotalToWinner;
 end;
 
-function TTurnEngine.ApplyHandChongtong: Boolean;
-
-  function FourSameMonth(const AHand: TList<THwatuCard>; out AMonth: Integer): Boolean;
-  var
-    LCounts: array [1 .. 12] of Integer;
+function TTurnEngine.CanDeclareChongtong(const APlayerIndex: Integer; out AMonth: Integer): Boolean;
+var
+  LCounts: array [1 .. 12] of Integer;
+begin
+  for var M := 1 to 12 do
   begin
-    for var M := 1 to 12 do
-    begin
-      LCounts[M] := 0;
-    end;
-
-    for var LCard in AHand do
-    begin
-      if (LCard.Month >= 1) and (LCard.Month <= 12) then
-      begin
-        Inc(LCounts[LCard.Month]);
-      end;
-    end;
-
-    for var M := 1 to 12 do
-    begin
-      if LCounts[M] >= 4 then
-      begin
-        AMonth := M;
-        Exit(True);
-      end;
-    end;
-
-    AMonth := 0;
-    Result := False;
+    LCounts[M] := 0;
   end;
 
+  for var LCard in FState.Player(APlayerIndex).Hand do
+  begin
+    if (LCard.Month >= 1) and (LCard.Month <= 12) then
+    begin
+      Inc(LCounts[LCard.Month]);
+    end;
+  end;
+
+  for var M := 1 to 12 do
+  begin
+    if LCounts[M] >= 4 then
+    begin
+      AMonth := M;
+      Exit(True);
+    end;
+  end;
+
+  AMonth := 0;
+  Result := False;
+end;
+
+procedure TTurnEngine.DeclareChongtong(const APlayerIndex: Integer);
+begin
+  var LMonth: Integer;
+  if not CanDeclareChongtong(APlayerIndex, LMonth) then
+  begin
+    raise EHwatuError.CreateFmt('%d번 플레이어는 총통 조건(같은 월 4장)이 아닙니다.', [APlayerIndex]);
+  end;
+
+  FState.Phase := gpFinished;
+  FState.Winner := APlayerIndex;
+  AddEvent(pekChongtong, APlayerIndex, LMonth, Format('%s 총통 선언! (%d월 4장) 승리', [FState.Player(APlayerIndex).Name, LMonth]));
+end;
+
+function TTurnEngine.ApplyHandChongtong: Boolean;
 begin
   for var P := 0 to FState.PlayerCount - 1 do
   begin
     var LMonth: Integer;
-    if FourSameMonth(FState.Player(P).Hand, LMonth) then
+    if CanDeclareChongtong(P, LMonth) then
     begin
       FState.Phase := gpFinished;
       FState.Winner := P;

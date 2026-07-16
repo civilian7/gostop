@@ -175,6 +175,7 @@ type
   private
     FState: TGameState;
     FRules: TRuleSet;
+    FOnEvent: TProc<TPlayEvent>;
     procedure AddEvent(const AKind: TPlayEventKind; const APlayerIndex: Integer; const AMonth: Integer; const AText: string);
     procedure StealPiFromOthers(const AWinnerIndex: Integer);
     function StealOnePi(const AWinnerIndex: Integer; const AVictimIndex: Integer): Boolean;
@@ -248,6 +249,11 @@ type
 
     /// <summary>진행 중인 게임 상태(읽기용).</summary>
     property State: TGameState read FState;
+    /// <summary>
+    ///   사건 발생 콜백. 설정하면 매 사건이 <see cref="TGameState.Events"/>에 기록되는 즉시 호출된다.
+    ///   UI가 실시간으로 반응할 때 사용(폴링 불필요). 히스토리 리스트는 그대로 유지된다.
+    /// </summary>
+    property OnEvent: TProc<TPlayEvent> read FOnEvent write FOnEvent;
   end;
 
   /// <summary>
@@ -396,6 +402,10 @@ begin
   LEvent.Month := AMonth;
   LEvent.Text := AText;
   FState.Events.Add(LEvent);
+  if Assigned(FOnEvent) then
+  begin
+    FOnEvent(LEvent);
+  end;
 end;
 
 function TTurnEngine.MatchIndices(const AMonth: Integer): TArray<Integer>;

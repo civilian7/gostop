@@ -14,8 +14,10 @@ type
   ///   점수 계산 규칙 옵션(지역 룰 편차 흡수용). <see cref="Default"/>는 널리 쓰이는 표준값을 반환한다.
   /// </summary>
   TScoreOptions = record
-    /// <summary>국진(9월 열끗)을 쌍피(피값 2)로 계산할지 여부. False면 열끗으로 계산.</summary>
+    /// <summary>국진(9월 열끗)을 쌍피(피값 2)로 계산할지 여부. GukjinAuto가 False일 때만 적용.</summary>
     GukjinAsDoubleJunk: Boolean;
+    /// <summary>국진을 열끗/쌍피 중 총점이 높은 쪽으로 자동 산입(기본 True). True면 GukjinAsDoubleJunk 무시.</summary>
+    GukjinAuto: Boolean;
     /// <summary>일반 3광 점수(기본 3).</summary>
     Bright3: Integer;
     /// <summary>비광 포함 3광 점수(기본 2).</summary>
@@ -126,6 +128,7 @@ implementation
 class function TScoreOptions.Default: TScoreOptions;
 begin
   Result.GukjinAsDoubleJunk := False;
+  Result.GukjinAuto := True;
   Result.Bright3 := 3;
   Result.Bright3WithBi := 2;
   Result.Bright4 := 4;
@@ -171,7 +174,8 @@ begin
   end;
 end;
 
-class function TScorer.Evaluate(const ACaptured: TList<THwatuCard>; const AOptions: TScoreOptions): TScoreBreakdown;
+// 국진 처리를 파라미터로 강제하는 단일-패스 계산(내부용)
+function DoEvaluate(const ACaptured: TList<THwatuCard>; const AOptions: TScoreOptions; const AGukjinAsJunk: Boolean): TScoreBreakdown;
 var
   LHasBi: Boolean;
   LGodoriCount: Integer;
@@ -201,8 +205,8 @@ begin
 
       hkAnimal:
         begin
-          // 국진을 쌍피로 계산하는 옵션이면 열끗에서 제외하고 피값에 가산
-          if LCard.IsGukjin and AOptions.GukjinAsDoubleJunk then
+          // 국진을 쌍피로 계산하면 열끗에서 제외하고 피값에 가산
+          if LCard.IsGukjin and AGukjinAsJunk then
           begin
             Inc(Result.JunkValue, 2);
           end
@@ -308,6 +312,39 @@ begin
     Result.AnimalPoints + Result.GodoriPoints +
     Result.RibbonPoints + Result.HongdanPoints + Result.CheongdanPoints + Result.ChodanPoints +
     Result.JunkPoints;
+end;
+
+class function TScorer.Evaluate(const ACaptured: TList<THwatuCard>; const AOptions: TScoreOptions): TScoreBreakdown;
+begin
+  // 국진 존재 여부 확인
+  var LHasGukjin := False;
+  for var LI := 0 to ACaptured.Count - 1 do
+  begin
+    if ACaptured[LI].IsGukjin then
+    begin
+      LHasGukjin := True;
+      Break;
+    end;
+  end;
+
+  // 국진이 없거나 자동 최적이 꺼져 있으면 옵션대로 단일 계산
+  if (not LHasGukjin) or (not AOptions.GukjinAuto) then
+  begin
+    Result := DoEvaluate(ACaptured, AOptions, AOptions.GukjinAsDoubleJunk);
+    Exit;
+  end;
+
+  // 국진을 열끗/쌍피 양쪽으로 계산해 총점이 높은 쪽 채택
+  var LAsAnimal := DoEvaluate(ACaptured, AOptions, False);
+  var LAsJunk := DoEvaluate(ACaptured, AOptions, True);
+  if LAsJunk.Total > LAsAnimal.Total then
+  begin
+    Result := LAsJunk;
+  end
+  else
+  begin
+    Result := LAsAnimal;
+  end;
 end;
 
 class function TScorer.Settle(const AWinner: TScoreBreakdown; const ALoser: TScoreBreakdown;

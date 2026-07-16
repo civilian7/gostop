@@ -700,8 +700,22 @@ begin
     var LPlayedCaptured := False;
     if LHand.Kind = hkBonus then
     begin
-      // 보너스패를 손패로 내면 바닥 매칭 없이 즉시 획득
+      // 조커/보너스패를 손패로 내면 즉시 획득 + 바닥패 1장(값 높은 것) 가져오는 권리
       LCaptured.Add(LHand);
+      if FState.Floor.Count > 0 then
+      begin
+        var LGrabIdx := 0;
+        for var I := 1 to FState.Floor.Count - 1 do
+        begin
+          if CaptureRank(FState.Floor[I]) > CaptureRank(FState.Floor[LGrabIdx]) then
+          begin
+            LGrabIdx := I;
+          end;
+        end;
+
+        LCaptured.Add(FState.Floor[LGrabIdx]);
+        FState.Floor.Delete(LGrabIdx);
+      end;
     end
     else
     if Length(LHandMatches) = 0 then

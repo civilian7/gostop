@@ -15,6 +15,21 @@ uses
 {$ENDREGION}
 
 type
+  /// <summary>
+  ///   제한시간 내 한 플레이어의 결정. 실제 타이머는 UI가 관리하고, 만료 시 Responded=False로 넘긴다.
+  /// </summary>
+  TTimedDecision = record
+    /// <summary>제한시간 내에 응답(선택)했는가.</summary>
+    Responded: Boolean;
+    /// <summary>선택값. P2·P3는 '포기 여부', P4는 '광팔기 여부'.</summary>
+    Choice: Boolean;
+
+    /// <summary>응답한 결정을 만듭니다.</summary>
+    class function Answered(const AChoice: Boolean): TTimedDecision; static;
+    /// <summary>제한시간 만료(미응답) 결정을 만듭니다.</summary>
+    class function TimedOut: TTimedDecision; static;
+  end;
+
   /// <summary>4인 라운드의 협상 결정(포기·광팔기).</summary>
   TFourDecisions = record
     /// <summary>P2(좌석1)가 포기하는가.</summary>
@@ -26,6 +41,13 @@ type
 
     /// <summary>표준 진행: 아무도 포기하지 않고 P4가 광을 판다.</summary>
     class function Standard: TFourDecisions; static;
+    /// <summary>
+    ///   제한시간 결정으로 최종 결정을 만듭니다. 미응답(만료) 시 P2·P3는 자동 참가, P4는 자동 광팔기.
+    /// </summary>
+    /// <param name="AP2">P2의 포기 결정(미응답 시 참가).</param>
+    /// <param name="AP3">P3의 포기 결정(미응답 시 참가).</param>
+    /// <param name="AP4">P4의 광팔기 결정(미응답 시 광팔기).</param>
+    class function FromTimed(const AP2: TTimedDecision; const AP3: TTimedDecision; const AP4: TTimedDecision): TFourDecisions; static;
   end;
 
   /// <summary>4인 한 라운드의 최종 결과.</summary>
@@ -75,12 +97,41 @@ type
 
 implementation
 
+{$REGION 'TTimedDecision'}
+class function TTimedDecision.Answered(const AChoice: Boolean): TTimedDecision;
+begin
+  Result.Responded := True;
+  Result.Choice := AChoice;
+end;
+
+class function TTimedDecision.TimedOut: TTimedDecision;
+begin
+  Result.Responded := False;
+  Result.Choice := False;
+end;
+{$ENDREGION}
+
 {$REGION 'TFourDecisions'}
 class function TFourDecisions.Standard: TFourDecisions;
 begin
   Result.P2GiveUp := False;
   Result.P3GiveUp := False;
   Result.P4Sell := True;
+end;
+
+class function TFourDecisions.FromTimed(const AP2: TTimedDecision; const AP3: TTimedDecision; const AP4: TTimedDecision): TFourDecisions;
+begin
+  // 제한시간 내 미응답 시: P2·P3 자동 참가(포기 아님), P4 자동 광팔기
+  Result.P2GiveUp := AP2.Responded and AP2.Choice;
+  Result.P3GiveUp := AP3.Responded and AP3.Choice;
+  if AP4.Responded then
+  begin
+    Result.P4Sell := AP4.Choice;
+  end
+  else
+  begin
+    Result.P4Sell := True;
+  end;
 end;
 {$ENDREGION}
 

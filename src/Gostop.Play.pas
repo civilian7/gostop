@@ -235,6 +235,16 @@ type
     property State: TGameState read FState;
   end;
 
+  /// <summary>
+  ///   턴 엔진 위에서 한 플레이어의 행동을 결정·실행하는 에이전트 계약. AI·사람(UI)·스크립트가 각자 구현한다.
+  ///   현재 차례/단계에 맞춰 손패·폭탄·뒤집기 또는 고/스톱을 수행한다.
+  /// </summary>
+  IPlayerAgent = interface
+    ['{7A1C0E10-9B3D-4E52-8F41-6C2A9D5B3E77}']
+    /// <summary>현재 게임 단계에 맞는 행동을 1회 수행합니다.</summary>
+    procedure Act(const AEngine: TTurnEngine);
+  end;
+
 implementation
 
 {$REGION 'TPlayer'}

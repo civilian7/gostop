@@ -34,7 +34,12 @@ type
   ///   능력치가 높으면 결정화 몬테카를로(안 보이는 카드를 크기 맞춰 무작위 분배한 가상 세계에서 게임 끝까지
   ///   시뮬레이션)로 수읽기를 하고, 낮으면 1-플라이 휴리스틱 + 무작위로 둔다. 시드 LCG로 결정론적.
   /// </summary>
-  TAiPlayer = class
+  TAiPlayer = class(TObject, IPlayerAgent)
+  protected
+    // IInterface: 참조 카운팅 비활성(수명은 수동 관리)
+    function QueryInterface(const IID: TGUID; out Obj): HResult; stdcall;
+    function _AddRef: Integer; stdcall;
+    function _Release: Integer; stdcall;
   private
     FSkill: Integer;
     FSeed: UInt64;
@@ -98,6 +103,28 @@ begin
   begin
     FSeed := 88172645463325252;
   end;
+end;
+
+function TAiPlayer.QueryInterface(const IID: TGUID; out Obj): HResult;
+begin
+  if GetInterface(IID, Obj) then
+  begin
+    Result := 0;   // S_OK
+  end
+  else
+  begin
+    Result := HResult($80004002);   // E_NOINTERFACE
+  end;
+end;
+
+function TAiPlayer._AddRef: Integer;
+begin
+  Result := -1;   // 참조 카운팅 안 함
+end;
+
+function TAiPlayer._Release: Integer;
+begin
+  Result := -1;
 end;
 
 function TAiPlayer.NextRandom(const ABound: Integer): Integer;

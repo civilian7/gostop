@@ -10,8 +10,7 @@ uses
   Gostop.Deck,
   Gostop.Deal,
   Gostop.Play,
-  Gostop.FourPlayer,
-  Gostop.AI;
+  Gostop.FourPlayer;
 {$ENDREGION}
 
 type
@@ -74,16 +73,16 @@ type
     ///   주어진 덱·AI·결정으로 한 라운드를 끝까지 진행하고 결과를 반환합니다.
     /// </summary>
     /// <param name="ADeck">셔플된 덱(4인 딜에 사용, 이 호출로 소비).</param>
-    /// <param name="AAis">좌석 0~3에 대응하는 AI 4명.</param>
+    /// <param name="AAis">좌석 0~3에 대응하는 플레이어 에이전트 4명(AI·사람 등).</param>
     /// <param name="ADecisions">협상 결정.</param>
     /// <param name="AGwangUnitPrice">광 1개당 단가.</param>
     /// <param name="AOptions">점수 규칙 옵션.</param>
     /// <param name="AStakes">판돈 배수(기본 1). 게임 정산(승패)에 곱해진다. 광값은 배수 미적용.</param>
     /// <exception cref="EHwatuError">AI가 4명이 아니면 발생.</exception>
-    class function Run(const ADeck: TDeck; const AAis: array of TAiPlayer; const ADecisions: TFourDecisions;
+    class function Run(const ADeck: TDeck; const AAis: array of IPlayerAgent; const ADecisions: TFourDecisions;
       const AGwangUnitPrice: Integer; const AOptions: TScoreOptions; const AStakes: Integer = 1): TFourGameResult; static;
     /// <summary>표준 결정(광팔기)으로 한 라운드를 진행합니다.</summary>
-    class function RunAuto(const ADeck: TDeck; const AAis: array of TAiPlayer;
+    class function RunAuto(const ADeck: TDeck; const AAis: array of IPlayerAgent;
       const AGwangUnitPrice: Integer; const AOptions: TScoreOptions; const AStakes: Integer = 1): TFourGameResult; static;
     /// <summary>
     ///   나가리 판돈 이월 규칙: 나가리이고 참가자 전원이 동의하면 다음 판돈을 2배로, 아니면 1로 리셋합니다.
@@ -136,12 +135,12 @@ end;
 {$ENDREGION}
 
 {$REGION 'TFourGame'}
-class function TFourGame.Run(const ADeck: TDeck; const AAis: array of TAiPlayer; const ADecisions: TFourDecisions;
+class function TFourGame.Run(const ADeck: TDeck; const AAis: array of IPlayerAgent; const ADecisions: TFourDecisions;
   const AGwangUnitPrice: Integer; const AOptions: TScoreOptions; const AStakes: Integer): TFourGameResult;
 begin
   if Length(AAis) <> 4 then
   begin
-    raise EHwatuError.CreateFmt('4인 게임에는 AI 4명이 필요합니다(전달 %d명).', [Length(AAis)]);
+    raise EHwatuError.CreateFmt('4인 게임에는 에이전트 4명이 필요합니다(전달 %d명).', [Length(AAis)]);
   end;
 
   Result.WinnerSeat := -1;
@@ -209,7 +208,7 @@ begin
   end;
 end;
 
-class function TFourGame.RunAuto(const ADeck: TDeck; const AAis: array of TAiPlayer;
+class function TFourGame.RunAuto(const ADeck: TDeck; const AAis: array of IPlayerAgent;
   const AGwangUnitPrice: Integer; const AOptions: TScoreOptions; const AStakes: Integer): TFourGameResult;
 begin
   Result := Run(ADeck, AAis, TFourDecisions.Standard, AGwangUnitPrice, AOptions, AStakes);

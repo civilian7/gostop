@@ -63,6 +63,7 @@ type
     FLastGoScore: Integer;
     FShakeCount: Integer;
     FCardDebt: Integer;
+    FPendingShakeMonth: Integer;
   public
     /// <summary>이름을 지정해 빈 플레이어를 생성합니다.</summary>
     constructor Create(const AName: string);
@@ -82,6 +83,8 @@ type
     property ShakeCount: Integer read FShakeCount write FShakeCount;
     /// <summary>폭탄으로 진 카드빚. 이 횟수만큼 자기 턴에 손패 대신 '뒤집기만' 할 수 있다.</summary>
     property CardDebt: Integer read FCardDebt write FCardDebt;
+    /// <summary>흔들기를 선언한 월(0=없음). 이 월을 실제로 내야 흔들기가 성립한다.</summary>
+    property PendingShakeMonth: Integer read FPendingShakeMonth write FPendingShakeMonth;
   end;
 
   /// <summary>게임 전체 상태(플레이어들·바닥·더미·차례·단계·사건 로그). 모든 카드의 수명을 소유한다.</summary>
@@ -136,10 +139,24 @@ type
     property PlayCount: Integer read FPlayCount write FPlayCount;
   end;
 
+  /// <summary>게임 종료 시 한 플레이어의 최종 정산 결과.</summary>
+  TPlayerResult = record
+    /// <summary>플레이어 인덱스.</summary>
+    PlayerIndex: Integer;
+    /// <summary>순손익(+받음 / −지불). 승자는 양수, 패자는 음수, 나가리는 0.</summary>
+    Net: Integer;
+    /// <summary>피박 적용 여부(패자).</summary>
+    Pibak: Boolean;
+    /// <summary>광박 적용 여부(패자).</summary>
+    Gwangbak: Boolean;
+    /// <summary>고박(고를 부르고 진 사람이 전액 부담) 적용 여부.</summary>
+    Gobak: Boolean;
+  end;
+
   /// <summary>
   ///   고스톱 한 턴을 규칙대로 진행하는 엔진. 손패를 내면 바닥 매칭·더미 뒤집기·먹기·뻑·쪽·따닥·쓸·피 이동을
   ///   처리하고, 3점 이상이면 고/스톱 대기 단계로 전환한다. 뻑 더미의 생성자를 추적해 자뻑·연뻑·첫뻑도 판정한다.
-  ///   (미구현: 폭탄 카드빚 정밀 처리.)
+  ///   보너스패는 즉시 획득, 폭탄 카드빚은 '뒤집기만' 턴으로 상환, 종료 시 정산(피박/광박/고박)까지 제공한다.
   /// </summary>
   TTurnEngine = class
   private
@@ -150,9 +167,12 @@ type
     function StealOnePi(const AWinnerIndex: Integer; const AVictimIndex: Integer): Boolean;
     procedure ResolveBbeokCapture(const AMonth: Integer);
     function FlipStockAndResolve(const APlayer: TPlayer): Boolean;
+    function DrawNonBonus(const APlayer: TPlayer; out ACard: THwatuCard): Boolean;
     procedure AdvanceTurn;
+    function CanAct(const APlayerIndex: Integer): Boolean;
     function MatchIndices(const AMonth: Integer): TArray<Integer>;
     procedure CaptureInto(const ACaptured: TList<THwatuCard>; const AIndices: TArray<Integer>; const AChoice: Integer);
+    function CaptureRank(const ACard: THwatuCard): Integer;
   public
     /// <summary>주어진 게임 상태와 점수 옵션으로 엔진을 생성합니다(상태 수명은 호출자 소유).</summary>
     constructor Create(const AState: TGameState; const AOptions: TScoreOptions);
@@ -204,6 +224,13 @@ type
     /// <exception cref="EHwatuError">진행 단계가 아니거나 갚을 카드빚이 없으면 발생.</exception>
     function FlipOnly: Boolean;
 
+    /// <summary>
+    ///   게임 종료 시 각 플레이어의 최종 정산(고·흔들 배수, 피박/광박, 고박 반영)을 계산합니다.
+    ///   나가리(무승부)면 전원 0. 게임이 끝나지 않았으면 전원 0을 반환합니다.
+    /// </summary>
+    /// <returns>플레이어별 정산 결과 배열.</returns>
+    function FinalSettlement: TArray<TPlayerResult>;
+
     /// <summary>진행 중인 게임 상태(읽기용).</summary>
     property State: TGameState read FState;
   end;
@@ -221,6 +248,7 @@ begin
   FLastGoScore := 0;
   FShakeCount := 0;
   FCardDebt := 0;
+  FPendingShakeMonth := 0;
 end;
 
 destructor TPlayer.Destroy;
@@ -387,13 +415,51 @@ begin
   end;
 
   var LPick := 0;
-  if (Length(AIndices) = 2) and (AChoice >= 0) and (AChoice < 2) then
+  if Length(AIndices) = 2 then
   begin
-    LPick := AChoice;
+    if (AChoice >= 0) and (AChoice < 2) then
+    begin
+      LPick := AChoice;
+    end
+    else
+    begin
+      // AChoice < 0(자동): 값이 높은 카드를 가져간다(뒤집기 등 선택권 없을 때)
+      if CaptureRank(FState.Floor[AIndices[1]]) > CaptureRank(FState.Floor[AIndices[0]]) then
+      begin
+        LPick := 1;
+      end;
+    end;
   end;
 
   ACaptured.Add(FState.Floor[AIndices[LPick]]);
   FState.Floor.Delete(AIndices[LPick]);
+end;
+
+function TTurnEngine.CaptureRank(const ACard: THwatuCard): Integer;
+begin
+  // 획득 우선순위: 광 > 열끗 > 띠 > 피(쌍피>피)
+  case ACard.Kind of
+    hkBright:
+      begin
+        Result := 100;
+      end;
+    hkAnimal:
+      begin
+        Result := 80;
+      end;
+    hkRibbon:
+      begin
+        Result := 60;
+      end;
+    hkJunk, hkBonus:
+      begin
+        Result := 10 + ACard.JunkValue;
+      end;
+  else
+    begin
+      Result := 0;
+    end;
+  end;
 end;
 
 function TTurnEngine.StealOnePi(const AWinnerIndex: Integer; const AVictimIndex: Integer): Boolean;
@@ -466,15 +532,34 @@ begin
   end;
 end;
 
+function TTurnEngine.DrawNonBonus(const APlayer: TPlayer; out ACard: THwatuCard): Boolean;
+begin
+  // 더미 맨 위부터 뒤집되, 보너스패(조커)는 즉시 획득하고 한 장 더 뒤집는다.
+  while FState.Stock.Count > 0 do
+  begin
+    var LTop := FState.Stock[FState.Stock.Count - 1];
+    FState.Stock.Delete(FState.Stock.Count - 1);
+    if LTop.Kind = hkBonus then
+    begin
+      APlayer.Captured.Add(LTop);
+      AddEvent(pekCapture, FState.Current, 0, Format('%s 보너스패 획득(뒤집기)', [APlayer.Name]));
+      Continue;
+    end;
+
+    ACard := LTop;
+    Exit(True);
+  end;
+
+  Result := False;
+end;
+
 function TTurnEngine.FlipStockAndResolve(const APlayer: TPlayer): Boolean;
 begin
-  if FState.Stock.Count = 0 then
+  var LDraw: THwatuCard;
+  if not DrawNonBonus(APlayer, LDraw) then
   begin
     Exit(False);
   end;
-
-  var LDraw := FState.Stock[FState.Stock.Count - 1];
-  FState.Stock.Delete(FState.Stock.Count - 1);
 
   var LCaptured := TList<THwatuCard>.Create;
   try
@@ -486,7 +571,7 @@ begin
     else
     begin
       LCaptured.Add(LDraw);
-      CaptureInto(LCaptured, LMatches, 0);
+      CaptureInto(LCaptured, LMatches, -1);
       if Length(LMatches) >= 3 then
       begin
         ResolveBbeokCapture(LDraw.Month);
@@ -516,19 +601,26 @@ begin
   end;
 end;
 
+function TTurnEngine.CanAct(const APlayerIndex: Integer): Boolean;
+begin
+  // 낼 손패가 있거나, 폭탄 카드빚이 남아 있고 뒤집을 더미가 있으면 행동 가능.
+  var LPlayer := FState.Player(APlayerIndex);
+  Result := (LPlayer.Hand.Count > 0) or ((LPlayer.CardDebt > 0) and (FState.Stock.Count > 0));
+end;
+
 procedure TTurnEngine.AdvanceTurn;
 begin
-  var LAllEmpty := True;
+  var LAnyActive := False;
   for var P := 0 to FState.PlayerCount - 1 do
   begin
-    if FState.Player(P).Hand.Count > 0 then
+    if CanAct(P) then
     begin
-      LAllEmpty := False;
+      LAnyActive := True;
       Break;
     end;
   end;
 
-  if LAllEmpty then
+  if not LAnyActive then
   begin
     FState.Phase := gpFinished;
     FState.Winner := -1;
@@ -538,7 +630,7 @@ begin
 
   repeat
     FState.Current := (FState.Current + 1) mod FState.PlayerCount;
-  until FState.Player(FState.Current).Hand.Count > 0;
+  until CanAct(FState.Current);
 
   FState.Phase := gpPlaying;
   AddEvent(pekTurnPass, FState.Current, 0, FState.CurrentPlayer.Name + ' 차례');
@@ -557,25 +649,27 @@ begin
     raise EHwatuError.CreateFmt('손패 인덱스 오류: %d (손패 %d장)', [AHandIndex, LPlayer.Hand.Count]);
   end;
 
+  // 흔들기 커밋: 흔든 월이 있으면 그 월을 내야 한다
+  if (LPlayer.PendingShakeMonth <> 0) and (LPlayer.Hand[AHandIndex].Month <> LPlayer.PendingShakeMonth) then
+  begin
+    raise EHwatuError.CreateFmt('%d월을 흔들었으므로 그 월의 카드를 내야 합니다.', [LPlayer.PendingShakeMonth]);
+  end;
+
   var LFirstPlay := FState.PlayCount = 0;
   FState.PlayCount := FState.PlayCount + 1;
 
   var LHand := LPlayer.Hand[AHandIndex];
   LPlayer.Hand.Delete(AHandIndex);
   var LMonth := LHand.Month;
+  LPlayer.PendingShakeMonth := 0;
 
   var LCaptured := TList<THwatuCard>.Create;
   try
     var LHandMatches := MatchIndices(LMonth);
 
-    // 더미 뒤집기
-    var LHasDraw := FState.Stock.Count > 0;
+    // 더미 뒤집기(보너스패는 즉시 획득하고 다음 장을 뒤집는다)
     var LDraw: THwatuCard;
-    if LHasDraw then
-    begin
-      LDraw := FState.Stock[FState.Stock.Count - 1];
-      FState.Stock.Delete(FState.Stock.Count - 1);
-    end;
+    var LHasDraw := DrawNonBonus(LPlayer, LDraw);
 
     // 뻑: 손패가 바닥 1장과 매칭인데 뒤집은 것도 같은 월 → 3장이 바닥에 쌓이고 아무도 못 먹음
     if LHasDraw and (Length(LHandMatches) = 1) and (LDraw.Month = LMonth) then
@@ -604,6 +698,12 @@ begin
 
     // 손패 처리
     var LPlayedCaptured := False;
+    if LHand.Kind = hkBonus then
+    begin
+      // 보너스패를 손패로 내면 바닥 매칭 없이 즉시 획득
+      LCaptured.Add(LHand);
+    end
+    else
     if Length(LHandMatches) = 0 then
     begin
       FState.Floor.Add(LHand);
@@ -633,7 +733,7 @@ begin
       else
       begin
         LCaptured.Add(LDraw);
-        CaptureInto(LCaptured, LDrawMatches, 0);
+        CaptureInto(LCaptured, LDrawMatches, -1);
         if Length(LDrawMatches) >= 3 then
         begin
           ResolveBbeokCapture(LDraw.Month);
@@ -686,7 +786,7 @@ begin
     end;
 
     // 점수 & 고/스톱
-    var LScore := TScorer.Evaluate(LPlayer.Captured.ToArray, FOptions);
+    var LScore := TScorer.Evaluate(LPlayer.Captured, FOptions);
     if (LScore.Total >= 3) and (LScore.Total > LPlayer.LastGoScore) then
     begin
       FState.Phase := gpAwaitingGoStop;
@@ -729,7 +829,70 @@ end;
 
 function TTurnEngine.ScoreOf(const APlayerIndex: Integer): TScoreBreakdown;
 begin
-  Result := TScorer.Evaluate(FState.Player(APlayerIndex).Captured.ToArray, FOptions);
+  Result := TScorer.Evaluate(FState.Player(APlayerIndex).Captured, FOptions);
+end;
+
+function TTurnEngine.FinalSettlement: TArray<TPlayerResult>;
+begin
+  SetLength(Result, FState.PlayerCount);
+  for var P := 0 to FState.PlayerCount - 1 do
+  begin
+    Result[P].PlayerIndex := P;
+    Result[P].Net := 0;
+    Result[P].Pibak := False;
+    Result[P].Gwangbak := False;
+    Result[P].Gobak := False;
+  end;
+
+  // 나가리 또는 미종료 → 전원 0
+  if FState.Winner < 0 then
+  begin
+    Exit;
+  end;
+
+  var LWinner := FState.Winner;
+  var LWinnerP := FState.Player(LWinner);
+  var LWinBreak := TScorer.Evaluate(LWinnerP.Captured, FOptions);
+
+  var LTotalToWinner := 0;
+  var LGobakLoser := -1;
+  for var P := 0 to FState.PlayerCount - 1 do
+  begin
+    if P = LWinner then
+    begin
+      Continue;
+    end;
+
+    var LLoserBreak := TScorer.Evaluate(FState.Player(P).Captured, FOptions);
+    var LSettle := TScorer.Settle(LWinBreak, LLoserBreak, LWinnerP.GoCount, LWinnerP.ShakeCount, FOptions);
+    Result[P].Net := -LSettle.Points;
+    Result[P].Pibak := LSettle.Pibak;
+    Result[P].Gwangbak := LSettle.Gwangbak;
+    LTotalToWinner := LTotalToWinner + LSettle.Points;
+
+    // 고를 부르고 진 사람(고박 대상)
+    if FState.Player(P).GoCount > 0 then
+    begin
+      LGobakLoser := P;
+    end;
+  end;
+
+  // 고박: 고를 부르고 진 사람이 있으면 그 사람이 전액(상대 몫까지) 부담, 나머지 패자는 면제
+  if LGobakLoser >= 0 then
+  begin
+    for var P := 0 to FState.PlayerCount - 1 do
+    begin
+      if P <> LWinner then
+      begin
+        Result[P].Net := 0;
+      end;
+    end;
+
+    Result[LGobakLoser].Net := -LTotalToWinner;
+    Result[LGobakLoser].Gobak := True;
+  end;
+
+  Result[LWinner].Net := LTotalToWinner;
 end;
 
 function TTurnEngine.ApplyHandChongtong: Boolean;
@@ -808,6 +971,7 @@ begin
 
   var LPlayer := FState.CurrentPlayer;
   LPlayer.ShakeCount := LPlayer.ShakeCount + 1;
+  LPlayer.PendingShakeMonth := AMonth;   // 이 월을 실제로 내야 성립(커밋)
   AddEvent(pekShake, FState.Current, AMonth, Format('%s 흔들기! (%d월)', [LPlayer.Name, AMonth]));
 end;
 
@@ -870,7 +1034,7 @@ begin
   FlipStockAndResolve(LPlayer);
 
   // 점수 도달 시 고/스톱, 아니면 턴 넘김
-  var LScore := TScorer.Evaluate(LPlayer.Captured.ToArray, FOptions);
+  var LScore := TScorer.Evaluate(LPlayer.Captured, FOptions);
   if (LScore.Total >= 3) and (LScore.Total > LPlayer.LastGoScore) then
   begin
     FState.Phase := gpAwaitingGoStop;
@@ -904,7 +1068,7 @@ begin
   AddEvent(pekTurnPass, FState.Current, 0, Format('%s 뒤집기만(카드빚 갚기, %d 남음)', [LPlayer.Name, LPlayer.CardDebt]));
   FlipStockAndResolve(LPlayer);
 
-  var LScore := TScorer.Evaluate(LPlayer.Captured.ToArray, FOptions);
+  var LScore := TScorer.Evaluate(LPlayer.Captured, FOptions);
   if (LScore.Total >= 3) and (LScore.Total > LPlayer.LastGoScore) then
   begin
     FState.Phase := gpAwaitingGoStop;

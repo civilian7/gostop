@@ -1,4 +1,4 @@
-unit Gostop.AI;
+﻿unit Gostop.AI;
 
 interface
 
@@ -193,7 +193,7 @@ begin
       Continue;
     end;
 
-    var LBreak := TScorer.Evaluate(AState.Player(P).Captured.ToArray, TScoreOptions.Default);
+    var LBreak := TScorer.Evaluate(AState.Player(P).Captured, TScoreOptions.Default);
     var LThreat: Double := LBreak.Total;
     if LBreak.BrightCount = 2 then
     begin
@@ -516,7 +516,7 @@ begin
     Exit(0);
   end;
 
-  var LBreak := TScorer.Evaluate(AState.Player(AState.Winner).Captured.ToArray, TScoreOptions.Default);
+  var LBreak := TScorer.Evaluate(AState.Player(AState.Winner).Captured, TScoreOptions.Default);
   if AState.Winner = ASelfIndex then
   begin
     Result := LBreak.Total;

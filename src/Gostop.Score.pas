@@ -5,6 +5,7 @@ interface
 {$REGION 'uses'}
 uses
   System.SysUtils,
+  System.Generics.Collections,
   Gostop.Cards;
 {$ENDREGION}
 
@@ -99,10 +100,14 @@ type
   /// <summary>먹은 패로부터 점수를 계산하고 고·박 정산을 수행하는 정적 계산기.</summary>
   TScorer = record
   public
-    /// <summary>먹은 패 목록의 족보 점수 내역을 계산합니다(고·박 적용 전).</summary>
+    /// <summary>먹은 패 목록(리스트)의 족보 점수 내역을 계산합니다(고·박 적용 전, 할당 없이).</summary>
+    /// <param name="ACaptured">플레이어가 먹은 카드 리스트.</param>
+    /// <param name="AOptions">점수 규칙 옵션.</param>
+    class function Evaluate(const ACaptured: TList<THwatuCard>; const AOptions: TScoreOptions): TScoreBreakdown; overload; static;
+    /// <summary>먹은 패 목록(배열)의 족보 점수 내역을 계산합니다(고·박 적용 전).</summary>
     /// <param name="ACaptured">플레이어가 먹은 카드 배열.</param>
     /// <param name="AOptions">점수 규칙 옵션.</param>
-    class function Evaluate(const ACaptured: array of THwatuCard; const AOptions: TScoreOptions): TScoreBreakdown; static;
+    class function Evaluate(const ACaptured: array of THwatuCard; const AOptions: TScoreOptions): TScoreBreakdown; overload; static;
     /// <summary>
     ///   승자가 한 패자로부터 받을 점수를 고·흔들기·피박·광박을 반영해 정산합니다.
     /// </summary>
@@ -151,6 +156,22 @@ end;
 
 {$REGION 'TScorer'}
 class function TScorer.Evaluate(const ACaptured: array of THwatuCard; const AOptions: TScoreOptions): TScoreBreakdown;
+begin
+  // 배열 버전은 리스트 버전에 위임(테스트·저빈도용). 핫패스는 TList 오버로드를 쓴다.
+  var LList := TList<THwatuCard>.Create;
+  try
+    for var LCard in ACaptured do
+    begin
+      LList.Add(LCard);
+    end;
+
+    Result := Evaluate(LList, AOptions);
+  finally
+    LList.Free;
+  end;
+end;
+
+class function TScorer.Evaluate(const ACaptured: TList<THwatuCard>; const AOptions: TScoreOptions): TScoreBreakdown;
 var
   LHasBi: Boolean;
   LGodoriCount: Integer;
@@ -165,8 +186,9 @@ begin
   LCheong := 0;
   LCho := 0;
 
-  for var LCard in ACaptured do
+  for var LI := 0 to ACaptured.Count - 1 do
   begin
+    var LCard := ACaptured[LI];
     case LCard.Kind of
       hkBright:
         begin

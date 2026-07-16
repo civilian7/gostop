@@ -49,6 +49,7 @@ type
       const AThreat: Double; out AFloorChoice: Integer): Double;
     function GenerateMoves(const AEngine: TTurnEngine): TArray<TAiMove>;
     function ChooseMove(const AMoves: TArray<TAiMove>): TAiMove;
+    function PickWithMistakes(const AMoves: TArray<TAiMove>; const ABest: TAiMove): TAiMove;
     function TopKMoves(const AMoves: TArray<TAiMove>; const AK: Integer): TArray<TAiMove>;
     procedure ExecuteMove(const AEngine: TTurnEngine; const AMove: TAiMove);
     // 몬테카를로(수읽기)
@@ -342,16 +343,23 @@ begin
   Result := AMoves[LBestIdx];
 end;
 
-function TAiPlayer.ChooseMove(const AMoves: TArray<TAiMove>): TAiMove;
+function TAiPlayer.PickWithMistakes(const AMoves: TArray<TAiMove>; const ABest: TAiMove): TAiMove;
 begin
+  // 능력치가 낮을수록 최선수(ABest) 대신 무작위 수를 고른다(실수·무작위성 축).
+  // 능력 0 → 15%만 최선수, 능력 100 → 항상 최선수.
   var LBestProb := 0.15 + 0.85 * SkillFactor;
   if (Length(AMoves) = 1) or (NextFloat <= LBestProb) then
   begin
-    Result := GreedyBest(AMoves);
+    Result := ABest;
     Exit;
   end;
 
   Result := AMoves[NextRandom(Length(AMoves))];
+end;
+
+function TAiPlayer.ChooseMove(const AMoves: TArray<TAiMove>): TAiMove;
+begin
+  Result := PickWithMistakes(AMoves, GreedyBest(AMoves));
 end;
 
 function TAiPlayer.TopKMoves(const AMoves: TArray<TAiMove>; const AK: Integer): TArray<TAiMove>;
@@ -590,7 +598,8 @@ begin
     end;
   end;
 
-  ExecuteMove(AEngine, LBestMove);
+  // MC 최선수에도 능력치 비례 실수를 적용(고수↔하수 격차 확대)
+  ExecuteMove(AEngine, PickWithMistakes(LMoves, LBestMove));
 end;
 
 procedure TAiPlayer.DoGoStop(const AEngine: TTurnEngine);

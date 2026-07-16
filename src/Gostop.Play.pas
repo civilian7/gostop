@@ -154,6 +154,24 @@ type
   end;
 
   /// <summary>
+  ///   게임 룰 설정 묶음: 점수/정산 옵션(<see cref="TScoreOptions"/>)에 엔진 동작 토글을 더한 것.
+  ///   흩어진 룰을 한곳에 모아 지역룰 변형을 쉽게 한다.
+  /// </summary>
+  TRuleSet = record
+    /// <summary>점수·정산 규칙.</summary>
+    Score: TScoreOptions;
+    /// <summary>쓸/따닥/쪽/자뻑 시 상대당 뺏는 피 장수(기본 1).</summary>
+    PiStealPerEvent: Integer;
+    /// <summary>조커를 손패로 내면 바닥패 1장을 가져오는가(기본 True).</summary>
+    JokerGrabsFloor: Boolean;
+    /// <summary>흔들면 그 월의 카드를 실제로 내야 하는가(기본 True).</summary>
+    EnforceShakeMonth: Boolean;
+
+    /// <summary>표준 룰 설정을 반환합니다.</summary>
+    class function Default: TRuleSet; static;
+  end;
+
+  /// <summary>
   ///   고스톱 한 턴을 규칙대로 진행하는 엔진. 손패를 내면 바닥 매칭·더미 뒤집기·먹기·뻑·쪽·따닥·쓸·피 이동을
   ///   처리하고, 3점 이상이면 고/스톱 대기 단계로 전환한다. 뻑 더미의 생성자를 추적해 자뻑·연뻑·첫뻑도 판정한다.
   ///   보너스패는 즉시 획득, 폭탄 카드빚은 '뒤집기만' 턴으로 상환, 종료 시 정산(피박/광박/고박)까지 제공한다.
@@ -161,7 +179,7 @@ type
   TTurnEngine = class
   private
     FState: TGameState;
-    FOptions: TScoreOptions;
+    FRules: TRuleSet;
     procedure AddEvent(const AKind: TPlayEventKind; const APlayerIndex: Integer; const AMonth: Integer; const AText: string);
     procedure StealPiFromOthers(const AWinnerIndex: Integer);
     function StealOnePi(const AWinnerIndex: Integer; const AVictimIndex: Integer): Boolean;
@@ -174,8 +192,10 @@ type
     procedure CaptureInto(const ACaptured: TList<THwatuCard>; const AIndices: TArray<Integer>; const AChoice: Integer);
     function CaptureRank(const ACard: THwatuCard): Integer;
   public
-    /// <summary>주어진 게임 상태와 점수 옵션으로 엔진을 생성합니다(상태 수명은 호출자 소유).</summary>
-    constructor Create(const AState: TGameState; const AOptions: TScoreOptions);
+    /// <summary>주어진 게임 상태와 룰 설정으로 엔진을 생성합니다(상태 수명은 호출자 소유).</summary>
+    constructor Create(const AState: TGameState; const ARules: TRuleSet); overload;
+    /// <summary>점수 옵션만으로 엔진을 생성합니다(엔진 토글은 기본값). 상태 수명은 호출자 소유.</summary>
+    constructor Create(const AState: TGameState; const AOptions: TScoreOptions); overload;
 
     /// <summary>
     ///   현재 플레이어가 손패의 카드를 내고 한 턴을 끝까지 진행합니다.
@@ -373,12 +393,29 @@ begin
 end;
 {$ENDREGION}
 
+{$REGION 'TRuleSet'}
+class function TRuleSet.Default: TRuleSet;
+begin
+  Result.Score := TScoreOptions.Default;
+  Result.PiStealPerEvent := 1;
+  Result.JokerGrabsFloor := True;
+  Result.EnforceShakeMonth := True;
+end;
+{$ENDREGION}
+
 {$REGION 'TTurnEngine'}
-constructor TTurnEngine.Create(const AState: TGameState; const AOptions: TScoreOptions);
+constructor TTurnEngine.Create(const AState: TGameState; const ARules: TRuleSet);
 begin
   inherited Create;
   FState := AState;
-  FOptions := AOptions;
+  FRules := ARules;
+end;
+
+constructor TTurnEngine.Create(const AState: TGameState; const AOptions: TScoreOptions);
+begin
+  var LRules := TRuleSet.Default;
+  LRules.Score := AOptions;
+  Create(AState, LRules);
 end;
 
 procedure TTurnEngine.AddEvent(const AKind: TPlayEventKind; const APlayerIndex: Integer; const AMonth: Integer; const AText: string);
@@ -513,7 +550,13 @@ procedure TTurnEngine.StealPiFromOthers(const AWinnerIndex: Integer);
 begin
   for var P := 0 to FState.PlayerCount - 1 do
   begin
-    StealOnePi(AWinnerIndex, P);
+    for var K := 1 to FRules.PiStealPerEvent do
+    begin
+      if not StealOnePi(AWinnerIndex, P) then
+      begin
+        Break;   // 상대가 더 낼 피가 없으면 중단
+      end;
+    end;
   end;
 end;
 
@@ -659,8 +702,8 @@ begin
     raise EHwatuError.CreateFmt('손패 인덱스 오류: %d (손패 %d장)', [AHandIndex, LPlayer.Hand.Count]);
   end;
 
-  // 흔들기 커밋: 흔든 월이 있으면 그 월을 내야 한다
-  if (LPlayer.PendingShakeMonth <> 0) and (LPlayer.Hand[AHandIndex].Month <> LPlayer.PendingShakeMonth) then
+  // 흔들기 커밋: 흔든 월이 있으면 그 월을 내야 한다(옵션)
+  if FRules.EnforceShakeMonth and (LPlayer.PendingShakeMonth <> 0) and (LPlayer.Hand[AHandIndex].Month <> LPlayer.PendingShakeMonth) then
   begin
     raise EHwatuError.CreateFmt('%d월을 흔들었으므로 그 월의 카드를 내야 합니다.', [LPlayer.PendingShakeMonth]);
   end;
@@ -712,7 +755,7 @@ begin
     begin
       // 조커/보너스패를 손패로 내면 즉시 획득 + 바닥패 1장(값 높은 것) 가져오는 권리
       LCaptured.Add(LHand);
-      if FState.Floor.Count > 0 then
+      if FRules.JokerGrabsFloor and (FState.Floor.Count > 0) then
       begin
         var LGrabIdx := 0;
         for var I := 1 to FState.Floor.Count - 1 do
@@ -810,7 +853,7 @@ begin
     end;
 
     // 점수 & 고/스톱
-    var LScore := TScorer.Evaluate(LPlayer.Captured, FOptions);
+    var LScore := TScorer.Evaluate(LPlayer.Captured, FRules.Score);
     if (LScore.Total >= 3) and (LScore.Total > LPlayer.LastGoScore) then
     begin
       FState.Phase := gpAwaitingGoStop;
@@ -853,7 +896,7 @@ end;
 
 function TTurnEngine.ScoreOf(const APlayerIndex: Integer): TScoreBreakdown;
 begin
-  Result := TScorer.Evaluate(FState.Player(APlayerIndex).Captured, FOptions);
+  Result := TScorer.Evaluate(FState.Player(APlayerIndex).Captured, FRules.Score);
 end;
 
 function TTurnEngine.FinalSettlement: TArray<TPlayerResult>;
@@ -876,7 +919,7 @@ begin
 
   var LWinner := FState.Winner;
   var LWinnerP := FState.Player(LWinner);
-  var LWinBreak := TScorer.Evaluate(LWinnerP.Captured, FOptions);
+  var LWinBreak := TScorer.Evaluate(LWinnerP.Captured, FRules.Score);
 
   var LTotalToWinner := 0;
   var LGobakLoser := -1;
@@ -887,8 +930,8 @@ begin
       Continue;
     end;
 
-    var LLoserBreak := TScorer.Evaluate(FState.Player(P).Captured, FOptions);
-    var LSettle := TScorer.Settle(LWinBreak, LLoserBreak, LWinnerP.GoCount, LWinnerP.ShakeCount, FOptions);
+    var LLoserBreak := TScorer.Evaluate(FState.Player(P).Captured, FRules.Score);
+    var LSettle := TScorer.Settle(LWinBreak, LLoserBreak, LWinnerP.GoCount, LWinnerP.ShakeCount, FRules.Score);
     Result[P].Net := -LSettle.Points;
     Result[P].Pibak := LSettle.Pibak;
     Result[P].Gwangbak := LSettle.Gwangbak;
@@ -1058,7 +1101,7 @@ begin
   FlipStockAndResolve(LPlayer);
 
   // 점수 도달 시 고/스톱, 아니면 턴 넘김
-  var LScore := TScorer.Evaluate(LPlayer.Captured, FOptions);
+  var LScore := TScorer.Evaluate(LPlayer.Captured, FRules.Score);
   if (LScore.Total >= 3) and (LScore.Total > LPlayer.LastGoScore) then
   begin
     FState.Phase := gpAwaitingGoStop;
@@ -1092,7 +1135,7 @@ begin
   AddEvent(pekTurnPass, FState.Current, 0, Format('%s 뒤집기만(카드빚 갚기, %d 남음)', [LPlayer.Name, LPlayer.CardDebt]));
   FlipStockAndResolve(LPlayer);
 
-  var LScore := TScorer.Evaluate(LPlayer.Captured, FOptions);
+  var LScore := TScorer.Evaluate(LPlayer.Captured, FRules.Score);
   if (LScore.Total >= 3) and (LScore.Total > LPlayer.LastGoScore) then
   begin
     FState.Phase := gpAwaitingGoStop;

@@ -7,7 +7,6 @@ uses
   System.SysUtils,
   System.Generics.Collections,
   Gostop.Cards,
-  Gostop.Deal,
   Gostop.Score;
 {$ENDREGION}
 
@@ -104,10 +103,6 @@ type
     constructor Create(const APlayerNames: array of string);
     destructor Destroy; override;
 
-    /// <summary>딜 결과(<see cref="TTableState"/>)로 손패·바닥·더미를 채웁니다(카드 값 복사).</summary>
-    /// <param name="AState">분배 결과. 플레이어 수가 일치해야 함.</param>
-    /// <exception cref="EHwatuError">플레이어 수가 다르면 발생.</exception>
-    procedure LoadFromDeal(const AState: TTableState);
     /// <summary>
     ///   현재 상태를 깊은 복사한 독립 인스턴스를 반환합니다(사건 로그는 비운 채). AI 시뮬레이션용.
     /// </summary>
@@ -317,32 +312,6 @@ begin
   FreeAndNil(FFloor);
   FreeAndNil(FPlayers);
   inherited Destroy;
-end;
-
-procedure TGameState.LoadFromDeal(const AState: TTableState);
-begin
-  if AState.PlayerCount <> FPlayers.Count then
-  begin
-    raise EHwatuError.CreateFmt('딜 플레이어 수(%d)가 게임 상태(%d)와 다릅니다.', [AState.PlayerCount, FPlayers.Count]);
-  end;
-
-  for var I := 0 to FPlayers.Count - 1 do
-  begin
-    FPlayers[I].Hand.Clear;
-    FPlayers[I].Hand.AddRange(AState.Hand(I));
-    FPlayers[I].Captured.Clear;
-  end;
-
-  FFloor.Clear;
-  FFloor.AddRange(AState.Floor);
-  FStock.Clear;
-  FStock.AddRange(AState.Stock);
-  FCurrent := 0;
-  FPhase := gpPlaying;
-  FWinner := -1;
-  FEvents.Clear;
-  FBbeokCreator.Clear;
-  FPlayCount := 0;
 end;
 
 function TGameState.Clone: TGameState;

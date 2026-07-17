@@ -282,6 +282,8 @@ type
     function CanCaptureCard(const ACard: THwatuCard): Boolean;
     function PhysicalPos(const AGameIndex: Integer): TSeatPos;
     function SeatLabel(const APhysicalSeat: Integer): string;
+    function RoleLabel(const ALogicalSeat: Integer): string;
+    function LogicalSeatOf(const APos: TSeatPos): Integer;
     function CardSize: TSizeF;
     procedure DrawFront(const R: TRectF; const AAssetId: string);
     procedure DrawBack(const R: TRectF);
@@ -830,6 +832,35 @@ function TGostopBoard.SeatLabel(const APhysicalSeat: Integer): string;
 begin
   // 논리 좌석(0=선) → 물리 위치의 표시 이름(나=닉네임, AI=아바타 닉네임)
   Result := SeatDisplayName(TSeatPos((Ord(FNextStartPos) + APhysicalSeat) mod 4));
+end;
+
+// 선 기준 역할 라벨(고정 위치가 아니라 그 게임의 선 기준). 0=선(P1), 1=P2, 2=P3, 3=P4
+function TGostopBoard.RoleLabel(const ALogicalSeat: Integer): string;
+begin
+  case ALogicalSeat mod 4 of
+    0:
+      begin
+        Result := 'P1(선)';
+      end;
+    1:
+      begin
+        Result := 'P2';
+      end;
+    2:
+      begin
+        Result := 'P3';
+      end;
+  else
+    begin
+      Result := 'P4';
+    end;
+  end;
+end;
+
+// 물리 위치의 선 기준 논리 좌석(0=선). 4인 역할 판정용
+function TGostopBoard.LogicalSeatOf(const APos: TSeatPos): Integer;
+begin
+  Result := (Ord(APos) - Ord(FNextStartPos) + 4) mod 4;
 end;
 
 function TGostopBoard.PhysicalPos(const AGameIndex: Integer): TSeatPos;
@@ -1636,10 +1667,12 @@ begin
       // 선 기준 사람의 논리 좌석(아래 자리 = 물리 spBottom)
       FHumanLogical := (Ord(spBottom) - Ord(FNextStartPos) + 4) mod 4;
 
-      // 관전(전원 AI)이거나 사람이 선(논리0)이면 결정할 것이 없음 → 자동 진행(AI 모두 참가, P4 광팔기)
+      // 관전(전원 AI)이거나 사람이 선(논리0)이면 결정할 것이 없음 → 자동 진행
+      // (AI 모두 참가, P4는 광값이 있을 때만 판매 — 0원 판매 방지)
       if FSpectator or (FHumanLogical = 0) then
       begin
-        ResolveNegotiation(False, False, True);
+        var LP4Sell := TFourPlayer.GwangCount(FTable4.Hand(3), CfgScore) > 0;
+        ResolveNegotiation(False, False, LP4Sell);
         Exit;
       end;
 
@@ -1699,14 +1732,8 @@ begin
   FGwangCards := nil;
   if FGwang.Sold and (FTable4 <> nil) then
   begin
-    var LSellerHand := FTable4.Hand(FGwang.SellerSeat);
-    for var LCard in LSellerHand do
-    begin
-      if LCard.Kind = hkBright then
-      begin
-        FGwangCards := FGwangCards + [LCard];
-      end;
-    end;
+    // 광+조커 + 실제 보유한 족보(고도리·초단 등) 카드까지 발표에 표시
+    FGwangCards := TFourPlayer.SaleCards(FTable4.Hand(FGwang.SellerSeat), CfgScore);
   end;
 
   FreeAndNil(FTable4);
@@ -1715,6 +1742,8 @@ begin
   begin
     FGwangShow := True;
     FGwangTimer.Enabled := True;   // 발표 후 자동으로 StartPlay
+    FNegAnimPhase := 0;
+    FNegAnimTimer.Enabled := True;   // 발표 광 패 좌우 흔들림
     Repaint;
   end
   else
@@ -1728,10 +1757,10 @@ begin
   FinishGwangSale;
 end;
 
-// 협상 광팔기 화면의 광 패 흔들림(주기적 Repaint로 위상 진행)
+// 광팔기 다이얼로그·판매 발표의 패 좌우 흔들림(주기적 Repaint로 위상 진행)
 procedure TGostopBoard.NegAnimTick(Sender: TObject);
 begin
-  if not (FNegotiating and FNegIsSell) then
+  if not ((FNegotiating and FNegIsSell) or FGwangShow) then
   begin
     FNegAnimTimer.Enabled := False;
     Exit;
@@ -1744,6 +1773,7 @@ end;
 procedure TGostopBoard.FinishGwangSale;
 begin
   FGwangTimer.Enabled := False;
+  FNegAnimTimer.Enabled := False;   // 발표 흔들림 정지
   if not FGwangShow then
   begin
     Exit;
@@ -1756,7 +1786,8 @@ end;
 // 광 판매 발표 오버레이: 판 광 패 + "P2·P3 → 판매자: 광값" 이동 표시
 procedure TGostopBoard.DrawGwangSale;
 begin
-  var LSeller := SeatLabel(FGwang.SellerSeat);
+  // 선 기준 역할(P4=판매자) + 아바타 이름
+  var LSeller := Format('%s(%s)', [RoleLabel(FGwang.SellerSeat), SeatLabel(FGwang.SellerSeat)]);
 
   // 반투명 딤 + 중앙 패널
   Canvas.FillRound(LocalRect, 0, $80000000);
@@ -1782,14 +1813,18 @@ begin
     for var I := 0 to LN - 1 do
     begin
       var LCX := LStartX + I * LCW * 1.12;
-      DrawCardRotated(LCX + LCW / 2, LCY, LCW, LCH, 0, FGwangCards[I].AssetId, False);
+      // 좌우로 흔드는 효과(카드마다 위상 어긋남)
+      var LPh := FNegAnimPhase + I * 0.9;
+      var LDX := Sin(LPh) * LCW * 0.16;
+      var LAng := Sin(LPh) * 3.0;
+      DrawCardRotated(LCX + LCW / 2 + LDX, LCY, LCW, LCH, LAng, FGwangCards[I].AssetId, False);
     end;
   end;
 
   // 광값 이동 표시(P2·P3 → 판매자)
   var LYinfo := LPanel.Bottom - 66;
   DrawLabel(RectF(LPanel.Left, LYinfo, LPanel.Right, LYinfo + 28),
-    Format('광 %d개 × %d원', [FGwang.GwangCount, GWANG_UNIT_PRICE * FConfig.MoneyPerPoint]),
+    Format('광값 %d × %d원', [FGwang.GwangCount, GWANG_UNIT_PRICE * FConfig.MoneyPerPoint]),
     $FFD8E0D0, 16);
 
   var LPayers := '';
@@ -1800,7 +1835,7 @@ begin
       LPayers := LPayers + ' · ';
     end;
 
-    LPayers := LPayers + SeatLabel(FGwang.PayerSeats[LP]);
+    LPayers := LPayers + RoleLabel(FGwang.PayerSeats[LP]);
   end;
 
   DrawLabel(RectF(LPanel.Left, LYinfo + 30, LPanel.Right, LYinfo + 58),
@@ -2278,24 +2313,8 @@ end;
 
 procedure TGostopBoard.DrawRegion(const ARegion: TRectF; const AHighlight: Boolean);
 begin
-  if AHighlight then
-  begin
-    Canvas.FillRound(ARegion, 12, $33FFD54A);
-  end;
-
-  Canvas.Stroke.Kind := TBrushKind.Solid;
-  if AHighlight then
-  begin
-    Canvas.Stroke.Color := $FFFFD54A;
-    Canvas.Stroke.Thickness := 4;
-  end
-  else
-  begin
-    Canvas.Stroke.Color := $55FFFFFF;
-    Canvas.Stroke.Thickness := 1.5;
-  end;
-
-  Canvas.DrawRect(ARegion, 12, 12, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  // 자리 전체를 감싸는 큰 프레임은 세로 기둥에서 빈 여백처럼 보여 균형을 깬다.
+  // 프레임은 더 이상 그리지 않고, 현재 차례 강조는 패널(DrawPlayerPanel)에서 처리한다.
 end;
 
 procedure TGostopBoard.DrawCardRotated(const ACenterX, ACenterY, ACardW, ACardH, AAngle: Single; const AAssetId: string; const ABack: Boolean);
@@ -2711,19 +2730,10 @@ begin
   end;
 end;
 
-// 하단 바: 전용 메시지 자리(항상) + 유튜브식 컨트롤(호버/드래그 중에만) + 크레딧
+// 하단 바: 유튜브식 컨트롤(호버/드래그 중에만) + 크레딧
+// (하단 진행 메시지 박스는 제거 — 진행 메시지는 일단 숨김)
 procedure TGostopBoard.DrawControlBar;
 begin
-  // 하단 전용 메시지 바 — 게임 진행 메시지를 큰 글꼴로 표시
-  var LMsgBar := RectF(0, Height - 34, Width, Height);
-  Canvas.Fill.Kind := TBrushKind.Solid;
-  Canvas.Fill.Color := $8A000000;
-  Canvas.FillRect(LMsgBar, 0, 0, [], 1);
-  if FStatus <> '' then
-  begin
-    DrawLabel(RectF(20, Height - 33, Width - 190, Height - 3), FStatus, $FFFFE9A8, 17);
-  end;
-
   // 우하단 제작자 크레딧(오른쪽·아래 8px 여백. 클릭 = GitHub 저장소)
   FCreditRect := RectF(Width - 168, Height - 25, Width - 8, Height - 8);
   Canvas.Fill.Kind := TBrushKind.Solid;
@@ -3699,11 +3709,21 @@ begin
 
   // 패널 배경
   var LBox := PlayerPanelRect(APos);
-  Canvas.FillRound(LBox, 8, $E6141414);
-  Canvas.StrokeRound(LBox, 8, $40FFFFFF, 1);
+  // 현재 차례면 패널을 강조(자리 프레임 대신)
+  var LIsCurrent := (FGame <> nil) and (LIdx >= 0) and (LIdx = FGame.Current) and (FGame.Phase = gpPlaying);
+  if LIsCurrent then
+  begin
+    Canvas.FillRound(LBox, 8, $F02A2410);
+    Canvas.StrokeRound(LBox, 8, $FFFFD54A, 3);
+  end
+  else
+  begin
+    Canvas.FillRound(LBox, 8, $E6141414);
+    Canvas.StrokeRound(LBox, 8, $40FFFFFF, 1);
+  end;
 
-  // 아바타 이미지 + 테두리 (파일 풀 우선, 없으면 절차 생성 폴백)
-  var LAv := RectF(LBox.Left + 8, LBox.Top + 8, LBox.Left + 48, LBox.Top + 48);
+  // 좌측 열: 아바타(세로 중앙 정렬, 72×72) | 우측 열: 나머지 정보
+  var LAv := RectF(LBox.Left + 10, LBox.Top + 22, LBox.Left + 82, LBox.Top + 94);
   var LAvDrawn := False;
   if Assigned(FAvatarPool) and (FSeatAvatar[APos] >= 0) and (FSeatAvatar[APos] < FAvatarPool.Count) then
   begin
@@ -3726,41 +3746,53 @@ begin
     FMyAvatarRect := LAv;
   end;
 
-  // 아바타 아래: 이름(패널 전체 폭 사용 — 긴 닉네임 잘림 방지)
+  // 좌우 열 구분선(아바타 | 정보)
+  Canvas.Stroke.Color := $28FFFFFF;
+  Canvas.DrawLine(PointF(LAv.Right + 8, LBox.Top + 12), PointF(LAv.Right + 8, LBox.Bottom - 12), 1);
+
+  // 우측 열 시작 x
+  var LInfoX := LAv.Right + 12;
+
+  // 1) 이름(닉네임)
   Canvas.Fill.Color := TAlphaColors.White;
-  Canvas.Font.Size := 13;
-  Canvas.FillText(RectF(LBox.Left + 8, LBox.Top + 48, LBox.Right - 6, LBox.Top + 66), LLabel,
+  Canvas.Font.Size := 15;
+  Canvas.FillText(RectF(LInfoX, LBox.Top + 8, LBox.Right - 38, LBox.Top + 32), LLabel,
     False, 1, [], TTextAlign.Leading, TTextAlign.Center);
 
-  // 아바타 오른쪽: 보유머니 + 전적
+  // 선 배지: 현재 게임의 선(논리 좌석 0)에 표시. 이름 오른쪽 끝(우상단 코너)
+  if (FGame <> nil) and (LogicalSeatOf(APos) = 0) then
+  begin
+    var LSB := RectF(LBox.Right - 34, LBox.Top + 8, LBox.Right - 6, LBox.Top + 30);
+    Canvas.FillRound(LSB, 6, $FFD32F2F);
+    Canvas.StrokeRound(LSB, 6, TAlphaColors.White, 1);
+    DrawLabel(LSB, '선', TAlphaColors.White, 13);
+  end;
+
+  // 2) 보유머니
   Canvas.Fill.Color := TAlphaColors.White;
-  Canvas.Font.Size := 13;
-  Canvas.FillText(RectF(LAv.Right + 8, LBox.Top + 8, LBox.Right - 6, LBox.Top + 29),
+  Canvas.Font.Size := 14;
+  Canvas.FillText(RectF(LInfoX, LBox.Top + 34, LBox.Right - 6, LBox.Top + 54),
     Format('%s원', [FormatFloat('#,##0', FMoney[APos])]), False, 1, [], TTextAlign.Leading, TTextAlign.Center);
+
+  // 3) 전적 + 이번 판 운(굴림) 별점(우측)
   Canvas.Fill.Color := $FFB8C4B8;
   Canvas.Font.Size := 12;
-  Canvas.FillText(RectF(LAv.Right + 8, LBox.Top + 29, LBox.Right - 6, LBox.Top + 48),
+  Canvas.FillText(RectF(LInfoX, LBox.Top + 56, LBox.Right - 6, LBox.Top + 74),
     Format('%d승 %d패', [FWins[APos], FLosses[APos]]), False, 1, [], TTextAlign.Leading, TTextAlign.Center);
-
-  // 이번 판 운(굴림) 별점(1~5) — 전적 행 우측
   if FSeatLuckRoll[APos] > 0 then
   begin
     Canvas.Fill.Color := $C0FFD54A;
-    Canvas.Font.Size := 10;
-    Canvas.FillText(RectF(LAv.Right + 8, LBox.Top + 29, LBox.Right - 8, LBox.Top + 48),
+    Canvas.Font.Size := 11;
+    Canvas.FillText(RectF(LInfoX, LBox.Top + 56, LBox.Right - 8, LBox.Top + 74),
       StringOfChar('★', (FSeatLuckRoll[APos] + 19) div 20), False, 1, [], TTextAlign.Trailing, TTextAlign.Center);
   end;
 
-  // 구분선
-  Canvas.Stroke.Color := $30FFFFFF;
-  Canvas.DrawLine(PointF(LBox.Left + 8, LBox.Top + 68), PointF(LBox.Right - 8, LBox.Top + 68), 1);
-
-  // 이번 게임 정보: 점수·고·흔들 배지(참가 중) / 관전(4인 빠진 자리) / 게임 전엔 생략
+  // 4) 이번 게임 정보: 점수·고·흔들 배지(우측 열 하단) / 관전(4인 빠진 자리) / 게임 전엔 생략
   if (FGame <> nil) and (LIdx < 0) then
   begin
     Canvas.Fill.Color := $FF8A968A;
     Canvas.Font.Size := 12;
-    Canvas.FillText(RectF(LBox.Left + 10, LBox.Top + 72, LBox.Right - 6, LBox.Top + 94), '관전',
+    Canvas.FillText(RectF(LInfoX, LBox.Top + 78, LBox.Right - 6, LBox.Top + 100), '관전',
       False, 1, [], TTextAlign.Leading, TTextAlign.Center);
     Exit;
   end;
@@ -3773,33 +3805,33 @@ begin
   var LScore := FEngine.ScoreOf(LIdx).Total;
   var LGo := FGame.Player(LIdx).GoCount;
   var LShake := FGame.Player(LIdx).ShakeCount;
-  var LBX := LBox.Left + 6;
-  var LBY := LBox.Top + 74;
+  var LBX := LInfoX;
+  var LBY := LBox.Top + 80;
 
   // 점수 배지(항상 표시)
   Canvas.Fill.Color := $FF37474F;
-  Canvas.FillRect(RectF(LBX, LBY, LBX + 46, LBY + 22), 6, 6,
+  Canvas.FillRect(RectF(LBX, LBY, LBX + 30, LBY + 22), 6, 6,
     [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-  DrawLabel(RectF(LBX, LBY, LBX + 46, LBY + 22), Format('%d점', [LScore]), $FFFFE082, 13);
-  LBX := LBX + 50;
+  DrawLabel(RectF(LBX, LBY, LBX + 30, LBY + 22), Format('%d점', [LScore]), $FFFFE082, 12);
+  LBX := LBX + 32;
 
   // 고 배지
   if LGo > 0 then
   begin
     Canvas.Fill.Color := $FFB35900;
-    Canvas.FillRect(RectF(LBX, LBY, LBX + 38, LBY + 22), 6, 6,
+    Canvas.FillRect(RectF(LBX, LBY, LBX + 24, LBY + 22), 6, 6,
       [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-    DrawLabel(RectF(LBX, LBY, LBX + 38, LBY + 22), Format('%d고', [LGo]), TAlphaColors.White, 13);
-    LBX := LBX + 42;
+    DrawLabel(RectF(LBX, LBY, LBX + 24, LBY + 22), Format('%d고', [LGo]), TAlphaColors.White, 12);
+    LBX := LBX + 26;
   end;
 
   // 흔들기 배지
   if LShake > 0 then
   begin
     Canvas.Fill.Color := $FF8E2430;
-    Canvas.FillRect(RectF(LBX, LBY, LBX + 52, LBY + 22), 6, 6,
+    Canvas.FillRect(RectF(LBX, LBY, LBX + 28, LBY + 22), 6, 6,
       [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-    DrawLabel(RectF(LBX, LBY, LBX + 52, LBY + 22), Format('흔들%d', [LShake]), TAlphaColors.White, 13);
+    DrawLabel(RectF(LBX, LBY, LBX + 28, LBY + 22), Format('흔%d', [LShake]), TAlphaColors.White, 12);
   end;
 end;
 
@@ -3845,8 +3877,9 @@ begin
           DrawCardRotated(LXC, LCY0 + I * LHandStep, LBackW, LBackH, 90, '', True);
         end;
 
+        // 획득 패는 기둥 아래쪽에서 위로 쌓는다(아래→위 정리)
         var LCapXC := LArea.Left + 6 + LBackH + 10 + LCapH / 2;
-        DrawCapturedLine(LCaptured, LCapXC, LArea.Top + LCapW / 2, 0, LCapW * 0.5, LCapW, LCapH, 90);
+        DrawCapturedLine(LCaptured, LCapXC, LArea.Bottom - LCapW / 2, 0, -LCapW * 0.5, LCapW, LCapH, 90);
       end;
 
     spRight:
@@ -3859,8 +3892,9 @@ begin
           DrawCardRotated(LXC, LCY0 + I * LHandStep, LBackW, LBackH, 270, '', True);
         end;
 
+        // 획득 패는 기둥 아래쪽에서 위로 쌓는다(아래→위 정리)
         var LCapXC := LArea.Right - 6 - LBackH - 10 - LCapH / 2;
-        DrawCapturedLine(LCaptured, LCapXC, LArea.Top + LCapW / 2, 0, LCapW * 0.5, LCapW, LCapH, 270);
+        DrawCapturedLine(LCaptured, LCapXC, LArea.Bottom - LCapW / 2, 0, -LCapW * 0.5, LCapW, LCapH, 270);
       end;
   end;
 end;
@@ -4080,16 +4114,10 @@ begin
   if FNegIsSell and (FTable4 <> nil) then
   begin
     var LHand := FTable4.Hand(FHumanLogical);
-    var LGwang: TArray<THwatuCard> := nil;
-    for var LCard in LHand do
-    begin
-      if LCard.Kind = hkBright then
-      begin
-        LGwang := LGwang + [LCard];
-      end;
-    end;
+    // 광+조커 + 실제 보유한 족보(고도리·초단 등) 카드까지 표시
+    var LGwang := TFourPlayer.SaleCards(LHand, CfgScore);
 
-    DrawLabel(RectF(0, Height * 0.06, Width, Height * 0.10), '내 광 패 — 팔면 아래 값을 받습니다', $FFFFE082, 16);
+    DrawLabel(RectF(0, Height * 0.06, Width, Height * 0.10), '당신은 P4 — 내 팔 패(광·조커·족보, 팔면 아래 값을 받습니다)', $FFFFE082, 16);
 
     var CS := CardSize;
     var LGCount := TFourPlayer.GwangCount(LHand, CfgScore);
@@ -4100,17 +4128,16 @@ begin
       var LGY := Height * 0.12 + CS.Height / 2;
       for var I := 0 to High(LGwang) do
       begin
-        // 카드마다 위상을 어긋나게 줘 흔드는(shake) 느낌: 좌우 흔들림 + 미세 상하·회전
-        var LPh := FNegAnimPhase + I * 1.1;
-        var LDX := Sin(LPh) * CS.Width * 0.06;
-        var LDY := Sin(LPh * 2) * CS.Height * 0.02;
-        var LAng := Sin(LPh) * 5.0;
-        DrawCardRotated(LStartX + I * CS.Width * 1.12 + CS.Width / 2 + LDX, LGY + LDY, CS.Width, CS.Height, LAng, LGwang[I].AssetId, False);
+        // 카드마다 위상을 어긋나게 줘 좌우로 흔드는(shake) 느낌 — 수평 이동 강조
+        var LPh := FNegAnimPhase + I * 0.9;
+        var LDX := Sin(LPh) * CS.Width * 0.18;   // 좌우 흔들림(수평)
+        var LAng := Sin(LPh) * 3.0;              // 미세 회전
+        DrawCardRotated(LStartX + I * CS.Width * 1.12 + CS.Width / 2 + LDX, LGY, CS.Width, CS.Height, LAng, LGwang[I].AssetId, False);
       end;
     end;
 
     DrawLabel(RectF(0, Height * 0.12 + CS.Height + 6, Width, Height * 0.12 + CS.Height + 34),
-      Format('광값 = %d개 × %d원 = %s원 (P2·P3에게서 각각)',
+      Format('광값 = %d × %d원 = %s원 (P2·P3에게서 각각)',
         [LGCount, GWANG_UNIT_PRICE * FConfig.MoneyPerPoint, FormatFloat('#,##0', LGCount * GWANG_UNIT_PRICE * FConfig.MoneyPerPoint)]),
       TAlphaColors.White, 16);
   end;
@@ -5370,10 +5397,11 @@ begin
       TGostopAudio.Instance.Play('ui_click');
       var LP2 := False;
       var LP3 := False;
-      var LP4 := True;
+      // AI인 P4는 광값이 있을 때만 판매(0원 판매 방지)
+      var LP4 := (FTable4 <> nil) and (TFourPlayer.GwangCount(FTable4.Hand(3), CfgScore) > 0);
       if FNegIsSell then
       begin
-        LP4 := LLeft;   // 광팔기=왼쪽, 안팔기=오른쪽
+        LP4 := LLeft;   // 사람이 P4: 광팔기=왼쪽, 안팔기=오른쪽
       end
       else
       if FHumanLogical = 1 then

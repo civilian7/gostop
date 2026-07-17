@@ -46,11 +46,19 @@ type
   TFourPlayer = record
   public
     /// <summary>
-    ///   광팔기용 광 개수를 셉니다: 손패의 족보 점수(홍단·청단·고도리·광 등, 예 5광=15) + 쌍피/조커(보너스패) 장수.
+    ///   광팔기 값(광값)을 셉니다: 광(밝은 패)+조커 장수 + 실제 완성된 족보(고도리·홍단·청단·초단) 점수.
+    ///   흔들기 가능(같은 월 3장 이상)이면 전체 값 ×2.
     /// </summary>
     /// <param name="AHand">P4의 손패.</param>
     /// <param name="AOptions">족보 점수 규칙 옵션.</param>
     class function GwangCount(const AHand: TList<THwatuCard>; const AOptions: TScoreOptions): Integer; static;
+    /// <summary>
+    ///   광팔기 다이얼로그에 보여줄 패를 모읍니다: 광(밝은 패)+조커, 그리고 실제 완성된 족보(고도리·홍단·청단·초단)의 카드.
+    /// </summary>
+    /// <param name="AHand">보여줄 손패.</param>
+    /// <param name="AOptions">족보 완성 판정에 쓰는 옵션.</param>
+    /// <returns>표시 대상 카드 배열(중복 없음).</returns>
+    class function SaleCards(const AHand: TList<THwatuCard>; const AOptions: TScoreOptions): TArray<THwatuCard>; static;
     /// <summary>
     ///   포기·광팔기 결정을 적용해 실제 치는 3명과 광 정산을 계산합니다.
     /// </summary>
@@ -78,19 +86,22 @@ implementation
 {$REGION 'TFourPlayer'}
 class function TFourPlayer.GwangCount(const AHand: TList<THwatuCard>; const AOptions: TScoreOptions): Integer;
 begin
-  // 손패의 족보 점수(홍단·청단·고도리·광 등, 예 5광=15)를 광 개수로 인정
-  Result := TScorer.Evaluate(AHand, AOptions).Total;
-
-  // 쌍피/조커(보너스패)도 광으로 인정(1장당 1)
+  // 광값 = 광(밝은 패)+조커 개수 + 실제 완성된 족보(고도리·홍단·청단·초단) 점수
+  // (표시하는 카드와 값이 일치하도록 실제 보유 패 기준으로 계산)
+  Result := 0;
   for var LI := 0 to AHand.Count - 1 do
   begin
-    if AHand[LI].Kind = hkBonus then
+    if (AHand[LI].Kind = hkBright) or (AHand[LI].Kind = hkBonus) then
     begin
       Inc(Result);
     end;
   end;
 
-  // 흔들기 가능(같은 월 3장 이상 보유)이면 전체 광 개수 ×2
+  // 완성된 족보 점수 가산(미완성이면 각 필드가 0)
+  var LBreak := TScorer.Evaluate(AHand, AOptions);
+  Result := Result + LBreak.GodoriPoints + LBreak.HongdanPoints + LBreak.CheongdanPoints + LBreak.ChodanPoints;
+
+  // 흔들기 가능(같은 월 3장 이상 보유)이면 전체 값 ×2
   var LMonthCount: array [1 .. 12] of Integer;
   for var M := 1 to 12 do
   begin
@@ -112,6 +123,39 @@ begin
     begin
       Result := Result * 2;
       Break;
+    end;
+  end;
+end;
+
+class function TFourPlayer.SaleCards(const AHand: TList<THwatuCard>; const AOptions: TScoreOptions): TArray<THwatuCard>;
+begin
+  Result := nil;
+
+  // 광(밝은 패) + 조커(보너스패)는 항상 표시
+  for var LI := 0 to AHand.Count - 1 do
+  begin
+    if (AHand[LI].Kind = hkBright) or (AHand[LI].Kind = hkBonus) then
+    begin
+      Result := Result + [AHand[LI]];
+    end;
+  end;
+
+  // 실제 완성된 족보의 카드도 표시(고도리·홍단·청단·초단)
+  var LBreak := TScorer.Evaluate(AHand, AOptions);
+  for var LI := 0 to AHand.Count - 1 do
+  begin
+    var LCard := AHand[LI];
+    if (LBreak.GodoriPoints > 0) and (LCard.Kind = hkAnimal) and LCard.IsGodori then
+    begin
+      Result := Result + [LCard];
+    end
+    else
+    if (LCard.Kind = hkRibbon) and
+      (((LBreak.HongdanPoints > 0) and (LCard.Ribbon = rkHong)) or
+       ((LBreak.CheongdanPoints > 0) and (LCard.Ribbon = rkCheong)) or
+       ((LBreak.ChodanPoints > 0) and (LCard.Ribbon = rkCho))) then
+    begin
+      Result := Result + [LCard];
     end;
   end;
 end;

@@ -27,6 +27,7 @@ uses
   Gostop.Play,
   Gostop.Setup,
   Gostop.AI,
+  Gostop.Characters,
   Gostop.FourPlayer,
   Gostop.CardImages,
   Gostop.Audio,
@@ -382,39 +383,6 @@ const
   GWANG_UNIT_PRICE = 1;      // 광 1개당 단가(광값 = 광개수 × 단가)
   PANEL_W = 160;             // 플레이어 정보 패널 너비(전 자리 동일)
   PANEL_H = 104;             // 플레이어 정보 패널 높이(전 자리 동일)
-
-  // 아바타(assets\avatars 순서)와 짝을 이루는 재미난 닉네임 풀
-  AVATAR_NAMES: array [0 .. 19] of string = (
-    '피주워요', '못먹어도고', '광팔이', '흔들신사', '동네타짜',
-    '초단콜렉터', '고도리헌터', '쌍피장인', '뻑전문가', '화투도사',
-    '쪽쪽이', '싹쓸이요정', '피박금지', '고고고', '국진할멈',
-    '스톱은없다', '자뻑여왕', '점백의달인', '판쓸이할매', '옆집고수'
-  );
-
-  // 캐릭터 능력치(각 행 합계 100): [수읽기, 침착, 배짱, 욕심, 운]
-  // 수읽기+침착 → AI 스킬(×1.25), 배짱 → GoBias, 욕심 → Greed, 운 → 판별 운 굴림 기반
-  AVATAR_STATS: array [0 .. 19, 0 .. 4] of Integer = (
-    (10, 15, 10, 25, 40),   // 피주워요
-    (10, 10, 40, 30, 10),   // 못먹어도고
-    (25, 25, 15, 25, 10),   // 광팔이
-    (25, 20, 30, 15, 10),   // 흔들신사
-    (35, 30, 15, 15, 5),    // 동네타짜
-    (20, 25, 10, 35, 10),   // 초단콜렉터
-    (25, 15, 25, 30, 5),    // 고도리헌터
-    (25, 30, 15, 20, 10),   // 쌍피장인
-    (10, 5, 25, 20, 40),    // 뻑전문가
-    (40, 25, 15, 10, 10),   // 화투도사
-    (10, 15, 20, 25, 30),   // 쪽쪽이
-    (15, 10, 30, 30, 15),   // 싹쓸이요정
-    (20, 30, 10, 10, 30),   // 피박금지
-    (10, 10, 40, 25, 15),   // 고고고
-    (30, 25, 10, 15, 20),   // 국진할멈
-    (15, 15, 40, 25, 5),    // 스톱은없다
-    (20, 15, 30, 25, 10),   // 자뻑여왕
-    (40, 30, 10, 15, 5),    // 점백의달인
-    (30, 20, 25, 20, 5),    // 판쓸이할매
-    (35, 35, 10, 10, 10)    // 옆집고수
-  );
 
 // 군용담요 텍스처용 결정론적 섬유 잡음(-32..31). 좌표 해시 기반(Random 미사용).
 function FeltNoise(const AX, AY: Integer): Integer;
@@ -1749,8 +1717,8 @@ begin
     begin
       var LAi := TAiPlayer.Create(FSeatSkill[PhysicalPos(I)], UInt64(987654321 + I * 1013904223));
       // 캐릭터 성향 주입: 배짱·욕심(스탯 5~40 → 20~90)
-      LAi.GoBias := EnsureRange(AvatarStat(FSeatAvatar[PhysicalPos(I)], 2) * 2 + 10, 0, 100);
-      LAi.Greed := EnsureRange(AvatarStat(FSeatAvatar[PhysicalPos(I)], 3) * 2 + 10, 0, 100);
+      LAi.GoBias := TGostopCharacters.NerveBias(FSeatAvatar[PhysicalPos(I)]);
+      LAi.Greed := TGostopCharacters.GreedBias(FSeatAvatar[PhysicalPos(I)]);
       FAiObjects.Add(LAi);
       FAgents[I] := LAi;
     end;
@@ -3196,33 +3164,19 @@ end;
 // 아바타 인덱스 → 실명풍 이름(범위 밖이면 빈 문자열)
 function TGostopBoard.AvatarName(const AIndex: Integer): string;
 begin
-  if (AIndex >= 0) and (AIndex <= High(AVATAR_NAMES)) then
-  begin
-    Result := AVATAR_NAMES[AIndex];
-  end
-  else
-  begin
-    Result := '';
-  end;
+  Result := TGostopCharacters.NameOf(AIndex);
 end;
 
 // 캐릭터 능력치 조회(0=수읽기, 1=침착, 2=배짱, 3=욕심, 4=운). 범위 밖 아바타는 평균 20
 function TGostopBoard.AvatarStat(const AIndex: Integer; const AStat: Integer): Integer;
 begin
-  if (AIndex >= 0) and (AIndex <= High(AVATAR_STATS)) and (AStat >= 0) and (AStat <= 4) then
-  begin
-    Result := AVATAR_STATS[AIndex, AStat];
-  end
-  else
-  begin
-    Result := 20;
-  end;
+  Result := TGostopCharacters.StatOf(AIndex, AStat);
 end;
 
 // 캐릭터 고유 AI 스킬 = (수읽기 + 침착) × 1.25 (0~100)
 function TGostopBoard.DerivedSkill(const AAvatarIndex: Integer): Integer;
 begin
-  Result := EnsureRange(Round((AvatarStat(AAvatarIndex, 0) + AvatarStat(AAvatarIndex, 1)) * 1.25), 0, 100);
+  Result := TGostopCharacters.DerivedSkill(AAvatarIndex);
 end;
 
 // 판별 운 굴림: 캐릭터 운 스탯 ×2 ± 15 (5~99). 새 판마다 호출
@@ -4288,19 +4242,12 @@ begin
 
   if (FFeltTile <> nil) and (FFeltTile.Width > 0) then
   begin
-    var LSrc := RectF(0, 0, FFeltTile.Width, FFeltTile.Height);
-    var LY := 0.0;
-    while LY < Height do
-    begin
-      var LX := 0.0;
-      while LX < Width do
-      begin
-        Canvas.DrawBitmap(FFeltTile, LSrc, RectF(LX, LY, LX + FFeltTile.Width, LY + FFeltTile.Height), 1, True);
-        LX := LX + FFeltTile.Width;
-      end;
-
-      LY := LY + FFeltTile.Height;
-    end;
+    // 타일 비트맵 브러시로 한 번에 채운다(프레임당 DrawBitmap 수십~수백회 회피)
+    Canvas.Fill.Kind := TBrushKind.Bitmap;
+    Canvas.Fill.Bitmap.Bitmap := FFeltTile;
+    Canvas.Fill.Bitmap.WrapMode := TWrapMode.Tile;
+    Canvas.FillRect(LocalRect, 0, 0, [], 1);
+    Canvas.Fill.Kind := TBrushKind.Solid;   // 이후 그리기에 영향 없게 복원
   end
   else
   begin

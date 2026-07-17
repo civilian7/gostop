@@ -10,6 +10,7 @@ uses
   Gostop.Play in 'engine\Gostop.Play.pas',
   Gostop.Setup in 'engine\Gostop.Setup.pas',
   Gostop.AI in 'engine\Gostop.AI.pas',
+  Gostop.Characters in 'engine\Gostop.Characters.pas',
   Gostop.FourPlayer in 'engine\Gostop.FourPlayer.pas',
   Gostop.Assets in 'engine\Gostop.Assets.pas',
   Gostop.Audio in 'engine\Gostop.Audio.pas',

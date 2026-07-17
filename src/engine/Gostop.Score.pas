@@ -44,6 +44,10 @@ type
     PibakMaxJunk: Integer;
     /// <summary>광박 활성화(기본 True). 승자가 광 점수를 냈고 패자 광 0장이면 2배.</summary>
     GwangbakEnabled: Boolean;
+    /// <summary>멍박(열끗박) 활성화(기본 True). 승자가 멍따(열끗 다수)를 냈고 패자 열끗 0장이면 2배.</summary>
+    MeongbakEnabled: Boolean;
+    /// <summary>멍박(멍따) 판정 기준: 승자 열끗이 이 장수 이상이어야 멍박 성립(기본 7).</summary>
+    MeongbakMinAnimal: Integer;
     /// <summary>
     ///   고박 배수(기본 2). 고를 부른 사람이 그 판에서 못 이기고 상대가 스톱해 이기면,
     ///   고를 부른 사람이 다른 패자 몫까지 전액을 이 배수로 물어준다(나머지 패자는 면제). 1이면 배수 없음.
@@ -99,6 +103,8 @@ type
     Pibak: Boolean;
     /// <summary>광박 적용 여부.</summary>
     Gwangbak: Boolean;
+    /// <summary>멍박(열끗박) 적용 여부.</summary>
+    Meongbak: Boolean;
   end;
 
   /// <summary>먹은 패로부터 점수를 계산하고 고·박 정산을 수행하는 정적 계산기.</summary>
@@ -143,6 +149,8 @@ begin
   Result.PibakEnabled := True;
   Result.PibakMaxJunk := 7;
   Result.GwangbakEnabled := True;
+  Result.MeongbakEnabled := True;
+  Result.MeongbakMinAnimal := 7;
   Result.GobakMultiplier := 2;
 end;
 {$ENDREGION}
@@ -369,6 +377,14 @@ begin
   if AOptions.PibakEnabled and (AWinner.JunkPoints > 0) and (ALoser.JunkValue <= AOptions.PibakMaxJunk) then
   begin
     Result.Pibak := True;
+    Result.Multiplier := Result.Multiplier * 2;
+  end;
+
+  // 멍박(열끗박): 승자가 멍따(열끗 MeongbakMinAnimal장 이상)로 열끗 점수를 냈고 패자 열끗 0장
+  if AOptions.MeongbakEnabled and (AWinner.AnimalPoints > 0)
+    and (AWinner.AnimalCount >= AOptions.MeongbakMinAnimal) and (ALoser.AnimalCount = 0) then
+  begin
+    Result.Meongbak := True;
     Result.Multiplier := Result.Multiplier * 2;
   end;
 

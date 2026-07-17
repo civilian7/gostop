@@ -146,6 +146,8 @@ type
     Pibak: Boolean;
     /// <summary>광박 적용 여부(패자).</summary>
     Gwangbak: Boolean;
+    /// <summary>멍박(열끗박) 적용 여부(패자).</summary>
+    Meongbak: Boolean;
     /// <summary>고박(고를 부르고 진 사람이 전액 부담) 적용 여부.</summary>
     Gobak: Boolean;
   end;
@@ -1312,6 +1314,7 @@ begin
     Result[P].Net := 0;
     Result[P].Pibak := False;
     Result[P].Gwangbak := False;
+    Result[P].Meongbak := False;
     Result[P].Gobak := False;
   end;
 
@@ -1339,6 +1342,7 @@ begin
     Result[P].Net := -LSettle.Points;
     Result[P].Pibak := LSettle.Pibak;
     Result[P].Gwangbak := LSettle.Gwangbak;
+    Result[P].Meongbak := LSettle.Meongbak;
     LTotalToWinner := LTotalToWinner + LSettle.Points;
 
     // 고를 부르고 진 사람(고박 대상)

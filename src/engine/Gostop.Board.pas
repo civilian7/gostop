@@ -100,7 +100,7 @@ type
     FConfig: TGameConfig;        // 게임 룰·플레이어 설정(피박/광박/고박/보너스/금액/시드/난이도/닉네임)
     FNickEdit: TEdit;            // 닉네임 입력용(설정창에서만 표시, IME 지원)
     FSettingsOpen: Boolean;      // 설정창 표시 중
-    FCfgRects: array [0 .. 8] of TRectF;   // 설정 행 값 버튼(7=닉네임, 8=아바타)
+    FCfgRects: array [0 .. 9] of TRectF;   // 설정 행 값 버튼(8=닉네임, 9=아바타)
     FBtnCfgClose: TRectF;
 
     // 대전 설정 다이얼로그: 슬롯머신 연출로 AI 배정, 내 시트(P1~PN) 선택, 관전 모드
@@ -2110,6 +2110,11 @@ begin
     Result := Result + ' 광박';
   end;
 
+  if AResult.Meongbak then
+  begin
+    Result := Result + ' 멍박';
+  end;
+
   Result := Trim(Result);
 end;
 
@@ -3282,13 +3287,17 @@ begin
       end;
     2:
       begin
-        FConfig.Gobak := not FConfig.Gobak;
+        FConfig.Meongbak := not FConfig.Meongbak;
       end;
     3:
       begin
-        FConfig.Bonus := not FConfig.Bonus;
+        FConfig.Gobak := not FConfig.Gobak;
       end;
     4:
+      begin
+        FConfig.Bonus := not FConfig.Bonus;
+      end;
+    5:
       begin
         case FConfig.MoneyPerPoint of
           50:
@@ -3309,7 +3318,7 @@ begin
           end;
         end;
       end;
-    5:
+    6:
       begin
         case FConfig.SeedMoney of
           10000:
@@ -3330,7 +3339,7 @@ begin
           end;
         end;
       end;
-    6:
+    7:
       begin
         case FConfig.AiSkill of
           30:
@@ -3359,7 +3368,7 @@ end;
 // 게임 룰·플레이어 설정창(게임 시작 전 타이틀에서만)
 procedure TGostopBoard.DrawSettings;
 const
-  ROW_COUNT = 9;
+  ROW_COUNT = 10;
 begin
   var LRowH := 42.0;
   var LPanelW := 460.0;
@@ -3375,13 +3384,14 @@ begin
   var LLabels: array [0 .. ROW_COUNT - 1] of string;
   LLabels[0] := '피박';
   LLabels[1] := '광박';
-  LLabels[2] := '고박 (×2)';
-  LLabels[3] := '보너스패';
-  LLabels[4] := '점당 금액';
-  LLabels[5] := '시드머니';
-  LLabels[6] := 'AI 난이도';
-  LLabels[7] := '닉네임';
-  LLabels[8] := '아바타';
+  LLabels[2] := '멍박';
+  LLabels[3] := '고박 (×2)';
+  LLabels[4] := '보너스패';
+  LLabels[5] := '점당 금액';
+  LLabels[6] := '시드머니';
+  LLabels[7] := 'AI 난이도';
+  LLabels[8] := '닉네임';
+  LLabels[9] := '아바타';
 
   var LValues: array [0 .. ROW_COUNT - 1] of string;
   if FConfig.Pibak then
@@ -3402,7 +3412,7 @@ begin
     LValues[1] := '끔';
   end;
 
-  if FConfig.Gobak then
+  if FConfig.Meongbak then
   begin
     LValues[2] := '켬';
   end
@@ -3411,35 +3421,44 @@ begin
     LValues[2] := '끔';
   end;
 
-  if FConfig.Bonus then
+  if FConfig.Gobak then
   begin
-    LValues[3] := '3장 포함';
+    LValues[3] := '켬';
   end
   else
   begin
-    LValues[3] := '없음(48장)';
+    LValues[3] := '끔';
   end;
 
-  LValues[4] := Format('%s원', [FormatFloat('#,##0', FConfig.MoneyPerPoint)]);
-  LValues[5] := Format('%s원', [FormatFloat('#,##0', FConfig.SeedMoney)]);
-  LValues[7] := FConfig.Nickname;
-  LValues[8] := '변경';
+  if FConfig.Bonus then
+  begin
+    LValues[4] := '3장 포함';
+  end
+  else
+  begin
+    LValues[4] := '없음(48장)';
+  end;
+
+  LValues[5] := Format('%s원', [FormatFloat('#,##0', FConfig.MoneyPerPoint)]);
+  LValues[6] := Format('%s원', [FormatFloat('#,##0', FConfig.SeedMoney)]);
+  LValues[8] := FConfig.Nickname;
+  LValues[9] := '변경';
   case FConfig.AiSkill of
     30:
       begin
-        LValues[6] := '초급';
+        LValues[7] := '초급';
       end;
     50:
       begin
-        LValues[6] := '중급';
+        LValues[7] := '중급';
       end;
     70:
       begin
-        LValues[6] := '고급';
+        LValues[7] := '고급';
       end;
   else
     begin
-      LValues[6] := '최상';
+      LValues[7] := '최상';
     end;
   end;
 
@@ -3464,8 +3483,8 @@ begin
   if Assigned(FAvatarPool) and (FHumanAvatarIdx >= 0) and (FHumanAvatarIdx < FAvatarPool.Count) then
   begin
     var LBmp := FAvatarPool[FHumanAvatarIdx];
-    var LSide := FCfgRects[8].Height - 4;
-    var LTh := RectF(FCfgRects[8].Left + 6, FCfgRects[8].Top + 2, FCfgRects[8].Left + 6 + LSide, FCfgRects[8].Top + 2 + LSide);
+    var LSide := FCfgRects[9].Height - 4;
+    var LTh := RectF(FCfgRects[9].Left + 6, FCfgRects[9].Top + 2, FCfgRects[9].Left + 6 + LSide, FCfgRects[9].Top + 2 + LSide);
     Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), LTh, 1, False);
   end;
 
@@ -5715,15 +5734,15 @@ begin
         if FCfgRects[I].Contains(LPoint) then
         begin
           TGostopAudio.Instance.Play('ui_click');
-          if I <= 6 then
+          if I <= 7 then
           begin
             CycleCfg(I);
           end
           else
-          if I = 7 then
+          if I = 8 then
           begin
             // 닉네임: 행 위에 입력창 표시
-            BeginNickEdit(FCfgRects[7]);
+            BeginNickEdit(FCfgRects[8]);
           end
           else
           begin

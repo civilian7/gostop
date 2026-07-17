@@ -22,6 +22,7 @@ type
   public
     Pibak: Boolean;          // 피박
     Gwangbak: Boolean;       // 광박
+    Meongbak: Boolean;       // 멍박(열끗박)
     Gobak: Boolean;          // 고박(×2)
     Bonus: Boolean;          // 보너스패 3장 포함(끄면 순수 48장)
     MoneyPerPoint: Integer;  // 점당 금액
@@ -52,6 +53,7 @@ procedure TGameConfig.Reset;
 begin
   Pibak := True;
   Gwangbak := True;
+  Meongbak := True;
   Gobak := True;
   Bonus := True;
   MoneyPerPoint := 100;
@@ -85,6 +87,7 @@ begin
   Result := TScoreOptions.Default;
   Result.PibakEnabled := Pibak;
   Result.GwangbakEnabled := Gwangbak;
+  Result.MeongbakEnabled := Meongbak;
   if Gobak then
   begin
     Result.GobakMultiplier := 2;
@@ -117,6 +120,7 @@ procedure TGameConfig.LoadFrom(const AIni: TIniFile);
 begin
   Pibak := AIni.ReadBool('Rules', 'Pibak', Pibak);
   Gwangbak := AIni.ReadBool('Rules', 'Gwangbak', Gwangbak);
+  Meongbak := AIni.ReadBool('Rules', 'Meongbak', Meongbak);
   Gobak := AIni.ReadBool('Rules', 'Gobak', Gobak);
   Bonus := AIni.ReadBool('Rules', 'Bonus', Bonus);
   MoneyPerPoint := AIni.ReadInteger('Rules', 'MoneyPerPoint', MoneyPerPoint);
@@ -129,6 +133,7 @@ procedure TGameConfig.SaveTo(const AIni: TIniFile);
 begin
   AIni.WriteBool('Rules', 'Pibak', Pibak);
   AIni.WriteBool('Rules', 'Gwangbak', Gwangbak);
+  AIni.WriteBool('Rules', 'Meongbak', Meongbak);
   AIni.WriteBool('Rules', 'Gobak', Gobak);
   AIni.WriteBool('Rules', 'Bonus', Bonus);
   AIni.WriteInteger('Rules', 'MoneyPerPoint', MoneyPerPoint);

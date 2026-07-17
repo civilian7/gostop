@@ -180,7 +180,8 @@ type
     FBonusDrawEnabled: Boolean;
     FCollectEvents: Boolean;        // False면 이벤트 기록·콜백 생략(AI 롤아웃 성능용)
     FPlayerLuck: TArray<Integer>;   // 플레이어별 이번 판 운(0~100). 비어 있으면 보정 없음
-    FPendingBonus: TArray<THwatuCard>;   // 이번 턴에 내려놓은 보너스패(뻑이면 뻑 무더기에 함께 묻힘)
+    FPendingBonus: TArray<THwatuCard>;   // 이번 턴에 손에서 내려놓은 보너스패(뻑이면 함께 묻힘)
+    FFlipBonus: TArray<THwatuCard>;      // 직전 더미 뒤집기에서 획득한 보너스패(뻑이면 함께 묻힘)
     FFlipCard: THwatuCard;
     FFlipOpt0: THwatuCard;
     FFlipOpt1: THwatuCard;
@@ -782,6 +783,8 @@ begin
   end;
 
   // 더미 맨 위부터 뒤집되, 보너스패(조커)는 즉시 획득하고 한 장 더 뒤집는다.
+  // 이번 뒤집기에서 획득한 조커는 추적해 둔다(이후 뻑이 나면 함께 묻어야 하므로).
+  FFlipBonus := nil;
   while FState.Stock.Count > 0 do
   begin
     var LTop := FState.Stock[FState.Stock.Count - 1];
@@ -789,6 +792,7 @@ begin
     if LTop.Kind = hkBonus then
     begin
       APlayer.Captured.Add(LTop);
+      FFlipBonus := FFlipBonus + [LTop];
       AddEvent(pekCapture, FState.Current, 0, Format('%s 보너스패 획득(뒤집기)', [APlayer.Name]));
       Continue;
     end;
@@ -859,6 +863,7 @@ procedure TTurnEngine.AdvanceTurn;
 begin
   // 턴이 끝나면 보너스패 묻힘 대기는 해제(뻑 없이 턴이 끝났으므로 획득 확정)
   FPendingBonus := nil;
+  FFlipBonus := nil;
 
   var LAnyActive := False;
   for var P := 0 to FState.PlayerCount - 1 do
@@ -976,10 +981,11 @@ begin
       FState.Floor.Add(LDraw);
       AddEvent(pekBbeok, FState.Current, LMonth, Format('%s 뻑! (%d월)', [LPlayer.Name, LMonth]));
 
-      // 이번 턴에 내려놓은 보너스패(조커)는 싼(뻑) 무더기에 함께 묻힌다
-      if Length(FPendingBonus) > 0 then
+      // 이번 턴에 획득한 보너스패(손에서 낸 것 + 뒤집기에서 나온 조커)는 싼(뻑) 무더기에 함께 묻힌다
+      var LBuryBonus := FPendingBonus + FFlipBonus;
+      if Length(LBuryBonus) > 0 then
       begin
-        for var LB in FPendingBonus do
+        for var LB in LBuryBonus do
         begin
           for var J := LPlayer.Captured.Count - 1 downto 0 do
           begin
@@ -997,6 +1003,7 @@ begin
 
         AddEvent(pekPlace, FState.Current, LMonth, Format('%s 보너스패도 뻑 더미에 묻힘', [LPlayer.Name]));
         FPendingBonus := nil;
+        FFlipBonus := nil;
       end;
 
       // 연뻑: 이미 다른 뻑 더미가 남아 있는 상태에서 또 뻑

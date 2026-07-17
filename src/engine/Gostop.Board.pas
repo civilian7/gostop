@@ -150,6 +150,13 @@ type
     FNextStartPos: TSeatPos;   // 선(P1)의 물리 위치. 반시계로 P1→P2→P3→P4 배정
     FHumanLogical: Integer;    // 4인에서 사람의 논리 좌석(0=선,1=P2,2=P3,3=P4)
     FNegIsSell: Boolean;       // 협상 버튼이 광팔기(True) / 참가·포기(False)
+    FNegAnimTimer: TTimer;     // 협상 광 패 흔들림 애니(주기적 Repaint)
+    FNegAnimPhase: Single;     // 흔들림 위상(0~2π 누적)
+
+    // 광 판매 발표 오버레이(협상 후 광을 판 경우: 판 광 패 + 광값 이동 표시)
+    FGwangShow: Boolean;
+    FGwangCards: TArray<THwatuCard>;   // 판매자가 판 광 패
+    FGwangTimer: TTimer;               // 발표 후 자동 진행
 
     // 선 뽑기(밤일낮장) — 새 매치 시작 시 각자 카드 1장을 뒤집어 선 결정
     FSeonPicking: Boolean;                         // 선 뽑기 진행 중
@@ -229,6 +236,10 @@ type
     procedure StartPlay;
     procedure StartNegotiation;
     procedure ResolveNegotiation(const AP2Give, AP3Give, AP4Sell: Boolean);
+    procedure DrawGwangSale;
+    procedure GwangTimerTick(Sender: TObject);
+    procedure FinishGwangSale;
+    procedure NegAnimTick(Sender: TObject);
     procedure ProceedAfterSeon;
     procedure BeginSeonPick;
     function  SeonActivePositions: TArray<TSeatPos>;
@@ -677,6 +688,14 @@ begin
   FSlotTimer.Interval := 45;
   FSlotTimer.Enabled := False;
   FSlotTimer.OnTimer := SlotTick;
+  FGwangTimer := TTimer.Create(Self);
+  FGwangTimer.Interval := 2600;   // 광 판매 발표 표시 시간
+  FGwangTimer.Enabled := False;
+  FGwangTimer.OnTimer := GwangTimerTick;
+  FNegAnimTimer := TTimer.Create(Self);
+  FNegAnimTimer.Interval := 33;   // ~30fps 흔들림
+  FNegAnimTimer.Enabled := False;
+  FNegAnimTimer.OnTimer := NegAnimTick;
   FSetupHumanRow := 0;
   FRowPos[0] := spTop;
   FRowPos[1] := spBottom;
@@ -755,6 +774,17 @@ begin
   FChoosing := False;
   FFlipChoosing := False;
   FNegotiating := False;
+  if Assigned(FNegAnimTimer) then
+  begin
+    FNegAnimTimer.Enabled := False;
+  end;
+
+  if Assigned(FGwangTimer) then
+  begin
+    FGwangTimer.Enabled := False;
+  end;
+
+  FGwangShow := False;
   FHoverHand := -1;
   FAgents := nil;
   if Assigned(FAiObjects) then
@@ -1616,6 +1646,12 @@ begin
       // 사람이 P2/P3면 참가·포기, P4면 광팔기 결정
       FNegIsSell := FHumanLogical = 3;
       FNegotiating := True;
+      if FNegIsSell then
+      begin
+        FNegAnimPhase := 0;
+        FNegAnimTimer.Enabled := True;   // 광 패 흔들림 시작
+      end;
+
       Repaint;
       if Assigned(FOnStateChanged) then
       begin
@@ -1627,21 +1663,25 @@ end;
 procedure TGostopBoard.ResolveNegotiation(const AP2Give, AP3Give, AP4Sell: Boolean);
 begin
   FNegotiating := False;
+  FNegAnimTimer.Enabled := False;   // 광 패 흔들림 정지
 
   var LRound := TFourPlayer.Resolve(FTable4, AP2Give, AP3Give, AP4Sell, GWANG_UNIT_PRICE, CfgScore);
   FSeatMap := LRound.PlaySeats;
   FSitOutSeat := LRound.SitOutSeat;
   FGwang := LRound.Gwang;
 
-  // 광값 선불(선 제외, P2·P3 → P4)
+  // 광값 선불(선 제외, P2·P3 → P4). 즉시 FMoney에 반영해 판매 직후 바로 보이게 한다
+  // (판돈 배수는 미적용 — 광값은 게임 정산과 별개). 논리 좌석 → 물리 위치 매핑.
   if FGwang.Sold then
   begin
     TGostopAudio.Instance.Play('sfx_gwang_sell');
+    var LSellerPos := TSeatPos((Ord(FNextStartPos) + FGwang.SellerSeat) mod 4);
     for var LP := 0 to High(FGwang.PayerSeats) do
     begin
-      var LPayer := FGwang.PayerSeats[LP];
-      FNet4[LPayer] := FNet4[LPayer] - FGwang.ValuePerPayer;
-      FNet4[FGwang.SellerSeat] := FNet4[FGwang.SellerSeat] + FGwang.ValuePerPayer;
+      var LPayerPos := TSeatPos((Ord(FNextStartPos) + FGwang.PayerSeats[LP]) mod 4);
+      var LAmount := FGwang.ValuePerPayer * FConfig.MoneyPerPoint;
+      FMoney[LPayerPos] := FMoney[LPayerPos] - LAmount;
+      FMoney[LSellerPos] := FMoney[LSellerPos] + LAmount;
     end;
   end;
 
@@ -1654,9 +1694,118 @@ begin
   end;
 
   FGame := TFourPlayer.BuildGame(FTable4, LRound, LNames);
+
+  // 광을 판 경우: 판매자 손패에서 광 패를 캡처해 발표 오버레이로 보여준다
+  FGwangCards := nil;
+  if FGwang.Sold and (FTable4 <> nil) then
+  begin
+    var LSellerHand := FTable4.Hand(FGwang.SellerSeat);
+    for var LCard in LSellerHand do
+    begin
+      if LCard.Kind = hkBright then
+      begin
+        FGwangCards := FGwangCards + [LCard];
+      end;
+    end;
+  end;
+
   FreeAndNil(FTable4);
 
+  if FGwang.Sold then
+  begin
+    FGwangShow := True;
+    FGwangTimer.Enabled := True;   // 발표 후 자동으로 StartPlay
+    Repaint;
+  end
+  else
+  begin
+    StartPlay;
+  end;
+end;
+
+procedure TGostopBoard.GwangTimerTick(Sender: TObject);
+begin
+  FinishGwangSale;
+end;
+
+// 협상 광팔기 화면의 광 패 흔들림(주기적 Repaint로 위상 진행)
+procedure TGostopBoard.NegAnimTick(Sender: TObject);
+begin
+  if not (FNegotiating and FNegIsSell) then
+  begin
+    FNegAnimTimer.Enabled := False;
+    Exit;
+  end;
+
+  FNegAnimPhase := FNegAnimPhase + 0.35;
+  Repaint;
+end;
+
+procedure TGostopBoard.FinishGwangSale;
+begin
+  FGwangTimer.Enabled := False;
+  if not FGwangShow then
+  begin
+    Exit;
+  end;
+
+  FGwangShow := False;
   StartPlay;
+end;
+
+// 광 판매 발표 오버레이: 판 광 패 + "P2·P3 → 판매자: 광값" 이동 표시
+procedure TGostopBoard.DrawGwangSale;
+begin
+  var LSeller := SeatLabel(FGwang.SellerSeat);
+
+  // 반투명 딤 + 중앙 패널
+  Canvas.FillRound(LocalRect, 0, $80000000);
+  var LPanelW := Max(Width * 0.5, 460.0);
+  var LPanelH := 260.0;
+  var LPanel := RectF(Width / 2 - LPanelW / 2, Height / 2 - LPanelH / 2, Width / 2 + LPanelW / 2, Height / 2 + LPanelH / 2);
+  Canvas.FillRound(LPanel, 16, $EA1C1C1C);
+  Canvas.StrokeRound(LPanel, 16, $FFFFD54A, 3);
+
+  DrawLabel(RectF(LPanel.Left, LPanel.Top + 14, LPanel.Right, LPanel.Top + 50),
+    Format('%s 광 팔기!', [LSeller]), TAlphaColors.Gold, 26);
+
+  // 판 광 패(가로 나열)
+  var CS := CardSize;
+  var LCW := CS.Width * 0.8;
+  var LCH := CS.Height * 0.8;
+  var LN := Length(FGwangCards);
+  if LN > 0 then
+  begin
+    var LTotW := LCW + (LN - 1) * LCW * 1.12;
+    var LStartX := Width / 2 - LTotW / 2;
+    var LCY := LPanel.Top + 66 + LCH / 2;
+    for var I := 0 to LN - 1 do
+    begin
+      var LCX := LStartX + I * LCW * 1.12;
+      DrawCardRotated(LCX + LCW / 2, LCY, LCW, LCH, 0, FGwangCards[I].AssetId, False);
+    end;
+  end;
+
+  // 광값 이동 표시(P2·P3 → 판매자)
+  var LYinfo := LPanel.Bottom - 66;
+  DrawLabel(RectF(LPanel.Left, LYinfo, LPanel.Right, LYinfo + 28),
+    Format('광 %d개 × %d원', [FGwang.GwangCount, GWANG_UNIT_PRICE * FConfig.MoneyPerPoint]),
+    $FFD8E0D0, 16);
+
+  var LPayers := '';
+  for var LP := 0 to High(FGwang.PayerSeats) do
+  begin
+    if LPayers <> '' then
+    begin
+      LPayers := LPayers + ' · ';
+    end;
+
+    LPayers := LPayers + SeatLabel(FGwang.PayerSeats[LP]);
+  end;
+
+  DrawLabel(RectF(LPanel.Left, LYinfo + 30, LPanel.Right, LYinfo + 58),
+    Format('%s → %s : 각 %s원 지불', [LPayers, LSeller, FormatFloat('#,##0', FGwang.ValuePerPayer * FConfig.MoneyPerPoint)]),
+    $FFFFE082, 17);
 end;
 
 procedure TGostopBoard.StartPlay;
@@ -3919,14 +4068,55 @@ begin
     DrawRegion(SeatRegion(LP), False);
   end;
 
-  // 내 손패(참가/포기·광팔기 판단용) — 아래 자리에 표시
+  // 내 손패(참가/포기·광팔기 판단용) — 화면 하단에 붙여 표시(메시지 바 위)
   if (FTable4 <> nil) and (FTable4.PlayerCount = 4) then
   begin
-    DrawHandList(FTable4.Hand(FHumanLogical), SeatRegion(spBottom), False);
+    var LHandRegion := RectF(Width * 0.05, Height * 0.68, Width * 0.95, Height * 0.93);
+    DrawLabel(RectF(0, Height * 0.63, Width, Height * 0.67), '내 손패', $FFD8E0D0, 15);
+    DrawHandList(FTable4.Hand(FHumanLogical), LHandRegion, False);
   end;
 
-  // 중앙: 바닥패 1장만 표시
-  if (FTable4 <> nil) and (FTable4.Floor.Count > 0) then
+  // 광팔기 결정(P4)이면 내 광 패와 예상 광값을 상단에 크게 보여준다
+  if FNegIsSell and (FTable4 <> nil) then
+  begin
+    var LHand := FTable4.Hand(FHumanLogical);
+    var LGwang: TArray<THwatuCard> := nil;
+    for var LCard in LHand do
+    begin
+      if LCard.Kind = hkBright then
+      begin
+        LGwang := LGwang + [LCard];
+      end;
+    end;
+
+    DrawLabel(RectF(0, Height * 0.06, Width, Height * 0.10), '내 광 패 — 팔면 아래 값을 받습니다', $FFFFE082, 16);
+
+    var CS := CardSize;
+    var LGCount := TFourPlayer.GwangCount(LHand, CfgScore);
+    if Length(LGwang) > 0 then
+    begin
+      var LTotW := CS.Width + (Length(LGwang) - 1) * CS.Width * 1.12;
+      var LStartX := Width / 2 - LTotW / 2;
+      var LGY := Height * 0.12 + CS.Height / 2;
+      for var I := 0 to High(LGwang) do
+      begin
+        // 카드마다 위상을 어긋나게 줘 흔드는(shake) 느낌: 좌우 흔들림 + 미세 상하·회전
+        var LPh := FNegAnimPhase + I * 1.1;
+        var LDX := Sin(LPh) * CS.Width * 0.06;
+        var LDY := Sin(LPh * 2) * CS.Height * 0.02;
+        var LAng := Sin(LPh) * 5.0;
+        DrawCardRotated(LStartX + I * CS.Width * 1.12 + CS.Width / 2 + LDX, LGY + LDY, CS.Width, CS.Height, LAng, LGwang[I].AssetId, False);
+      end;
+    end;
+
+    DrawLabel(RectF(0, Height * 0.12 + CS.Height + 6, Width, Height * 0.12 + CS.Height + 34),
+      Format('광값 = %d개 × %d원 = %s원 (P2·P3에게서 각각)',
+        [LGCount, GWANG_UNIT_PRICE * FConfig.MoneyPerPoint, FormatFloat('#,##0', LGCount * GWANG_UNIT_PRICE * FConfig.MoneyPerPoint)]),
+      TAlphaColors.White, 16);
+  end;
+
+  // 중앙: 바닥패 1장만 표시(광팔기 결정 화면에선 생략 — 위에 광 패 표시)
+  if (not FNegIsSell) and (FTable4 <> nil) and (FTable4.Floor.Count > 0) then
   begin
     var CS := CardSize;
     var LC := CenterRegion;
@@ -4073,6 +4263,13 @@ begin
   if FNegotiating then
   begin
     DrawNegotiation;
+    Exit;
+  end;
+
+  // 광 판매 발표
+  if FGwangShow then
+  begin
+    DrawGwangSale;
     Exit;
   end;
 
@@ -4778,6 +4975,13 @@ procedure TGostopBoard.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y:
 begin
   inherited;
   var LPoint := PointF(X, Y);
+
+  // 광 판매 발표: 아무 곳이나 클릭하면 즉시 진행(스킵)
+  if FGwangShow then
+  begin
+    FinishGwangSale;
+    Exit;
+  end;
 
   // 우하단 크레딧 → GitHub 저장소 열기
   if FCreditRect.Contains(LPoint) then

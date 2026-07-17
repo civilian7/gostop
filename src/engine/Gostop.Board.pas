@@ -22,6 +22,7 @@ uses
   FMX.Edit,
   Gostop.Cards,
   Gostop.Deck,
+  Gostop.Shodang,
   Gostop.Deal,
   Gostop.Score,
   Gostop.Play,
@@ -143,6 +144,13 @@ type
     FWins: array [TSeatPos] of Integer;
     FLosses: array [TSeatPos] of Integer;
     FGaveUpLast: array [TSeatPos] of Boolean;    // 연사: 직전 게임 포기 여부(4인, 좌석별)
+
+    // 쇼당(3인): 활성 상태·관련 플레이어(게임 인덱스)
+    FShodangActive: Boolean;                     // 쇼당 성립·정산 대기(수락자 승리 시 거절자 독박)
+    FShodangCaller: Integer;                     // 쇼당 건 사람
+    FShodangAccepter: Integer;                   // 수락자(밀어줄 대상)
+    FShodangDecliner: Integer;                   // 거절자(독박 대상)
+    FBtnShodang: TRectF;                         // 쇼당 걸기 버튼 영역
     FBtnJoin: TRectF;
     FBtnGiveUp: TRectF;
     FBtnNext: TRectF;
@@ -359,6 +367,9 @@ type
     procedure DrawNegotiation;
     procedure DrawGameOver;
     procedure DrawGoStopPrompt;
+    procedure DrawShodangButton;
+    function  HumanCanShodang: Boolean;
+    procedure HumanCallShodang;
   protected
     procedure Paint; override;
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Single); override;
@@ -907,6 +918,7 @@ begin
   FAiSkill := AiSkill;
   FNextStartPos := AStartPos;
   FAwaitingGoStop := False;
+  FShodangActive := False;   // 쇼당 상태 초기화(매 게임)
   for var S := 0 to 3 do
   begin
     FNet4[S] := 0;
@@ -4741,6 +4753,110 @@ begin
   DrawLabel(FBtnStop, '스톱', TAlphaColors.White, 20);
 end;
 
+// 사람이 지금 쇼당을 걸 수 있는가(3인·내 차례·손패로 두 상대 완성 위협)
+function TGostopBoard.HumanCanShodang: Boolean;
+begin
+  Result := False;
+  if FShodangActive or FSpectator or (FPlayerCount <> 3) or (FGame = nil) then
+  begin
+    Exit;
+  end;
+
+  if Assigned(FDisplay) or (FHumanIndex < 0) then
+  begin
+    Exit;
+  end;
+
+  if (FGame.Phase <> gpPlaying) or (FGame.Current <> FHumanIndex) then
+  begin
+    Exit;
+  end;
+
+  Result := TShodang.Detect(FGame, FHumanIndex).Callable;
+end;
+
+// 사람 차례에 쇼당 가능하면 '쇼당!' 버튼을 제시
+procedure TGostopBoard.DrawShodangButton;
+begin
+  FBtnShodang := TRectF.Empty;
+  if not HumanCanShodang then
+  begin
+    Exit;
+  end;
+
+  var LW := 150.0;
+  var LH := 46.0;
+  FBtnShodang := RectF(Width / 2 - LW / 2, Height * 0.545, Width / 2 + LW / 2, Height * 0.545 + LH);
+  Canvas.FillRound(FBtnShodang, 10, $FFB8860B);
+  Canvas.StrokeRound(FBtnShodang, 10, TAlphaColors.White, 2);
+  DrawLabel(FBtnShodang, '쇼당!', TAlphaColors.White, 22);
+end;
+
+// 사람이 쇼당을 건다: 두 상대(AI)가 각자 수락/거절 → 둘 다 수락=나가리 / 한 명 수락=밀어주기(거절자 독박) / 둘 다 거절=계속
+procedure TGostopBoard.HumanCallShodang;
+begin
+  if not HumanCanShodang then
+  begin
+    Exit;
+  end;
+
+  TGostopAudio.Instance.Play('sfx_negotiate');
+
+  // 두 상대 게임 인덱스
+  var LOpps: TArray<Integer> := nil;
+  for var I := 0 to FGame.PlayerCount - 1 do
+  begin
+    if I <> FHumanIndex then
+    begin
+      LOpps := LOpps + [I];
+    end;
+  end;
+
+  // AI 각자 수락 여부(밀어주면 자기가 나므로 수락 성향 높음, 약간의 변동)
+  var LAcc0 := Random(100) < 60;
+  var LAcc1 := Random(100) < 60;
+
+  if LAcc0 and LAcc1 then
+  begin
+    // 둘 다 수락 → 나가리(무효)
+    FEffectText := '쇼당 — 둘 다 수락! 나가리';
+    FEffectTimer.Enabled := False;
+    FEffectTimer.Enabled := True;
+    FEngine.DeclareNagari;
+    AfterAction;
+    Exit;
+  end;
+
+  if (not LAcc0) and (not LAcc1) then
+  begin
+    // 둘 다 거절 → 아무 일 없음, 계속
+    FEffectText := '쇼당 — 둘 다 거절, 계속 진행';
+    FEffectTimer.Enabled := False;
+    FEffectTimer.Enabled := True;
+    Repaint;
+    Exit;
+  end;
+
+  // 한 명 수락 → 그 사람을 밀어줌, 거절자는 독박 대기
+  var LAccepter := LOpps[0];
+  var LDecliner := LOpps[1];
+  if not LAcc0 then
+  begin
+    LAccepter := LOpps[1];
+    LDecliner := LOpps[0];
+  end;
+
+  FShodangActive := True;
+  FShodangCaller := FHumanIndex;
+  FShodangAccepter := LAccepter;
+  FShodangDecliner := LDecliner;
+
+  FEffectText := Format('쇼당! %s 수락 — %s 독박(밀어주기)', [FGame.Player(LAccepter).Name, FGame.Player(LDecliner).Name]);
+  FEffectTimer.Enabled := False;
+  FEffectTimer.Enabled := True;
+  Repaint;
+end;
+
 procedure TGostopBoard.Paint;
 begin
   // 군용담요(올리브 울) 텍스처 타일링
@@ -4888,6 +5004,9 @@ begin
     begin
       DrawGoStopPrompt;
     end;
+
+    // 사람 차례에 쇼당 가능하면 '쇼당!' 버튼 제시
+    DrawShodangButton;
   end;
 
   // 특수 상황 배너(쪽/따닥/싹쓸이/폭탄/흔들기/뻑/총통…)
@@ -5877,6 +5996,14 @@ begin
       HumanStop;
     end;
 
+    Exit;
+  end;
+
+  // 쇼당 걸기 버튼(사람 차례에 가능할 때만 표시됨)
+  if (not FBtnShodang.IsEmpty) and FBtnShodang.Contains(LPoint) and HumanCanShodang then
+  begin
+    TGostopAudio.Instance.Play('ui_click');
+    HumanCallShodang;
     Exit;
   end;
 

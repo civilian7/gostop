@@ -239,6 +239,8 @@ type
     procedure DeclareGo;
     /// <summary>스톱을 선언하고 현재 플레이어를 승자로 게임을 종료합니다.</summary>
     procedure DeclareStop;
+    /// <summary>쇼당(둘 다 수락)으로 그 판을 나가리(무효) 처리한다.</summary>
+    procedure DeclareNagari;
     /// <summary>지정 플레이어의 현재 족보 점수 내역을 반환합니다.</summary>
     function ScoreOf(const APlayerIndex: Integer): TScoreBreakdown;
 
@@ -1286,6 +1288,14 @@ begin
   FState.Phase := gpFinished;
   FState.Winner := FState.Current;
   AddEvent(pekStop, FState.Current, 0, FState.CurrentPlayer.Name + ' 스톱! 승리');
+end;
+
+// 쇼당(둘 다 수락) 등으로 그 판을 무효(나가리) 처리한다.
+procedure TTurnEngine.DeclareNagari;
+begin
+  FState.Phase := gpFinished;
+  FState.Winner := -1;
+  AddEvent(pekPlace, FState.Current, 0, '쇼당 — 나가리');
 end;
 
 function TTurnEngine.ScoreOf(const APlayerIndex: Integer): TScoreBreakdown;

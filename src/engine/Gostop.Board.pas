@@ -4779,14 +4779,17 @@ begin
   end;
 
   // 중앙 오버레이 패널 — 줄마다 큰 아바타(승자=환호/패자=슬픔) + 박 뱃지 + 우측정렬 금액 + 다음게임 버튼
-  var LRowH := 72.0;
-  var LAvSize := 54.0;
-  var LWinAvSize := 68.0;
+  // 패널 폭은 창 크기에 비례시키지 않고 콘텐츠에 맞춘 고정폭(다른 표준 다이얼로그들과 동일한 방식)
+  var LRowH := 92.0;
+  var LAvSize := 68.0;
+  var LWinAvSize := 84.0;
+  var LAmountColW := 116.0;   // 금액은 패널 오른쪽 끝이 아니라 이 고정폭 안에서만 우측 정렬(간격 과다 방지)
   var LBtnH := 44.0;
   var LTopPad := 20.0;
   var LPanelH := LTopPad + LN * LRowH + 18 + LBtnH + 18;
-  var LPanel := DrawStdDialog('', Max(Width * 0.54, 480.0), LPanelH);
+  var LPanel := DrawStdDialog('', 460.0, LPanelH);
   var LCX := (LPanel.Left + LPanel.Right) / 2;
+  var LAmountR0 := LPanel.Right - 18 - LAmountColW;
 
   var LY := LPanel.Top + LTopPad;
   for var I := 0 to LN - 1 do
@@ -4824,11 +4827,11 @@ begin
         LBadgeX := LBadgeR.Right + 6;
       end;
 
-      // 금액(천단위 콤마, 우측 정렬)
+      // 금액(천단위 콤마, 고정폭 금액란 안에서 우측 정렬)
       var LAmtText := Format('%s원', [FormatFloat('#,##0', LRow.Amount)]);
       Canvas.Fill.Color := TAlphaColors.White;
       Canvas.Font.Size := 19;
-      Canvas.FillText(RectF(LTextLeft, LY, LPanel.Right - 18, LY + LRowH), LAmtText,
+      Canvas.FillText(RectF(LAmountR0, LY, LPanel.Right - 18, LY + LRowH), LAmtText,
         False, 1, [], TTextAlign.Trailing, TTextAlign.Center);
     end
     else

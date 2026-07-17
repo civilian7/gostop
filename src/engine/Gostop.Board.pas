@@ -64,6 +64,16 @@ type
     Scale: Single;       // 카드 크기 배율
   end;
 
+  /// <summary>정산창 한 줄. 아바타·금액·박 뱃지를 구조적으로 담아 렌더링과 데이터를 분리한다.</summary>
+  TResultRow = record
+    AvatarIdx: Integer;    // -1 = 아바타 없음(안내문 줄)
+    IsWinner: Boolean;     // True면 환호 아바타 + 강조 스타일
+    HasAmount: Boolean;    // True면 Amount·Flags 표시, False면 Text만 표시
+    Amount: Integer;       // 지불/수령 금액(부호 포함) — 천단위 콤마로 표시
+    Flags: TArray<string>; // 박 뱃지들(피박/광박/고박/멍박/쇼당독박 등)
+    Text: string;          // 아바타 없는 안내문 또는 헤더의 "승" 문구(닉네임 미포함)
+  end;
+
   /// <summary>
   ///   고스톱 플레이 보드(FMX 커스텀 컨트롤). 2/3/4인 모드·좌석 배치(반시계)·렌더링·클릭 입력·AI 진행·
   ///   4인 광팔기 협상·고/스톱을 모두 담당한다. 사람은 항상 아래 자리, 나머지는 AI.
@@ -137,9 +147,7 @@ type
     FHumanIndex: Integer;            // 사람의 게임 인덱스(-1이면 사람 빠짐/관전)
     FBackColor: string;
     FStatus: string;
-    FResultLines: TArray<string>;
-    FResultAvatarIdx: TArray<Integer>;    // FResultLines와 나란한 배열. 해당 줄의 아바타 풀 인덱스(-1=없음)
-    FResultIsWinner: TArray<Boolean>;     // FResultLines와 나란한 배열. True=환호 이미지, False=슬픔 이미지
+    FResultRows: TArray<TResultRow>;
     FAwaitingGoStop: Boolean;
 
     // 4인 광팔기
@@ -300,7 +308,7 @@ type
     procedure PickTick(Sender: TObject);
     procedure DrawBonusDraw;
     procedure BuildFinalSummary;
-    function FlagStr(const AResult: TPlayerResult): string;
+    function FlagLabels(const AResult: TPlayerResult): TArray<string>;
     function StakesSuffix: string;
     procedure PlayChosen(const AHandIndex: Integer; const AFloorChoice: Integer);
     procedure AutoStopIfLastCard;
@@ -826,9 +834,7 @@ begin
   // 잔상·스테일 상태 리셋(타이틀 복귀 시 배너·고/스톱 플래그 잔존 방지)
   FAwaitingGoStop := False;
   FEffectText := '';
-  FResultLines := nil;
-  FResultAvatarIdx := nil;
-  FResultIsWinner := nil;
+  FResultRows := nil;
   if Assigned(FSeonTimer) then
   begin
     FSeonTimer.Enabled := False;
@@ -2150,30 +2156,28 @@ begin
   AfterAction;
 end;
 
-function TGostopBoard.FlagStr(const AResult: TPlayerResult): string;
+function TGostopBoard.FlagLabels(const AResult: TPlayerResult): TArray<string>;
 begin
-  Result := '';
+  Result := nil;
   if AResult.Gobak then
   begin
-    Result := Result + ' 고박';
+    Result := Result + ['고박'];
   end;
 
   if AResult.Pibak then
   begin
-    Result := Result + ' 피박';
+    Result := Result + ['피박'];
   end;
 
   if AResult.Gwangbak then
   begin
-    Result := Result + ' 광박';
+    Result := Result + ['광박'];
   end;
 
   if AResult.Meongbak then
   begin
-    Result := Result + ' 멍박';
+    Result := Result + ['멍박'];
   end;
-
-  Result := Trim(Result);
 end;
 
 // 판돈 배수 표기(나가리 이월분). ×1이면 빈 문자열
@@ -2202,10 +2206,10 @@ begin
       FShodangCaller, FShodangAccepter, FShodangDecliner);
   end;
 
-  var LSeatFlag: array [0 .. 3] of string;
+  var LSeatFlag: array [0 .. 3] of TArray<string>;
   for var S := 0 to 3 do
   begin
-    LSeatFlag[S] := '';
+    LSeatFlag[S] := nil;
   end;
 
   // 4인: 게임 정산을 FNet4(좌석)에 합산해 최종 손익 확정 + 좌석별 박 플래그
@@ -2214,7 +2218,7 @@ begin
     for var I := 0 to High(FSeatMap) do
     begin
       FNet4[FSeatMap[I]] := FNet4[FSeatMap[I]] + LSettle[I].Net;
-      LSeatFlag[FSeatMap[I]] := FlagStr(LSettle[I]);
+      LSeatFlag[FSeatMap[I]] := FlagLabels(LSettle[I]);
     end;
   end;
 
@@ -2259,87 +2263,121 @@ begin
     end;
   end;
 
-  // 결과 라인(+ 나란한 아바타 인덱스·승패 — 정산창 초상화 표시용)
-  var LLines := TList<string>.Create;
-  var LAvatarIdx := TList<Integer>.Create;
-  var LIsWinner := TList<Boolean>.Create;
+  // 결과 줄(아바타·금액·박 뱃지 구조화 — 정산창 렌더링용)
+  var LRows := TList<TResultRow>.Create;
   try
     if FGame.ThreeBbeok then
     begin
-      LLines.Add('쓰리뻑! — 즉시 승리 (고정 점수)');
-      LAvatarIdx.Add(-1);
-      LIsWinner.Add(False);
+      var LRow: TResultRow;
+      LRow.AvatarIdx := -1;
+      LRow.IsWinner := False;
+      LRow.HasAmount := False;
+      LRow.Text := '쓰리뻑! — 즉시 승리 (고정 점수)';
+      LRows.Add(LRow);
     end;
 
     if FGame.Winner < 0 then
     begin
+      var LMsg1, LMsg2: string;
       if LChongtong then
       begin
-        LLines.Add('총통! — 무효 판');
-        LAvatarIdx.Add(-1);
-        LIsWinner.Add(False);
-        LLines.Add('다음 게임으로 넘어갑니다');
-        LAvatarIdx.Add(-1);
-        LIsWinner.Add(False);
+        LMsg1 := '총통! — 무효 판';
+        LMsg2 := '다음 게임으로 넘어갑니다';
       end
       else
       begin
-        LLines.Add('나가리 (무승부)');
-        LAvatarIdx.Add(-1);
-        LIsWinner.Add(False);
-        LLines.Add(Format('다음 판 판돈 ×%d!', [FStakes * 2]));
-        LAvatarIdx.Add(-1);
-        LIsWinner.Add(False);
+        LMsg1 := '나가리 (무승부)';
+        LMsg2 := Format('다음 판 판돈 ×%d!', [FStakes * 2]);
       end;
+
+      var LRow: TResultRow;
+      LRow.AvatarIdx := -1;
+      LRow.IsWinner := False;
+      LRow.HasAmount := False;
+      LRow.Text := LMsg1;
+      LRows.Add(LRow);
+      LRow.Text := LMsg2;
+      LRows.Add(LRow);
     end
     else
     if FPlayerCount = 4 then
     begin
       var LWinnerSeat := FSeatMap[FGame.Winner];
-      LLines.Add(Trim(Format('%s 승%s', [SeatLabel(LWinnerSeat), StakesSuffix])));
-      LAvatarIdx.Add(FSeatAvatar[TSeatPos(LWinnerSeat)]);
-      LIsWinner.Add(True);
+      var LWinRow: TResultRow;
+      LWinRow.AvatarIdx := FSeatAvatar[TSeatPos(LWinnerSeat)];
+      LWinRow.IsWinner := True;
+      LWinRow.HasAmount := False;
+      LWinRow.Text := Trim(Format('승%s', [StakesSuffix]));
+      LRows.Add(LWinRow);
+
       for var S := 0 to 3 do
       begin
         // 승자 제외 + 게임에 참가하지 않은(빠진/관전) 좌석은 정산에 표시하지 않음
         if (S <> LWinnerSeat) and (S <> FSitOutSeat) then
         begin
-          LLines.Add(Trim(Format('%s   %d원  %s', [SeatLabel(S), FNet4[S] * FConfig.MoneyPerPoint * FStakes, LSeatFlag[S]])));
-          LAvatarIdx.Add(FSeatAvatar[TSeatPos(S)]);
-          LIsWinner.Add(False);
+          var LRow: TResultRow;
+          LRow.AvatarIdx := FSeatAvatar[TSeatPos(S)];
+          LRow.IsWinner := False;
+          LRow.HasAmount := True;
+          LRow.Amount := FNet4[S] * FConfig.MoneyPerPoint * FStakes;
+          LRow.Flags := LSeatFlag[S];
+          LRows.Add(LRow);
         end;
       end;
     end
     else
     begin
-      LLines.Add(Trim(Format('%s 승%s', [FGame.Player(FGame.Winner).Name, StakesSuffix])));
-      LAvatarIdx.Add(FSeatAvatar[PhysicalPos(FGame.Winner)]);
-      LIsWinner.Add(True);
+      var LWinRow: TResultRow;
+      LWinRow.AvatarIdx := FSeatAvatar[PhysicalPos(FGame.Winner)];
+      LWinRow.IsWinner := True;
+      LWinRow.HasAmount := False;
+      LWinRow.Text := Trim(Format('승%s', [StakesSuffix]));
+      LRows.Add(LWinRow);
+
       for var I := 0 to FGame.PlayerCount - 1 do
       begin
         if I <> FGame.Winner then
         begin
-          var LFlag := FlagStr(LSettle[I]);
+          var LFlags := FlagLabels(LSettle[I]);
           if I = LDokbakIdx then
           begin
-            LFlag := Trim('쇼당 독박 ' + LFlag);
+            LFlags := ['쇼당독박'] + LFlags;
           end;
 
-          LLines.Add(Trim(Format('%s   %d원  %s',
-            [FGame.Player(I).Name, LSettle[I].Net * FConfig.MoneyPerPoint * FStakes, LFlag])));
-          LAvatarIdx.Add(FSeatAvatar[PhysicalPos(I)]);
-          LIsWinner.Add(False);
+          var LRow: TResultRow;
+          LRow.AvatarIdx := FSeatAvatar[PhysicalPos(I)];
+          LRow.IsWinner := False;
+          LRow.HasAmount := True;
+          LRow.Amount := LSettle[I].Net * FConfig.MoneyPerPoint * FStakes;
+          LRow.Flags := LFlags;
+          LRows.Add(LRow);
         end;
       end;
     end;
 
-    FResultLines := LLines.ToArray;
-    FResultAvatarIdx := LAvatarIdx.ToArray;
-    FResultIsWinner := LIsWinner.ToArray;
+    FResultRows := LRows.ToArray;
   finally
-    LLines.Free;
-    LAvatarIdx.Free;
-    LIsWinner.Free;
+    LRows.Free;
+  end;
+
+  // 상태 표시줄(FStatus)용 요약 텍스트(다이얼로그와 별개, 간단 요약)
+  var LStatusParts := TList<string>.Create;
+  try
+    for var LRow in FResultRows do
+    begin
+      if LRow.HasAmount then
+      begin
+        LStatusParts.Add(Format('%s원 %s', [FormatFloat('#,##0', LRow.Amount), string.Join(' ', LRow.Flags)]).Trim)
+      end
+      else
+      begin
+        LStatusParts.Add(LRow.Text);
+      end;
+    end;
+
+    FStatus := string.Join('   ', LStatusParts.ToArray);
+  finally
+    LStatusParts.Free;
   end;
 
   // 판돈 배수 갱신: 나가리면 다음 판 ×2 이월(총통 무효 판은 그대로 유지), 승부가 나면 1로 복귀
@@ -2354,8 +2392,6 @@ begin
   begin
     FStakes := 1;
   end;
-
-  FStatus := string.Join('   ', FResultLines);
 end;
 
 procedure TGostopBoard.AfterAction;
@@ -4736,56 +4772,78 @@ end;
 
 procedure TGostopBoard.DrawGameOver;
 begin
-  var LN := Length(FResultLines);
+  var LN := Length(FResultRows);
   if LN = 0 then
   begin
     Exit;
   end;
 
-  // 중앙 오버레이 패널 — 줄마다 아바타(승자=환호/패자=슬픔) + 텍스트 + 다음게임 버튼(표준 다이얼로그)
-  var LRowH := 44.0;
+  // 중앙 오버레이 패널 — 줄마다 큰 아바타(승자=환호/패자=슬픔) + 박 뱃지 + 우측정렬 금액 + 다음게임 버튼
+  var LRowH := 72.0;
+  var LAvSize := 54.0;
+  var LWinAvSize := 68.0;
   var LBtnH := 44.0;
-  var LTopPad := 22.0;
+  var LTopPad := 20.0;
   var LPanelH := LTopPad + LN * LRowH + 18 + LBtnH + 18;
-  var LPanel := DrawStdDialog('', Width * 0.48, LPanelH);
+  var LPanel := DrawStdDialog('', Max(Width * 0.54, 480.0), LPanelH);
   var LCX := (LPanel.Left + LPanel.Right) / 2;
 
   var LY := LPanel.Top + LTopPad;
   for var I := 0 to LN - 1 do
   begin
-    var LAvIdx := -1;
-    var LIsWin := False;
-    if I < Length(FResultAvatarIdx) then
+    var LRow := FResultRows[I];
+    var LAvSz := LAvSize;
+    if LRow.IsWinner then
     begin
-      LAvIdx := FResultAvatarIdx[I];
-      LIsWin := FResultIsWinner[I];
+      LAvSz := LWinAvSize;
     end;
 
-    var LBmp := ResultAvatarBitmap(LAvIdx, LIsWin);
-    var LAvSize := 34.0;
-    if LIsWin then
-    begin
-      LAvSize := 46.0;
-    end;
-
-    var LTextLeft := LPanel.Left + 16;
+    var LBmp := ResultAvatarBitmap(LRow.AvatarIdx, LRow.IsWinner);
+    var LTextLeft := LPanel.Left + 18;
     if Assigned(LBmp) then
     begin
-      var LAvR := RectF(LPanel.Left + 14, LY + (LRowH - LAvSize) / 2,
-        LPanel.Left + 14 + LAvSize, LY + (LRowH - LAvSize) / 2 + LAvSize);
+      var LAvR := RectF(LPanel.Left + 16, LY + (LRowH - LAvSz) / 2,
+        LPanel.Left + 16 + LAvSz, LY + (LRowH - LAvSz) / 2 + LAvSz);
       Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), LAvR, 1, False);
-      LTextLeft := LAvR.Right + 10;
+      LTextLeft := LAvR.Right + 14;
     end;
 
-    var LTextColor := TAlphaColors.White;
-    var LFontSize := 17.0;
-    if LIsWin then
+    if LRow.HasAmount then
     begin
-      LTextColor := TAlphaColors.Gold;
-      LFontSize := 20.0;
+      // 박 뱃지(아바타 오른쪽, 둥근 라벨로 나열)
+      var LBadgeH := 24.0;
+      var LBadgeY := LY + (LRowH - LBadgeH) / 2;
+      var LBadgeX := LTextLeft;
+      Canvas.Font.Size := 13;
+      for var LFlag in LRow.Flags do
+      begin
+        var LBadgeW := Canvas.TextWidth(LFlag) + 20;
+        var LBadgeR := RectF(LBadgeX, LBadgeY, LBadgeX + LBadgeW, LBadgeY + LBadgeH);
+        Canvas.FillRound(LBadgeR, LBadgeH / 2, $FF8E2430);
+        DrawLabel(LBadgeR, LFlag, TAlphaColors.White, 13);
+        LBadgeX := LBadgeR.Right + 6;
+      end;
+
+      // 금액(천단위 콤마, 우측 정렬)
+      var LAmtText := Format('%s원', [FormatFloat('#,##0', LRow.Amount)]);
+      Canvas.Fill.Color := TAlphaColors.White;
+      Canvas.Font.Size := 19;
+      Canvas.FillText(RectF(LTextLeft, LY, LPanel.Right - 18, LY + LRowH), LAmtText,
+        False, 1, [], TTextAlign.Trailing, TTextAlign.Center);
+    end
+    else
+    begin
+      var LTextColor := TAlphaColors.White;
+      var LFontSize := 17.0;
+      if LRow.IsWinner then
+      begin
+        LTextColor := TAlphaColors.Gold;
+        LFontSize := 21.0;
+      end;
+
+      DrawLabel(RectF(LTextLeft, LY, LPanel.Right - 18, LY + LRowH), LRow.Text, LTextColor, LFontSize);
     end;
 
-    DrawLabel(RectF(LTextLeft, LY, LPanel.Right - 14, LY + LRowH), FResultLines[I], LTextColor, LFontSize);
     LY := LY + LRowH;
   end;
 

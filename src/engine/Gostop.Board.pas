@@ -30,6 +30,7 @@ uses
   Gostop.Characters,
   Gostop.Settings,
   Gostop.Board.Layout,
+  Gostop.Canvas.Helper,
   Gostop.FourPlayer,
   Gostop.CardImages,
   Gostop.Audio,
@@ -1209,11 +1210,7 @@ begin
     // 선 확정 강조 테두리
     if FSeonWinner = Ord(LPos) then
     begin
-      Canvas.Stroke.Kind := TBrushKind.Solid;
-      Canvas.Stroke.Color := $FFFFD54A;
-      Canvas.Stroke.Thickness := 4;
-      Canvas.DrawRect(RectF(LRect.Left - 5, LRect.Top - 5, LRect.Right + 5, LRect.Bottom + 5), 7, 7,
-        [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+      Canvas.StrokeRound(RectF(LRect.Left - 5, LRect.Top - 5, LRect.Right + 5, LRect.Bottom + 5), 7, $FFFFD54A, 4);
     end;
 
     if FSeonRevealed[LPos] then
@@ -1544,13 +1541,8 @@ begin
   var LMidY := (LCen.Top + LCen.Bottom) / 2;
   var LPanel := RectF(LMidX - LPanelW / 2, LMidY - LPanelH / 2, LMidX + LPanelW / 2, LMidY + LPanelH / 2);
 
-  Canvas.Fill.Kind := TBrushKind.Solid;
-  Canvas.Fill.Color := $E0101010;
-  Canvas.FillRect(LPanel, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-  Canvas.Stroke.Kind := TBrushKind.Solid;
-  Canvas.Stroke.Color := $60FFFFFF;
-  Canvas.Stroke.Thickness := 1;
-  Canvas.DrawRect(LPanel, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.FillRound(LPanel, 10, $E0101010);
+  Canvas.StrokeRound(LPanel, 10, $60FFFFFF, 1);
 
   var LTitle := '';
   if FGame.Current = FHumanIndex then
@@ -2070,9 +2062,7 @@ begin
     var LBmp := FImages.ScaledFront(AAssetId, Round(R.Width * Canvas.Scale), Round(R.Height * Canvas.Scale));
     Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), R, 1, False);
   except
-    Canvas.Fill.Kind := TBrushKind.Solid;
-    Canvas.Fill.Color := TAlphaColors.White;
-    Canvas.FillRect(R, 3, 3, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+    Canvas.FillRound(R, 3, TAlphaColors.White);
     DrawLabel(R, AAssetId, TAlphaColors.Black, 8);
   end;
 end;
@@ -2083,9 +2073,7 @@ begin
     var LBmp := FImages.ScaledBack(FBackColor, Round(R.Width * Canvas.Scale), Round(R.Height * Canvas.Scale));
     Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), R, 1, False);
   except
-    Canvas.Fill.Kind := TBrushKind.Solid;
-    Canvas.Fill.Color := TAlphaColors.Darkred;
-    Canvas.FillRect(R, 3, 3, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+    Canvas.FillRound(R, 3, TAlphaColors.Darkred);
   end;
 end;
 
@@ -2143,9 +2131,7 @@ procedure TGostopBoard.DrawRegion(const ARegion: TRectF; const AHighlight: Boole
 begin
   if AHighlight then
   begin
-    Canvas.Fill.Kind := TBrushKind.Solid;
-    Canvas.Fill.Color := $33FFD54A;
-    Canvas.FillRect(ARegion, 12, 12, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+    Canvas.FillRound(ARegion, 12, $33FFD54A);
   end;
 
   Canvas.Stroke.Kind := TBrushKind.Solid;
@@ -2281,10 +2267,7 @@ begin
     // 먹을 수 있는 카드는 초록 테두리(플레이 중일 때만)
     if AInteractive and CanCaptureCard(AHand[LRealIdx]) then
     begin
-      Canvas.Stroke.Kind := TBrushKind.Solid;
-      Canvas.Stroke.Color := $FF6CE04C;
-      Canvas.Stroke.Thickness := 3;
-      Canvas.DrawRect(LDrawR, 4, 4, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+      Canvas.StrokeRound(LDrawR, 4, $FF6CE04C, 3);
     end;
   end;
 end;
@@ -2540,13 +2523,8 @@ begin
   var LPanel := RectF(Width / 2 - LPanelW / 2, Height / 2 - LPanelH / 2,
     Width / 2 + LPanelW / 2, Height / 2 + LPanelH / 2);
 
-  Canvas.Fill.Kind := TBrushKind.Solid;
-  Canvas.Fill.Color := $F0101010;
-  Canvas.FillRect(LPanel, 12, 12, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-  Canvas.Stroke.Kind := TBrushKind.Solid;
-  Canvas.Stroke.Color := $60FFFFFF;
-  Canvas.Stroke.Thickness := 1;
-  Canvas.DrawRect(LPanel, 12, 12, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.FillRound(LPanel, 12, $F0101010);
+  Canvas.StrokeRound(LPanel, 12, $60FFFFFF, 1);
   DrawLabel(RectF(LPanel.Left, LPanel.Top + 6, LPanel.Right, LPanel.Top + 34), '내 아바타 선택', TAlphaColors.White, 17);
 
   for var I := 0 to FAvatarPool.Count - 1 do
@@ -2620,9 +2598,7 @@ begin
   var LBar := RectF(LMidX - 195, LTop, LMidX + 195, LTop + LBarH);
   var LCY := (LBar.Top + LBar.Bottom) / 2;
 
-  Canvas.Fill.Kind := TBrushKind.Solid;
-  Canvas.Fill.Color := $C0000000;
-  Canvas.FillRect(LBar, 15, 15, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.FillRound(LBar, 15, $C0000000);
 
   // 스피커 아이콘(클릭=음소거 토글)
   FMuteRect := RectF(LBar.Left + 10, LBar.Top + 3, LBar.Left + 38, LBar.Bottom - 3);
@@ -2655,8 +2631,7 @@ begin
   // 볼륨 슬라이더
   var LTrack := RectF(FMuteRect.Right + 10, LCY - 3, FMuteRect.Right + 10 + 110, LCY + 3);
   FVolTrackRect := RectF(LTrack.Left - 8, LBar.Top, LTrack.Right + 8, LBar.Bottom);
-  Canvas.Fill.Color := $50FFFFFF;
-  Canvas.FillRect(LTrack, 3, 3, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.FillRound(LTrack, 3, $50FFFFFF);
   var LKX := LTrack.Left + LTrack.Width * LAudio.Volume;
   Canvas.Fill.Color := $FFFFD54A;
   Canvas.FillRect(RectF(LTrack.Left, LTrack.Top, LKX, LTrack.Bottom), 3, 3,
@@ -2668,8 +2643,7 @@ begin
   DrawLabel(RectF(LTrack.Right + 14, LBar.Top, LTrack.Right + 48, LBar.Bottom), '속도', $FFD8E0D0, 12);
   var LSpd := RectF(LTrack.Right + 52, LCY - 3, LTrack.Right + 52 + 90, LCY + 3);
   FSpeedRect := RectF(LSpd.Left - 8, LBar.Top, LSpd.Right + 8, LBar.Bottom);
-  Canvas.Fill.Color := $50FFFFFF;
-  Canvas.FillRect(LSpd, 3, 3, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.FillRound(LSpd, 3, $50FFFFFF);
   var LST := (FGameSpeed - 0.5) / 1.5;   // 0.5~2.0 → 0~1
   var LSX := LSpd.Left + LSpd.Width * LST;
   Canvas.Fill.Color := $FF80CBC4;
@@ -2916,13 +2890,8 @@ begin
   var LPanel := RectF(Width / 2 - LPanelW / 2, Height / 2 - LPanelH / 2,
     Width / 2 + LPanelW / 2, Height / 2 + LPanelH / 2);
 
-  Canvas.Fill.Kind := TBrushKind.Solid;
-  Canvas.Fill.Color := $F0141414;
-  Canvas.FillRect(LPanel, 14, 14, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-  Canvas.Stroke.Kind := TBrushKind.Solid;
-  Canvas.Stroke.Color := $FFFFD54A;
-  Canvas.Stroke.Thickness := 2;
-  Canvas.DrawRect(LPanel, 14, 14, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.FillRound(LPanel, 14, $F0141414);
+  Canvas.StrokeRound(LPanel, 14, $FFFFD54A, 2);
   DrawLabel(RectF(LPanel.Left, LPanel.Top + 12, LPanel.Right, LPanel.Top + 46), '게임 룰 설정', TAlphaColors.Gold, 22);
 
   // 행: 라벨(왼쪽) + 값 버튼(오른쪽)
@@ -3006,8 +2975,7 @@ begin
       False, 1, [], TTextAlign.Leading, TTextAlign.Center);
 
     FCfgRects[I] := RectF(LPanel.Right - 178, LY + 3, LPanel.Right - 28, LY + LRowH - 8);
-    Canvas.Fill.Color := $FF2F4436;
-    Canvas.FillRect(FCfgRects[I], 8, 8, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+    Canvas.FillRound(FCfgRects[I], 8, $FF2F4436);
     Canvas.Stroke.Color := $60FFFFFF;
     Canvas.Stroke.Thickness := 1;
     Canvas.DrawRect(FCfgRects[I], 8, 8, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
@@ -3026,8 +2994,7 @@ begin
 
   // 닫기
   FBtnCfgClose := RectF(Width / 2 - 70, LPanel.Bottom - 56, Width / 2 + 70, LPanel.Bottom - 16);
-  Canvas.Fill.Color := $FF2E7D32;
-  Canvas.FillRect(FBtnCfgClose, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.FillRound(FBtnCfgClose, 10, $FF2E7D32);
   DrawLabel(FBtnCfgClose, '확인', TAlphaColors.White, 17);
 end;
 
@@ -3370,13 +3337,8 @@ begin
   var LPanel := RectF(Width / 2 - LPanelW / 2, Height / 2 - LPanelH / 2,
     Width / 2 + LPanelW / 2, Height / 2 + LPanelH / 2);
 
-  Canvas.Fill.Kind := TBrushKind.Solid;
-  Canvas.Fill.Color := $F0141414;
-  Canvas.FillRect(LPanel, 14, 14, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-  Canvas.Stroke.Kind := TBrushKind.Solid;
-  Canvas.Stroke.Color := $FFFFD54A;
-  Canvas.Stroke.Thickness := 2;
-  Canvas.DrawRect(LPanel, 14, 14, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.FillRound(LPanel, 14, $F0141414);
+  Canvas.StrokeRound(LPanel, 14, $FFFFD54A, 2);
   DrawLabel(RectF(LPanel.Left, LPanel.Top + 10, LPanel.Right, LPanel.Top + 44),
     Format('대전 설정 — %d인전', [FSetupCount]), TAlphaColors.Gold, 21);
 
@@ -3440,8 +3402,7 @@ begin
     if R <> FSetupHumanRow then
     begin
       FSetupSkRects[R] := RectF(LRow.Right - 110, LRow.Top + 9, LRow.Right - 12, LRow.Bottom - 9);
-      Canvas.Fill.Color := $FF37474F;
-      Canvas.FillRect(FSetupSkRects[R], 8, 8, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+      Canvas.FillRound(FSetupSkRects[R], 8, $FF37474F);
       DrawLabel(FSetupSkRects[R], SkillLabel(FSetupSkill[R]), $FFFFE082, 14);
     end
     else
@@ -3455,8 +3416,7 @@ begin
 
   // 다시 돌리기 · 관전 토글
   FBtnSetupSpin := RectF(LPanel.Left + 30, LBY + 26, LPanel.Left + 30 + 130, LBY + 26 + 36);
-  Canvas.Fill.Color := $FF5D4037;
-  Canvas.FillRect(FBtnSetupSpin, 8, 8, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.FillRound(FBtnSetupSpin, 8, $FF5D4037);
   DrawLabel(FBtnSetupSpin, '다시 돌리기', TAlphaColors.White, 14);
 
   FBtnSetupWatch := RectF(LPanel.Right - 30 - 130, LBY + 26, LPanel.Right - 30, LBY + 26 + 36);
@@ -3478,13 +3438,11 @@ begin
 
   // 시작 · 취소
   FBtnSetupStart := RectF(Width / 2 - 148, LBY + 72, Width / 2 - 8, LBY + 72 + 40);
-  Canvas.Fill.Color := $FF2E7D32;
-  Canvas.FillRect(FBtnSetupStart, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.FillRound(FBtnSetupStart, 10, $FF2E7D32);
   DrawLabel(FBtnSetupStart, '시작', TAlphaColors.White, 17);
 
   FBtnSetupCancel := RectF(Width / 2 + 8, LBY + 72, Width / 2 + 148, LBY + 72 + 40);
-  Canvas.Fill.Color := $FF8E2430;
-  Canvas.FillRect(FBtnSetupCancel, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.FillRound(FBtnSetupCancel, 10, $FF8E2430);
   DrawLabel(FBtnSetupCancel, '취소', TAlphaColors.White, 17);
 end;
 
@@ -3525,31 +3483,25 @@ begin
   Canvas.Stroke.Kind := TBrushKind.Solid;
   Canvas.Stroke.Color := $FFFFD54A;
   Canvas.Stroke.Thickness := 2;
-  Canvas.Fill.Kind := TBrushKind.Solid;
-  Canvas.Fill.Color := $FF2E7D32;
-  Canvas.FillRect(FBtnMenu2, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.FillRound(FBtnMenu2, 10, $FF2E7D32);
   Canvas.DrawRect(FBtnMenu2, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
   DrawLabel(FBtnMenu2, '2인 대전', TAlphaColors.White, 19);
 
-  Canvas.Fill.Color := $FF2E7D32;
-  Canvas.FillRect(FBtnMenu3, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.FillRound(FBtnMenu3, 10, $FF2E7D32);
   Canvas.DrawRect(FBtnMenu3, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
   DrawLabel(FBtnMenu3, '3인 대전', TAlphaColors.White, 19);
 
-  Canvas.Fill.Color := $FF2E7D32;
-  Canvas.FillRect(FBtnMenu4, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.FillRound(FBtnMenu4, 10, $FF2E7D32);
   Canvas.DrawRect(FBtnMenu4, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
   DrawLabel(FBtnMenu4, '4인 대전', TAlphaColors.White, 19);
 
   // 설정 · 종료
   FBtnMenuCfg := RectF(LMidX - 150, LBY + LBH + 26, LMidX - 10, LBY + LBH + 26 + 40);
-  Canvas.Fill.Color := $FF37474F;
-  Canvas.FillRect(FBtnMenuCfg, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.FillRound(FBtnMenuCfg, 10, $FF37474F);
   DrawLabel(FBtnMenuCfg, '설정', TAlphaColors.White, 17);
 
   FBtnMenuExit := RectF(LMidX + 10, LBY + LBH + 26, LMidX + 150, LBY + LBH + 26 + 40);
-  Canvas.Fill.Color := $FF8E2430;
-  Canvas.FillRect(FBtnMenuExit, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.FillRound(FBtnMenuExit, 10, $FF8E2430);
   DrawLabel(FBtnMenuExit, '종료', TAlphaColors.White, 17);
 end;
 
@@ -3598,13 +3550,8 @@ begin
 
   // 패널 배경
   var LBox := PlayerPanelRect(APos);
-  Canvas.Fill.Kind := TBrushKind.Solid;
-  Canvas.Fill.Color := $E6141414;
-  Canvas.FillRect(LBox, 8, 8, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-  Canvas.Stroke.Kind := TBrushKind.Solid;
-  Canvas.Stroke.Color := $40FFFFFF;
-  Canvas.Stroke.Thickness := 1;
-  Canvas.DrawRect(LBox, 8, 8, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.FillRound(LBox, 8, $E6141414);
+  Canvas.StrokeRound(LBox, 8, $40FFFFFF, 1);
 
   // 아바타 이미지 + 테두리 (파일 풀 우선, 없으면 절차 생성 폴백)
   var LAv := RectF(LBox.Left + 8, LBox.Top + 8, LBox.Left + 48, LBox.Top + 48);
@@ -3937,10 +3884,7 @@ begin
 
       if LHighlight then
       begin
-        Canvas.Stroke.Kind := TBrushKind.Solid;
-        Canvas.Stroke.Color := TAlphaColors.Yellow;
-        Canvas.Stroke.Thickness := 4;
-        Canvas.DrawRect(LR, 4, 4, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+        Canvas.StrokeRound(LR, 4, TAlphaColors.Yellow, 4);
       end;
     end;
   end;
@@ -4000,11 +3944,8 @@ begin
   FBtnJoin := RectF(LCX - LBtnW - LGap / 2, LBtnY, LCX - LGap / 2, LBtnY + LBtnH);
   FBtnGiveUp := RectF(LCX + LGap / 2, LBtnY, LCX + LGap / 2 + LBtnW, LBtnY + LBtnH);
 
-  Canvas.Fill.Kind := TBrushKind.Solid;
-  Canvas.Fill.Color := $FF2E7D32;
-  Canvas.FillRect(FBtnJoin, 8, 8, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-  Canvas.Fill.Color := $FF8D3030;
-  Canvas.FillRect(FBtnGiveUp, 8, 8, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.FillRound(FBtnJoin, 8, $FF2E7D32);
+  Canvas.FillRound(FBtnGiveUp, 8, $FF8D3030);
 
   if FNegIsSell then
   begin
@@ -4033,13 +3974,8 @@ begin
   var LPanelH := 18 + LHeadH + (LN - 1) * LLineH + 14 + LBtnH + 18;
   var LPanel := RectF(Width * 0.26, (Height - LPanelH) / 2, Width * 0.74, (Height + LPanelH) / 2);
 
-  Canvas.Fill.Kind := TBrushKind.Solid;
-  Canvas.Fill.Color := $EA1C1C1C;
-  Canvas.FillRect(LPanel, 16, 16, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-  Canvas.Stroke.Kind := TBrushKind.Solid;
-  Canvas.Stroke.Color := $FFFFD54A;
-  Canvas.Stroke.Thickness := 3;
-  Canvas.DrawRect(LPanel, 16, 16, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.FillRound(LPanel, 16, $EA1C1C1C);
+  Canvas.StrokeRound(LPanel, 16, $FFFFD54A, 3);
 
   var LY := LPanel.Top + 18;
   // 헤드라인(승자 또는 나가리)
@@ -4058,14 +3994,11 @@ begin
   var LGap := 16.0;
   var LCX := (LPanel.Left + LPanel.Right) / 2;
   FBtnNext := RectF(LCX - LBtnW - LGap / 2, LY + 12, LCX - LGap / 2, LY + 12 + LBtnH);
-  Canvas.Fill.Kind := TBrushKind.Solid;
-  Canvas.Fill.Color := $FF2E7D32;
-  Canvas.FillRect(FBtnNext, 8, 8, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.FillRound(FBtnNext, 8, $FF2E7D32);
   DrawLabel(FBtnNext, '새게임', TAlphaColors.White, 18);
 
   FBtnQuit := RectF(LCX + LGap / 2, LY + 12, LCX + LGap / 2 + LBtnW, LY + 12 + LBtnH);
-  Canvas.Fill.Color := $FF8E2430;
-  Canvas.FillRect(FBtnQuit, 8, 8, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.FillRound(FBtnQuit, 8, $FF8E2430);
   DrawLabel(FBtnQuit, '중지', TAlphaColors.White, 18);
 end;
 
@@ -4076,13 +4009,8 @@ begin
   var LPanelW := Max(Width * 0.34, 320.0);
   var LPanelH := 128.0;
   var LPanel := RectF((Width - LPanelW) / 2, Height * 0.30, (Width + LPanelW) / 2, Height * 0.30 + LPanelH);
-  Canvas.Fill.Kind := TBrushKind.Solid;
-  Canvas.Fill.Color := $EA1C1C1C;
-  Canvas.FillRect(LPanel, 16, 16, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-  Canvas.Stroke.Kind := TBrushKind.Solid;
-  Canvas.Stroke.Color := $FFFFD54A;
-  Canvas.Stroke.Thickness := 3;
-  Canvas.DrawRect(LPanel, 16, 16, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.FillRound(LPanel, 16, $EA1C1C1C);
+  Canvas.StrokeRound(LPanel, 16, $FFFFD54A, 3);
 
   DrawLabel(RectF(LPanel.Left, LPanel.Top + 14, LPanel.Right, LPanel.Top + 46), Format('%d점! 고 또는 스톱', [LScore]), TAlphaColors.Gold, 22);
 
@@ -4094,10 +4022,8 @@ begin
   FBtnGo := RectF(LCX - LBtnW - LGap / 2, LBtnY, LCX - LGap / 2, LBtnY + LBtnH);
   FBtnStop := RectF(LCX + LGap / 2, LBtnY, LCX + LGap / 2 + LBtnW, LBtnY + LBtnH);
 
-  Canvas.Fill.Color := $FF2E7D32;
-  Canvas.FillRect(FBtnGo, 8, 8, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-  Canvas.Fill.Color := $FF8D3030;
-  Canvas.FillRect(FBtnStop, 8, 8, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.FillRound(FBtnGo, 8, $FF2E7D32);
+  Canvas.FillRound(FBtnStop, 8, $FF8D3030);
   DrawLabel(FBtnGo, '고', TAlphaColors.White, 20);
   DrawLabel(FBtnStop, '스톱', TAlphaColors.White, 20);
 end;
@@ -4334,13 +4260,8 @@ begin
   end;
 
   var LRect := RectF(Width * 0.18, Height * 0.11, Width * 0.82, Height * 0.11 + 78);
-  Canvas.Fill.Kind := TBrushKind.Solid;
-  Canvas.Fill.Color := $B0201008;
-  Canvas.FillRect(LRect, 16, 16, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-  Canvas.Stroke.Kind := TBrushKind.Solid;
-  Canvas.Stroke.Color := $FFFFD54A;
-  Canvas.Stroke.Thickness := 2;
-  Canvas.DrawRect(LRect, 16, 16, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.FillRound(LRect, 16, $B0201008);
+  Canvas.StrokeRound(LRect, 16, $FFFFD54A, 2);
   DrawLabel(LRect, FEffectText, $FFFFE14A, 42);
 end;
 

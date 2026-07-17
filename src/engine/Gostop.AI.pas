@@ -262,6 +262,15 @@ function TAiPlayer.EvaluateHandMove(const AState: TGameState; const ASelfIndex: 
   const AThreat: Double; out AFloorChoice: Integer): Double;
 begin
   var LCard := AState.Player(ASelfIndex).Hand[AHandIndex];
+
+  // 보너스패는 공짜 획득 + 재행동이므로 항상 우선 사용(들고 있을 이유가 없음)
+  if LCard.Kind = hkBonus then
+  begin
+    AFloorChoice := 0;
+    Result := CardValue(LCard) + 5;
+    Exit;
+  end;
+
   var LMatchCount := 0;
   for var I := 0 to AState.Floor.Count - 1 do
   begin

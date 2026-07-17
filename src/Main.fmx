@@ -1,0 +1,12 @@
+object frmMain: TfrmMain
+  Left = 0
+  Top = 0
+  Caption = #44256#49828#53681
+  ClientHeight = 640
+  ClientWidth = 960
+  FormFactor.Width = 320
+  FormFactor.Height = 480
+  FormFactor.Devices = [Desktop]
+  OnCreate = FormCreate
+  DesignerMasterStyle = 0
+end

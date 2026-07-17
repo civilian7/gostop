@@ -50,6 +50,7 @@ type
     gpPlaying,            // 플레이어가 손패를 낼 차례
     gpAwaitingGoStop,     // 3점 이상 도달, 고/스톱 대기
     gpAwaitingFlipChoice, // 뒤집은 패가 바닥 2장(다른 종류)과 매칭 → 가져갈 패 선택 대기
+    gpAwaitingBonusDraw,  // 보너스패를 내고 더미에서 가져올 패 선택 대기
     gpFinished            // 게임 종료
   );
 
@@ -158,8 +159,6 @@ type
     Score: TScoreOptions;
     /// <summary>쓸/따닥/쪽/자뻑 시 상대당 뺏는 피 장수(기본 1).</summary>
     PiStealPerEvent: Integer;
-    /// <summary>조커를 손패로 내면 바닥패 1장을 가져오는가(기본 True).</summary>
-    JokerGrabsFloor: Boolean;
     /// <summary>흔들면 그 월의 카드를 실제로 내야 하는가(기본 True).</summary>
     EnforceShakeMonth: Boolean;
 
@@ -178,6 +177,8 @@ type
     FRules: TRuleSet;
     FOnEvent: TProc<TPlayEvent>;
     FFlipChoiceEnabled: Boolean;
+    FBonusDrawEnabled: Boolean;
+    FPendingBonus: TArray<THwatuCard>;   // 이번 턴에 내려놓은 보너스패(뻑이면 뻑 무더기에 함께 묻힘)
     FFlipCard: THwatuCard;
     FFlipOpt0: THwatuCard;
     FFlipOpt1: THwatuCard;
@@ -221,6 +222,13 @@ type
     function ResolveFlipChoice(const AOrdinal: Integer): Boolean;
     /// <summary>뒤집기 선택 대기 중, 가져갈 후보 2장(바닥패)을 반환합니다.</summary>
     function FlipChoiceOptions: TArray<THwatuCard>;
+    /// <summary>
+    ///   보너스패 뽑기 대기(<c>gpAwaitingBonusDraw</c>)에서 더미의 지정 위치 카드를 가져옵니다.
+    ///   일반패면 손패로 들어가고 같은 차례가 계속되며, 보너스패면 즉시 획득 후 계속 고릅니다.
+    /// </summary>
+    /// <param name="AStockIndex">더미 내 위치(0 기반).</param>
+    /// <exception cref="EHwatuError">보너스 뽑기 대기 단계가 아니거나 범위를 벗어나면 발생.</exception>
+    procedure ResolveBonusDraw(const AStockIndex: Integer);
     /// <summary>뒤집기로 가져올 뒤집은 패(선택 대기 중).</summary>
     function FlipDrawnCard: THwatuCard;
     /// <summary>고를 선언하고 다음 차례로 넘어갑니다.</summary>
@@ -231,10 +239,15 @@ type
     function ScoreOf(const APlayerIndex: Integer): TScoreBreakdown;
 
     /// <summary>
-    ///   딜 직후 손패 총통(같은 월 4장)을 검사해, 있으면 그 플레이어를 승자로 게임을 즉시 종료합니다(자동 처리용).
+    ///   딜 직후 손패 총통(같은 월 4장)을 검사해, 있으면 그 판을 무효(승자 없음)로 즉시 종료합니다(자동 처리용).
     /// </summary>
     /// <returns>총통으로 종료되면 True.</returns>
     function ApplyHandChongtong: Boolean;
+    /// <summary>
+    ///   딜 직후 바닥에 깔린 보너스패를 선(현재 차례)이 자동 획득하고, 그 장수만큼 더미에서
+    ///   일반패를 뽑아 바닥을 채웁니다(보충 중 나온 보너스패도 선이 획득). 딜 후 1회 호출.
+    /// </summary>
+    procedure ApplyFloorBonus;
     /// <summary>
     ///   지정 플레이어가 손패에 같은 월 4장을 들고 있어 총통을 선언할 수 있으면 True(딜 직후·플레이 중 모두).
     /// </summary>
@@ -286,6 +299,11 @@ type
     ///   UI(사람 차례)에서만 True로 켜고, AI·자동 진행에서는 False로 두어 자동(값 높은 패)으로 처리한다.
     /// </summary>
     property FlipChoiceEnabled: Boolean read FFlipChoiceEnabled write FFlipChoiceEnabled;
+    /// <summary>
+    ///   보너스패를 낼 때 더미를 펼쳐 가져올 패를 고르게 할지(True=<c>gpAwaitingBonusDraw</c>로 멈춤,
+    ///   False=더미 맨 위에서 자동 보충). UI 게임에서 켠다. 기본 False.
+    /// </summary>
+    property BonusDrawEnabled: Boolean read FBonusDrawEnabled write FBonusDrawEnabled;
     /// <summary>진행 중인 게임 상태(읽기용).</summary>
     property State: TGameState read FState;
     /// <summary>
@@ -412,7 +430,6 @@ class function TRuleSet.Default: TRuleSet;
 begin
   Result.Score := TScoreOptions.Default;
   Result.PiStealPerEvent := 1;
-  Result.JokerGrabsFloor := True;
   Result.EnforceShakeMonth := True;
 end;
 {$ENDREGION}
@@ -621,8 +638,9 @@ begin
   var LName := FState.CurrentPlayer.Name;
   if LCreator = FState.Current then
   begin
-    // 자뻑: 자기가 만든 뻑을 자기가 먹음 → 상대 전원에게 피 1장
+    // 자뻑: 자기가 만든 뻑을 자기가 먹음 → 상대 전원에게서 피 2장씩("자뻑은 두 장")
     AddEvent(pekJabbeok, FState.Current, AMonth, Format('%s 자뻑! (%d월)', [LName, AMonth]));
+    StealPiFromOthers(FState.Current);
     StealPiFromOthers(FState.Current);
   end
   else
@@ -630,6 +648,32 @@ begin
     // 남의 뻑을 먹음 → 뻑을 싼 사람에게서 피 1장
     AddEvent(pekPiSteal, FState.Current, AMonth, Format('%s 뻑 회수 (%d월)', [LName, AMonth]));
     StealOnePi(FState.Current, LCreator);
+  end;
+end;
+
+procedure TTurnEngine.ApplyFloorBonus;
+begin
+  var LIdx := 0;
+  while LIdx < FState.Floor.Count do
+  begin
+    if FState.Floor[LIdx].Kind = hkBonus then
+    begin
+      var LCard := FState.Floor[LIdx];
+      FState.Floor.Delete(LIdx);
+      FState.CurrentPlayer.Captured.Add(LCard);
+      AddEvent(pekCapture, FState.Current, 0, Format('%s 바닥 보너스패 획득(선)', [FState.CurrentPlayer.Name]));
+
+      // 더미에서 일반패 1장으로 바닥 보충(보충 중 보너스가 나오면 그것도 선이 획득)
+      var LFill: THwatuCard;
+      if DrawNonBonus(FState.CurrentPlayer, LFill) then
+      begin
+        FState.Floor.Add(LFill);
+      end;
+    end
+    else
+    begin
+      Inc(LIdx);
+    end;
   end;
 end;
 
@@ -727,6 +771,9 @@ end;
 
 procedure TTurnEngine.AdvanceTurn;
 begin
+  // 턴이 끝나면 보너스패 묻힘 대기는 해제(뻑 없이 턴이 끝났으므로 획득 확정)
+  FPendingBonus := nil;
+
   var LAnyActive := False;
   for var P := 0 to FState.PlayerCount - 1 do
   begin
@@ -803,6 +850,31 @@ begin
       AddEvent(pekShake, FState.Current, LMonth, Format('%s 흔들기! (%d월)', [LPlayer.Name, LMonth]));
     end;
 
+    // 보너스패(쌍피/3피): 손에서 내면 즉시 획득더미로. 실물 규칙 — 바닥에 놓거나 뒤집지 않고
+    // 더미에서 한 장을 뽑아 손을 보충한 뒤, 같은 차례에 실제 패를 한 번 더 낸다(턴을 넘기지 않음).
+    // 단, 이번 턴에 뻑(싼) 경우 함께 묻히도록 대기 목록에 기록해 둔다.
+    if LHand.Kind = hkBonus then
+    begin
+      LPlayer.Captured.Add(LHand);
+      FPendingBonus := FPendingBonus + [LHand];
+      AddEvent(pekCapture, FState.Current, 0, Format('%s 보너스패 획득', [LPlayer.Name]));
+
+      // 선택 UI가 켜져 있으면 더미를 펼쳐 가져올 패를 고르게 멈춘다
+      if FBonusDrawEnabled and (FState.Stock.Count > 0) then
+      begin
+        FState.Phase := gpAwaitingBonusDraw;
+        Exit(False);
+      end;
+
+      var LRefill: THwatuCard;
+      if DrawNonBonus(LPlayer, LRefill) then
+      begin
+        LPlayer.Hand.Add(LRefill);
+      end;
+
+      Exit(False);
+    end;
+
     // 더미 뒤집기(보너스패는 즉시 획득하고 다음 장을 뒤집는다)
     var LDraw: THwatuCard;
     var LHasDraw := DrawNonBonus(LPlayer, LDraw);
@@ -813,6 +885,29 @@ begin
       FState.Floor.Add(LHand);
       FState.Floor.Add(LDraw);
       AddEvent(pekBbeok, FState.Current, LMonth, Format('%s 뻑! (%d월)', [LPlayer.Name, LMonth]));
+
+      // 이번 턴에 내려놓은 보너스패(조커)는 싼(뻑) 무더기에 함께 묻힌다
+      if Length(FPendingBonus) > 0 then
+      begin
+        for var LB in FPendingBonus do
+        begin
+          for var J := LPlayer.Captured.Count - 1 downto 0 do
+          begin
+            if LPlayer.Captured[J].AssetId = LB.AssetId then
+            begin
+              LPlayer.Captured.Delete(J);
+              Break;
+            end;
+          end;
+
+          var LBuried := LB;
+          LBuried.Month := LMonth;   // 뻑 무더기와 같은 월로 묶어, 그 월을 먹을 때 함께 먹히게 한다
+          FState.Floor.Add(LBuried);
+        end;
+
+        AddEvent(pekPlace, FState.Current, LMonth, Format('%s 보너스패도 뻑 더미에 묻힘', [LPlayer.Name]));
+        FPendingBonus := nil;
+      end;
 
       // 연뻑: 이미 다른 뻑 더미가 남아 있는 상태에서 또 뻑
       if FState.BbeokCreator.Count > 0 then
@@ -832,30 +927,8 @@ begin
       Exit(False);
     end;
 
-    // 손패 처리
+    // 손패 처리(보너스패는 위에서 이미 단락 처리됨)
     var LPlayedCaptured := False;
-    if LHand.Kind = hkBonus then
-    begin
-      // 조커/보너스패는 즉시 획득. 대가로 바닥패 1장(값 높은 것)을 가져와 손패에 넣는다(총통 성립 가능).
-      LCaptured.Add(LHand);
-      if FRules.JokerGrabsFloor and (FState.Floor.Count > 0) then
-      begin
-        var LGrabIdx := 0;
-        for var I := 1 to FState.Floor.Count - 1 do
-        begin
-          if CaptureRank(FState.Floor[I]) > CaptureRank(FState.Floor[LGrabIdx]) then
-          begin
-            LGrabIdx := I;
-          end;
-        end;
-
-        var LGrabbed := FState.Floor[LGrabIdx];
-        FState.Floor.Delete(LGrabIdx);
-        LPlayer.Hand.Add(LGrabbed);
-        AddEvent(pekCapture, FState.Current, LGrabbed.Month, Format('%s 조커로 바닥패 1장을 손패로 가져옴', [LPlayer.Name]));
-      end;
-    end
-    else
     if Length(LHandMatches) = 0 then
     begin
       FState.Floor.Add(LHand);
@@ -939,16 +1012,17 @@ begin
       AddEvent(pekPlace, FState.Current, LMonth, Format('%s 못 먹고 바닥에 놓음', [LPlayer.Name]));
     end;
 
-    // 쓸(싹쓸이): 이번에 먹었고 바닥이 비었으면. 단, 마지막 장(손패 소진)에선 쓸 불인정
-    var LSseul := (FState.Floor.Count = 0) and (LCaptured.Count > 0) and (LPlayer.Hand.Count > 0);
+    // 마지막 장(손패 소진)에선 쪽·따닥·쓸 등 보너스 이벤트를 인정하지 않는다.
+    var LNotLast := LPlayer.Hand.Count > 0;
+    var LSseul := (FState.Floor.Count = 0) and (LCaptured.Count > 0) and LNotLast;
 
-    if LTtadak then
+    if LTtadak and LNotLast then
     begin
       AddEvent(pekTtadak, FState.Current, LMonth, LPlayer.Name + ' 따닥!');
       StealPiFromOthers(FState.Current);
     end;
 
-    if LJjok then
+    if LJjok and LNotLast then
     begin
       AddEvent(pekJjok, FState.Current, LMonth, LPlayer.Name + ' 쪽!');
       StealPiFromOthers(FState.Current);
@@ -974,6 +1048,40 @@ begin
   finally
     LCaptured.Free;
   end;
+end;
+
+procedure TTurnEngine.ResolveBonusDraw(const AStockIndex: Integer);
+begin
+  if FState.Phase <> gpAwaitingBonusDraw then
+  begin
+    raise EHwatuError.Create('보너스 뽑기 대기 단계가 아닙니다.');
+  end;
+
+  if (AStockIndex < 0) or (AStockIndex >= FState.Stock.Count) then
+  begin
+    raise EHwatuError.CreateFmt('더미 범위를 벗어난 선택입니다(%d).', [AStockIndex]);
+  end;
+
+  var LPlayer := FState.CurrentPlayer;
+  var LCard := FState.Stock[AStockIndex];
+  FState.Stock.Delete(AStockIndex);
+
+  if LCard.Kind = hkBonus then
+  begin
+    // 보너스패를 집으면 그것도 즉시 획득하고, 더미가 남았으면 다시 고른다
+    LPlayer.Captured.Add(LCard);
+    AddEvent(pekCapture, FState.Current, 0, Format('%s 보너스패 획득(더미)', [LPlayer.Name]));
+    if FState.Stock.Count > 0 then
+    begin
+      Exit;
+    end;
+
+    FState.Phase := gpPlaying;
+    Exit;
+  end;
+
+  LPlayer.Hand.Add(LCard);
+  FState.Phase := gpPlaying;   // 같은 차례 계속(실제 패를 냄)
 end;
 
 procedure TTurnEngine.RemoveFloorByAsset(const AAssetId: string);
@@ -1033,14 +1141,14 @@ begin
   LPlayer.Captured.Add(LChosen);
   AddEvent(pekCapture, FState.Current, FFlipCard.Month, Format('%s 뒤집어 2장 먹음', [LPlayer.Name]));
 
-  // 따닥/쪽
-  if FFlipHandCaptured and (FFlipCard.Month = FFlipHandMonth) then
+  // 따닥/쪽 (마지막 장이면 인정 안 함)
+  if (LPlayer.Hand.Count > 0) and FFlipHandCaptured and (FFlipCard.Month = FFlipHandMonth) then
   begin
     AddEvent(pekTtadak, FState.Current, FFlipCard.Month, LPlayer.Name + ' 따닥!');
     StealPiFromOthers(FState.Current);
   end
   else
-  if FFlipHandPlaced and (FFlipCard.Month = FFlipHandMonth) then
+  if (LPlayer.Hand.Count > 0) and FFlipHandPlaced and (FFlipCard.Month = FFlipHandMonth) then
   begin
     AddEvent(pekJjok, FState.Current, FFlipCard.Month, LPlayer.Name + ' 쪽!');
     StealPiFromOthers(FState.Current);
@@ -1197,14 +1305,15 @@ end;
 
 function TTurnEngine.ApplyHandChongtong: Boolean;
 begin
+  // 딜 직후 총통(같은 월 4장)이 나오면 그 판은 무효 — 승자 없이 끝내고 다음 게임으로
   for var P := 0 to FState.PlayerCount - 1 do
   begin
     var LMonth: Integer;
     if CanDeclareChongtong(P, LMonth) then
     begin
       FState.Phase := gpFinished;
-      FState.Winner := P;
-      AddEvent(pekChongtong, P, LMonth, Format('%s 총통! (%d월 4장) 즉시 승리', [FState.Player(P).Name, LMonth]));
+      FState.Winner := -1;
+      AddEvent(pekChongtong, P, LMonth, Format('%s 총통! (%d월 4장) — 무효 판', [FState.Player(P).Name, LMonth]));
       Exit(True);
     end;
   end;

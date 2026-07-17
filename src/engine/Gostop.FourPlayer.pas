@@ -89,6 +89,31 @@ begin
       Inc(Result);
     end;
   end;
+
+  // 흔들기 가능(같은 월 3장 이상 보유)이면 전체 광 개수 ×2
+  var LMonthCount: array [1 .. 12] of Integer;
+  for var M := 1 to 12 do
+  begin
+    LMonthCount[M] := 0;
+  end;
+
+  for var LI := 0 to AHand.Count - 1 do
+  begin
+    var LM := AHand[LI].Month;
+    if (LM >= 1) and (LM <= 12) then
+    begin
+      Inc(LMonthCount[LM]);
+    end;
+  end;
+
+  for var M := 1 to 12 do
+  begin
+    if LMonthCount[M] >= 3 then
+    begin
+      Result := Result * 2;
+      Break;
+    end;
+  end;
 end;
 
 class function TFourPlayer.Resolve(const ATable4: TTableState;

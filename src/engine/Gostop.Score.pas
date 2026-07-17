@@ -175,8 +175,9 @@ begin
 end;
 
 // 먹은 패의 족보 점수를 단일-패스로 계산(내부용).
-// 국진은 쪽/쓸 등으로 남에게서 '피로 받은 것(GivenAsPi)'이면 쌍피로만, 직접 소유한 것이면 열끗으로만 계산한다.
-function DoEvaluate(const ACaptured: TList<THwatuCard>; const AOptions: TScoreOptions): TScoreBreakdown;
+// 국진: 피로 받은 것(GivenAsPi)은 항상 쌍피. 직접 소유분은 AGukjinAsPi에 따라 열끗/쌍피로 계산한다.
+function DoEvaluate(const ACaptured: TList<THwatuCard>; const AOptions: TScoreOptions;
+  const AGukjinAsPi: Boolean): TScoreBreakdown;
 var
   LHasBi: Boolean;
   LGodoriCount: Integer;
@@ -206,8 +207,8 @@ begin
 
       hkAnimal:
         begin
-          // 남에게서 피로 받은 국진은 쌍피(피값 2)로만, 그 외(직접 소유)는 열끗으로만 계산
-          if LCard.IsGukjin and LCard.GivenAsPi then
+          // 피로 받은 국진은 항상 쌍피. 소유 국진은 호출자가 정한 해석(AGukjinAsPi)을 따른다
+          if LCard.IsGukjin and (LCard.GivenAsPi or AGukjinAsPi) then
           begin
             Inc(Result.JunkValue, 2);
           end
@@ -317,8 +318,22 @@ end;
 
 class function TScorer.Evaluate(const ACaptured: TList<THwatuCard>; const AOptions: TScoreOptions): TScoreBreakdown;
 begin
-  // 국진의 쌍피/열끗은 카드별 GivenAsPi(피로 받았는가)로 이미 확정되므로 단일-패스로 계산한다.
-  Result := DoEvaluate(ACaptured, AOptions);
+  // 기본: 소유 국진은 열끗으로 계산. 소유 국진이 있으면 쌍피 해석도 계산해 유리한 쪽을 자동 선택한다.
+  // (피로 받은 국진은 두 해석 모두에서 항상 쌍피)
+  Result := DoEvaluate(ACaptured, AOptions, False);
+  for var LCard in ACaptured do
+  begin
+    if LCard.IsGukjin and (not LCard.GivenAsPi) then
+    begin
+      var LAsPi := DoEvaluate(ACaptured, AOptions, True);
+      if LAsPi.Total > Result.Total then
+      begin
+        Result := LAsPi;
+      end;
+
+      Break;
+    end;
+  end;
 end;
 
 class function TScorer.Settle(const AWinner: TScoreBreakdown; const ALoser: TScoreBreakdown;

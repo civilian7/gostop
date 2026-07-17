@@ -37,3 +37,9 @@ Thumbs.db
 
 # Generated resource (rebuilt from Gostop.manifest by build.ps1)
 *.res
+
+# Build output
+bin/
+gostop.ini
+src/dcu/
+.gemini_key

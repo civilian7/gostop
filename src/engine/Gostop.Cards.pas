@@ -66,7 +66,7 @@ type
     /// </summary>
     GivenAsPi: Boolean;
 
-    /// <summary>사람이 읽을 수 있는 한글 카드 이름을 반환합니다. 예: '11월 오동 광'.</summary>
+    /// <summary>사람이 읽을 수 있는 한글 카드 이름을 반환합니다. 예: '11월 똥 광'.</summary>
     function DisplayName: string;
     /// <summary>이미지 파일명을 반환합니다. 예: ImageFileName('png') → 'january_hikari.png'.</summary>
     /// <param name="AExt">확장자(점 제외). 기본값 'png'.</param>
@@ -78,7 +78,7 @@ type
   public
     /// <summary>표준 48장 카드 배열을 생성해 반환합니다(월 1→12, 종류 순).</summary>
     class function Standard: TArray<THwatuCard>; static;
-    /// <summary>보너스패(조커) 4장 배열을 생성해 반환합니다(쌍피 2 · 3피 1 · 조커 1).</summary>
+    /// <summary>보너스패 3장 배열을 생성해 반환합니다(쌍피 2 · 3피 1). 실물 정통 구성.</summary>
     class function Bonus: TArray<THwatuCard>; static;
   end;
 
@@ -145,10 +145,10 @@ end;
 
 {$REGION 'THwatuCard'}
 const
-  // 월별 한글 명칭(1~12). 화투 관례: 11월=오동, 12월=비.
+  // 월별 한글 명칭(1~12). 화투 관례: 11월=똥, 12월=비.
   MONTH_NAMES: array [1 .. 12] of string = (
     '송학', '매조', '벚꽃', '흑싸리', '난초', '모란',
-    '홍싸리', '공산', '국화', '단풍', '오동', '비'
+    '홍싸리', '공산', '국화', '단풍', '똥', '비'
   );
 
 function THwatuCard.DisplayName: string;
@@ -281,17 +281,17 @@ begin
     Add(10, hkJunk, 1, 'october_kasu_1', 1, rkNone, False, False, False);
     Add(10, hkJunk, 2, 'october_kasu_2', 1, rkNone, False, False, False);
 
-    // 11월 오동: 광 · 피3
+    // 11월 똥: 똥광 · 똥쌍피 · 똥피2
     Add(11, hkBright, 1, 'november_hikari', 0, rkNone, False, False, False);
     Add(11, hkJunk, 1, 'november_kasu_1', 1, rkNone, False, False, False);
     Add(11, hkJunk, 2, 'november_kasu_2', 1, rkNone, False, False, False);
-    Add(11, hkJunk, 3, 'november_kasu_3', 1, rkNone, False, False, False);
+    Add(11, hkJunk, 3, 'november_kasu_3', 2, rkNone, False, False, False);   // 똥쌍피
 
-    // 12월 비: 광(비광) · 열끗 · 띠 · 피1
+    // 12월 비: 광(비광) · 열끗 · 띠 · 쌍피(비쌍피=2피)
     Add(12, hkBright, 1, 'december_hikari', 0, rkNone, False, True, False);
     Add(12, hkAnimal, 1, 'december_tane', 0, rkNone, False, False, False);
     Add(12, hkRibbon, 1, 'december_tanzaku', 0, rkNone, False, False, False);
-    Add(12, hkJunk, 1, 'december_kasu', 1, rkNone, False, False, False);
+    Add(12, hkJunk, 1, 'december_kasu', 2, rkNone, False, False, False);   // 비쌍피(실물 12월 비 피는 쌍피)
 
     Result := LList.ToArray;
   finally
@@ -323,7 +323,6 @@ begin
     Add(1, 'bonus_ssangpi_1', 2);
     Add(2, 'bonus_ssangpi_2', 2);
     Add(3, 'bonus_sampi', 3);
-    Add(4, 'bonus_joker', 2);
     Result := LList.ToArray;
   finally
     LList.Free;

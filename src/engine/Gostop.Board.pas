@@ -28,6 +28,7 @@ uses
   Gostop.Setup,
   Gostop.AI,
   Gostop.Characters,
+  Gostop.Settings,
   Gostop.FourPlayer,
   Gostop.CardImages,
   Gostop.Audio,
@@ -93,14 +94,7 @@ type
     FOnExitRequest: TNotifyEvent;
 
     // 게임 룰·플레이어 설정(게임 시작 전 설정창에서 변경, INI 유지)
-    FCfgPibak: Boolean;          // 피박
-    FCfgGwangbak: Boolean;       // 광박
-    FCfgGobak: Boolean;          // 고박(×2)
-    FCfgBonus: Boolean;          // 보너스패 3장 포함(끄면 순수 48장)
-    FCfgMoneyPerPoint: Integer;  // 점당 금액
-    FCfgSeedMoney: Integer;      // 시드머니
-    FCfgAiSkill: Integer;        // AI 난이도(30/50/70/90)
-    FCfgNickname: string;        // 내 닉네임
+    FConfig: TGameConfig;        // 게임 룰·플레이어 설정(피박/광박/고박/보너스/금액/시드/난이도/닉네임)
     FNickEdit: TEdit;            // 닉네임 입력용(설정창에서만 표시, IME 지원)
     FSettingsOpen: Boolean;      // 설정창 표시 중
     FCfgRects: array [0 .. 8] of TRectF;   // 설정 행 값 버튼(7=닉네임, 8=아바타)
@@ -699,14 +693,7 @@ begin
   FGameSpeed := 1.0;
 
   // 게임 룰 기본값(설정창에서 변경 가능)
-  FCfgPibak := True;
-  FCfgGwangbak := True;
-  FCfgGobak := True;
-  FCfgBonus := True;
-  FCfgMoneyPerPoint := 100;
-  FCfgSeedMoney := 30000;
-  FCfgAiSkill := 70;
-  FCfgNickname := '나';
+  FConfig.Reset;
 
   Randomize;   // 아바타 랜덤 배정·AI 연출용(덱 셔플은 별도 보안 난수 사용)
   LoadSettings;   // INI(gostop.ini)에서 룰·볼륨·배속·아바타 복원
@@ -853,7 +840,7 @@ begin
     FStakes := 1;
     for var LP := spTop to spRight do
     begin
-      FMoney[LP] := FCfgSeedMoney;
+      FMoney[LP] := FConfig.SeedMoney;
       FWins[LP] := 0;
       FLosses[LP] := 0;
     end;
@@ -1828,14 +1815,14 @@ begin
     for var S := 0 to 3 do
     begin
       var LPos := TSeatPos((Ord(FNextStartPos) + S) mod 4);
-      FMoney[LPos] := FMoney[LPos] + FNet4[S] * FCfgMoneyPerPoint * FStakes;
+      FMoney[LPos] := FMoney[LPos] + FNet4[S] * FConfig.MoneyPerPoint * FStakes;
     end;
   end
   else
   begin
     for var I := 0 to FGame.PlayerCount - 1 do
     begin
-      FMoney[PhysicalPos(I)] := FMoney[PhysicalPos(I)] + LSettle[I].Net * FCfgMoneyPerPoint * FStakes;
+      FMoney[PhysicalPos(I)] := FMoney[PhysicalPos(I)] + LSettle[I].Net * FConfig.MoneyPerPoint * FStakes;
     end;
   end;
 
@@ -1888,7 +1875,7 @@ begin
       begin
         if S <> LWinnerSeat then
         begin
-          LLines.Add(Trim(Format('%s   %d원  %s', [SeatLabel(S), FNet4[S] * FCfgMoneyPerPoint * FStakes, LSeatFlag[S]])));
+          LLines.Add(Trim(Format('%s   %d원  %s', [SeatLabel(S), FNet4[S] * FConfig.MoneyPerPoint * FStakes, LSeatFlag[S]])));
         end;
       end;
     end
@@ -1900,7 +1887,7 @@ begin
         if I <> FGame.Winner then
         begin
           LLines.Add(Trim(Format('%s   %d원  %s',
-            [FGame.Player(I).Name, LSettle[I].Net * FCfgMoneyPerPoint * FStakes, FlagStr(LSettle[I])])));
+            [FGame.Player(I).Name, LSettle[I].Net * FConfig.MoneyPerPoint * FStakes, FlagStr(LSettle[I])])));
         end;
       end;
     end;
@@ -2801,14 +2788,7 @@ procedure TGostopBoard.LoadSettings;
 begin
   var LIni := TIniFile.Create(SettingsPath);
   try
-    FCfgPibak := LIni.ReadBool('Rules', 'Pibak', FCfgPibak);
-    FCfgGwangbak := LIni.ReadBool('Rules', 'Gwangbak', FCfgGwangbak);
-    FCfgGobak := LIni.ReadBool('Rules', 'Gobak', FCfgGobak);
-    FCfgBonus := LIni.ReadBool('Rules', 'Bonus', FCfgBonus);
-    FCfgMoneyPerPoint := LIni.ReadInteger('Rules', 'MoneyPerPoint', FCfgMoneyPerPoint);
-    FCfgSeedMoney := LIni.ReadInteger('Rules', 'SeedMoney', FCfgSeedMoney);
-    FCfgAiSkill := LIni.ReadInteger('Rules', 'AiSkill', FCfgAiSkill);
-    FCfgNickname := LIni.ReadString('Player', 'Nickname', FCfgNickname);
+    FConfig.LoadFrom(LIni);
     FHumanAvatarIdx := LIni.ReadInteger('UI', 'Avatar', FHumanAvatarIdx);
     FGameSpeed := LIni.ReadFloat('UI', 'GameSpeed', FGameSpeed);
     TGostopAudio.Instance.Volume := LIni.ReadFloat('UI', 'Volume', TGostopAudio.Instance.Volume);
@@ -2817,25 +2797,9 @@ begin
     LIni.Free;
   end;
 
-  // 값 검증(수동 편집 대비)
-  FCfgAiSkill := EnsureRange(FCfgAiSkill, 0, 100);
-  if FCfgMoneyPerPoint <= 0 then
-  begin
-    FCfgMoneyPerPoint := 100;
-  end;
-
-  if FCfgSeedMoney <= 0 then
-  begin
-    FCfgSeedMoney := 30000;
-  end;
-
+  FConfig.Validate;   // 수동 편집 대비 값 보정
   FGameSpeed := EnsureRange(FGameSpeed, 0.5, 2.0);
   FAiTimer.Interval := Round(650 / FGameSpeed);
-  FCfgNickname := Trim(FCfgNickname);
-  if FCfgNickname = '' then
-  begin
-    FCfgNickname := '나';
-  end;
 end;
 
 // 설정을 INI에 저장(변경 시마다 호출)
@@ -2844,14 +2808,7 @@ begin
   try
     var LIni := TIniFile.Create(SettingsPath);
     try
-      LIni.WriteBool('Rules', 'Pibak', FCfgPibak);
-      LIni.WriteBool('Rules', 'Gwangbak', FCfgGwangbak);
-      LIni.WriteBool('Rules', 'Gobak', FCfgGobak);
-      LIni.WriteBool('Rules', 'Bonus', FCfgBonus);
-      LIni.WriteInteger('Rules', 'MoneyPerPoint', FCfgMoneyPerPoint);
-      LIni.WriteInteger('Rules', 'SeedMoney', FCfgSeedMoney);
-      LIni.WriteInteger('Rules', 'AiSkill', FCfgAiSkill);
-      LIni.WriteString('Player', 'Nickname', FCfgNickname);
+      FConfig.SaveTo(LIni);
       LIni.WriteInteger('UI', 'Avatar', FHumanAvatarIdx);
       LIni.WriteFloat('UI', 'GameSpeed', FGameSpeed);
       LIni.WriteFloat('UI', 'Volume', TGostopAudio.Instance.Volume);
@@ -2876,7 +2833,7 @@ begin
   end;
 
   FNickEdit.SetBounds(ARow.Left, ARow.Top, ARow.Width, ARow.Height);
-  FNickEdit.Text := FCfgNickname;
+  FNickEdit.Text := FConfig.Nickname;
   FNickEdit.Visible := True;
   FNickEdit.SetFocus;
   FNickEdit.SelectAll;
@@ -2896,7 +2853,7 @@ begin
     LName := '나';
   end;
 
-  FCfgNickname := LName;
+  FConfig.Nickname := LName;
   FNickEdit.Visible := False;
   SaveSettings;
   Repaint;
@@ -2914,37 +2871,17 @@ end;
 // 설정을 반영한 점수 옵션
 function TGostopBoard.CfgScore: TScoreOptions;
 begin
-  Result := TScoreOptions.Default;
-  Result.PibakEnabled := FCfgPibak;
-  Result.GwangbakEnabled := FCfgGwangbak;
-  if FCfgGobak then
-  begin
-    Result.GobakMultiplier := 2;
-  end
-  else
-  begin
-    Result.GobakMultiplier := 1;
-  end;
+  Result := FConfig.ToScore;
 end;
 
-// 설정을 반영한 룰셋
 function TGostopBoard.CfgRules: TRuleSet;
 begin
-  Result := TRuleSet.Default;
-  Result.Score := CfgScore;
+  Result := FConfig.ToRules;
 end;
 
-// 설정을 반영한 덱 구성(보너스패 포함/순수 48장)
 function TGostopBoard.CfgDeckOptions: TDeckOptions;
 begin
-  if FCfgBonus then
-  begin
-    Result := TDeckOptions.WithBonus(3);
-  end
-  else
-  begin
-    Result := TDeckOptions.Standard;
-  end;
+  Result := FConfig.ToDeckOptions;
 end;
 
 // 설정 행 값 순환(설정창에서 값 버튼 클릭)
@@ -2953,80 +2890,80 @@ begin
   case AIndex of
     0:
       begin
-        FCfgPibak := not FCfgPibak;
+        FConfig.Pibak := not FConfig.Pibak;
       end;
     1:
       begin
-        FCfgGwangbak := not FCfgGwangbak;
+        FConfig.Gwangbak := not FConfig.Gwangbak;
       end;
     2:
       begin
-        FCfgGobak := not FCfgGobak;
+        FConfig.Gobak := not FConfig.Gobak;
       end;
     3:
       begin
-        FCfgBonus := not FCfgBonus;
+        FConfig.Bonus := not FConfig.Bonus;
       end;
     4:
       begin
-        case FCfgMoneyPerPoint of
+        case FConfig.MoneyPerPoint of
           50:
             begin
-              FCfgMoneyPerPoint := 100;
+              FConfig.MoneyPerPoint := 100;
             end;
           100:
             begin
-              FCfgMoneyPerPoint := 500;
+              FConfig.MoneyPerPoint := 500;
             end;
           500:
             begin
-              FCfgMoneyPerPoint := 1000;
+              FConfig.MoneyPerPoint := 1000;
             end;
         else
           begin
-            FCfgMoneyPerPoint := 50;
+            FConfig.MoneyPerPoint := 50;
           end;
         end;
       end;
     5:
       begin
-        case FCfgSeedMoney of
+        case FConfig.SeedMoney of
           10000:
             begin
-              FCfgSeedMoney := 30000;
+              FConfig.SeedMoney := 30000;
             end;
           30000:
             begin
-              FCfgSeedMoney := 50000;
+              FConfig.SeedMoney := 50000;
             end;
           50000:
             begin
-              FCfgSeedMoney := 100000;
+              FConfig.SeedMoney := 100000;
             end;
         else
           begin
-            FCfgSeedMoney := 10000;
+            FConfig.SeedMoney := 10000;
           end;
         end;
       end;
     6:
       begin
-        case FCfgAiSkill of
+        case FConfig.AiSkill of
           30:
             begin
-              FCfgAiSkill := 50;
+              FConfig.AiSkill := 50;
             end;
           50:
             begin
-              FCfgAiSkill := 70;
+              FConfig.AiSkill := 70;
             end;
           70:
             begin
-              FCfgAiSkill := 90;
+              FConfig.AiSkill := 90;
             end;
         else
           begin
-            FCfgAiSkill := 30;
+            FConfig.AiSkill := 30;
           end;
         end;
       end;
@@ -3068,7 +3005,7 @@ begin
   LLabels[8] := '아바타';
 
   var LValues: array [0 .. ROW_COUNT - 1] of string;
-  if FCfgPibak then
+  if FConfig.Pibak then
   begin
     LValues[0] := '켬';
   end
@@ -3077,7 +3014,7 @@ begin
     LValues[0] := '끔';
   end;
 
-  if FCfgGwangbak then
+  if FConfig.Gwangbak then
   begin
     LValues[1] := '켬';
   end
@@ -3086,7 +3023,7 @@ begin
     LValues[1] := '끔';
   end;
 
-  if FCfgGobak then
+  if FConfig.Gobak then
   begin
     LValues[2] := '켬';
   end
@@ -3095,7 +3032,7 @@ begin
     LValues[2] := '끔';
   end;
 
-  if FCfgBonus then
+  if FConfig.Bonus then
   begin
     LValues[3] := '3장 포함';
   end
@@ -3104,11 +3041,11 @@ begin
     LValues[3] := '없음(48장)';
   end;
 
-  LValues[4] := Format('%s원', [FormatFloat('#,##0', FCfgMoneyPerPoint)]);
-  LValues[5] := Format('%s원', [FormatFloat('#,##0', FCfgSeedMoney)]);
-  LValues[7] := FCfgNickname;
+  LValues[4] := Format('%s원', [FormatFloat('#,##0', FConfig.MoneyPerPoint)]);
+  LValues[5] := Format('%s원', [FormatFloat('#,##0', FConfig.SeedMoney)]);
+  LValues[7] := FConfig.Nickname;
   LValues[8] := '변경';
-  case FCfgAiSkill of
+  case FConfig.AiSkill of
     30:
       begin
         LValues[6] := '초급';
@@ -3194,7 +3131,7 @@ function TGostopBoard.SeatDisplayName(const APos: TSeatPos): string;
 begin
   if (APos = spBottom) and (not FSpectator) then
   begin
-    Result := FCfgNickname;
+    Result := FConfig.Nickname;
     Exit;
   end;
 
@@ -3470,7 +3407,7 @@ begin
     if R = FSetupHumanRow then
     begin
       FSeatAvatar[LPos] := FHumanAvatarIdx;
-      FSeatSkill[LPos] := FCfgAiSkill;
+      FSeatSkill[LPos] := FConfig.AiSkill;
     end
     else
     begin
@@ -3488,7 +3425,7 @@ begin
   end;
 
   FMatchSetupOpen := False;
-  NewGame(FSetupCount, FCfgAiSkill);
+  NewGame(FSetupCount, FConfig.AiSkill);
 end;
 
 // 대전 설정 다이얼로그(슬롯머신): 행 클릭=내 시트, 난이도 클릭=순환, 관전 토글
@@ -3540,7 +3477,7 @@ begin
     if R = FSetupHumanRow then
     begin
       LAvIdx := FHumanAvatarIdx;
-      LName := FCfgNickname + ' (나)';
+      LName := FConfig.Nickname + ' (나)';
     end
     else
     begin

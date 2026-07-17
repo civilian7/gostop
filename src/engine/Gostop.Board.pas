@@ -5721,6 +5721,7 @@ begin
     begin
       if FGiriRects[K].Contains(LPoint) then
       begin
+        TGostopAudio.Instance.Play('ui_click');
         ResolveGiri(K);
         Exit;
       end;
@@ -6122,6 +6123,7 @@ begin
           LOrd := 1;
         end;
 
+        TGostopAudio.Instance.Play('ui_click');
         FFlipChoosing := False;
         FTurnEvents.Clear;
         var LBefore := FGame.Clone;
@@ -6185,6 +6187,7 @@ begin
       if (LRealFloor >= 0) and (LRealFloor < FGame.Floor.Count) and
         (FGame.Floor[LRealFloor].Month = FChooseMonth) and FFloorRects[K].Contains(LPoint) then
       begin
+        TGostopAudio.Instance.Play('ui_click');
         PlayChosen(FChooseHandIndex, FloorMatchOrdinal(LRealFloor, FChooseMonth));
         Exit;
       end;

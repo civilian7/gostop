@@ -324,12 +324,9 @@ type
     procedure DrawFront(const R: TRectF; const AAssetId: string);
     procedure DrawBack(const R: TRectF);
     procedure DrawLabel(const R: TRectF; const AText: string; const AColor: TAlphaColor; const ASize: Single);
-    procedure DrawCapturedGrouped(const APile: TList<THwatuCard>; const AX, AY: Single; const AScale: Single);
-    procedure DrawCapturedRows(const APile: TList<THwatuCard>; const AX, ARight, ATopY, AScale, ARowStep: Single);
     procedure DrawCapturedFan(const APile: TList<THwatuCard>; const AX, ARight, AY, AScale: Single; const AAnchorRight: Boolean = False);
     procedure DrawCapturedFanV(const APile: TList<THwatuCard>; const ACX, ATopY, ABottomY, AScale, AAngle: Single; const AAnchorBottom: Boolean = False);
     function  CapturedSequence(const APile: TList<THwatuCard>): TArray<Integer>;
-    procedure DrawCapturedLine(const APile: TList<THwatuCard>; const ACX, ACY, ADX, ADY, ACardW, ACardH, AAngle: Single);
     procedure DrawCardRotated(const ACenterX, ACenterY, ACardW, ACardH, AAngle: Single; const AAssetId: string; const ABack: Boolean);
     procedure DrawHumanHand(const ARegion: TRectF);
     procedure DrawHandList(const AHand: TList<THwatuCard>; const ARegion: TRectF; const AInteractive: Boolean);
@@ -2476,46 +2473,6 @@ begin
   end;
 end;
 
-procedure TGostopBoard.DrawCapturedGrouped(const APile: TList<THwatuCard>; const AX, AY: Single; const AScale: Single);
-begin
-  var CS := CardSize;
-  var LW := CS.Width * AScale;
-  var LH := CS.Height * AScale;
-  var LStep := LW * 0.4;
-  var LGroupGap := LW * 0.5;
-  var LX := AX;
-
-  for var G := 0 to 3 do
-  begin
-    var LIdx := TList<Integer>.Create;
-    try
-      for var I := 0 to APile.Count - 1 do
-      begin
-        if CapturedGroup(APile[I]) = G then
-        begin
-          LIdx.Add(I);
-        end;
-      end;
-
-      if LIdx.Count = 0 then
-      begin
-        Continue;
-      end;
-
-      SortIndexList(APile, LIdx);
-      for var K := 0 to LIdx.Count - 1 do
-      begin
-        var LR := RectF(LX + K * LStep, AY, LX + K * LStep + LW, AY + LH);
-        DrawFront(LR, APile[LIdx[K]].AssetId);
-      end;
-
-      LX := LX + LStep * (LIdx.Count - 1) + LW + LGroupGap;
-    finally
-      LIdx.Free;
-    end;
-  end;
-end;
-
 // 획득 패를 광→열끗→띠→피 순으로 정렬한 인덱스 시퀀스(연속 부채용)
 function TGostopBoard.CapturedSequence(const APile: TList<THwatuCard>): TArray<Integer>;
 begin
@@ -2687,104 +2644,6 @@ begin
   end;
 end;
 
-// 획득 패를 2행으로 배치. 1행: 광·열끗·띠(그룹 간격), 2행: 피. 행 내부는 가로로 겹쳐 나열
-// 겹침 간격은 [AX..ARight] 폭 안에 그 행의 카드가 다 들어가도록 자동 축소(최대 획득 수치에서도 넘치지 않음)
-// ARowStep = 두 행 사이 세로 간격
-procedure TGostopBoard.DrawCapturedRows(const APile: TList<THwatuCard>; const AX, ARight, ATopY, AScale, ARowStep: Single);
-
-  // 그룹 G의 장수
-  function CountOf(const AGroup: Integer): Integer;
-  begin
-    Result := 0;
-    for var I := 0 to APile.Count - 1 do
-    begin
-      if CapturedGroup(APile[I]) = AGroup then
-      begin
-        Inc(Result);
-      end;
-    end;
-  end;
-
-  // 한 행에 그룹 하나를 AStep 간격으로 그린 뒤 다음 그룹 시작 X를 돌려준다(빈 그룹은 그대로)
-  function DrawGroupAt(const AGroup: Integer; const AStartX, ARowY, ACardW, ACardH, AStep, AGap: Single): Single;
-  begin
-    var LIdx := TList<Integer>.Create;
-    try
-      for var I := 0 to APile.Count - 1 do
-      begin
-        if CapturedGroup(APile[I]) = AGroup then
-        begin
-          LIdx.Add(I);
-        end;
-      end;
-
-      if LIdx.Count = 0 then
-      begin
-        Exit(AStartX);
-      end;
-
-      SortIndexList(APile, LIdx);
-      for var K := 0 to LIdx.Count - 1 do
-      begin
-        var LR := RectF(AStartX + K * AStep, ARowY, AStartX + K * AStep + ACardW, ARowY + ACardH);
-        DrawFront(LR, APile[LIdx[K]].AssetId);
-      end;
-
-      Result := AStartX + AStep * (LIdx.Count - 1) + ACardW + AGap;
-    finally
-      LIdx.Free;
-    end;
-  end;
-
-  // 카드 수·그룹 간격을 고려해 폭 안에 들어갈 겹침 간격 산정(선호 간격을 넘지 않음)
-  function FitStep(const ACount, AGaps: Integer; const ACardW, AGap, APrefer, AAvailW: Single): Single;
-  begin
-    Result := APrefer;
-    if ACount > 1 then
-    begin
-      var LMax := (AAvailW - ACardW - AGaps * AGap) / (ACount - 1);
-      if LMax < Result then
-      begin
-        Result := LMax;
-      end;
-
-      if Result < 1 then
-      begin
-        Result := 1;
-      end;
-    end;
-  end;
-
-begin
-  var CS := CardSize;
-  var LW := CS.Width * AScale;
-  var LH := CS.Height * AScale;
-  var LGroupGap := LW * 0.35;      // 그룹 사이 간격
-  var LPrefer := LW * 0.5;         // 선호 가로 겹침(넉넉하면 이 간격)
-  var LAvail := ARight - AX;
-
-  // 1행: 광(0)·열끗(1)·띠(2) — 세 그룹 합산 장수 + 그룹 간격 고려해 폭에 맞춤
-  var LN0 := CountOf(0);
-  var LN1 := CountOf(1);
-  var LN2 := CountOf(2);
-  var LRow1 := LN0 + LN1 + LN2;
-  var LGaps1 := Ord(LN0 > 0) + Ord(LN1 > 0) + Ord(LN2 > 0) - 1;
-  if LGaps1 < 0 then
-  begin
-    LGaps1 := 0;
-  end;
-
-  var LStep1 := FitStep(LRow1, LGaps1, LW, LGroupGap, LPrefer, LAvail);
-  var LX := AX;
-  LX := DrawGroupAt(0, LX, ATopY, LW, LH, LStep1, LGroupGap);
-  LX := DrawGroupAt(1, LX, ATopY, LW, LH, LStep1, LGroupGap);
-  DrawGroupAt(2, LX, ATopY, LW, LH, LStep1, LGroupGap);
-
-  // 2행: 피(3)
-  var LStep3 := FitStep(CountOf(3), 0, LW, LGroupGap, LPrefer, LAvail);
-  DrawGroupAt(3, AX, ATopY + ARowStep, LW, LH, LStep3, LGroupGap);
-end;
-
 function TGostopBoard.SeatRegion(const APos: TSeatPos): TRectF;
 begin
   Result := TBoardLayout.SeatRegion(Width, Height, APos);
@@ -2832,48 +2691,6 @@ begin
     end;
   finally
     Canvas.SetMatrix(LSaved);
-  end;
-end;
-
-procedure TGostopBoard.DrawCapturedLine(const APile: TList<THwatuCard>; const ACX, ACY, ADX, ADY, ACardW, ACardH, AAngle: Single);
-begin
-  var LPX := ACX;
-  var LPY := ACY;
-  var LFirst := True;
-  for var G := 0 to 3 do
-  begin
-    var LIdx := TList<Integer>.Create;
-    try
-      for var I := 0 to APile.Count - 1 do
-      begin
-        if CapturedGroup(APile[I]) = G then
-        begin
-          LIdx.Add(I);
-        end;
-      end;
-
-      if LIdx.Count = 0 then
-      begin
-        Continue;
-      end;
-
-      SortIndexList(APile, LIdx);
-      if not LFirst then
-      begin
-        LPX := LPX + ADX * 1.4;
-        LPY := LPY + ADY * 1.4;
-      end;
-
-      LFirst := False;
-      for var K := 0 to LIdx.Count - 1 do
-      begin
-        DrawCardRotated(LPX, LPY, ACardW, ACardH, AAngle, APile[LIdx[K]].AssetId, False);
-        LPX := LPX + ADX;
-        LPY := LPY + ADY;
-      end;
-    finally
-      LIdx.Free;
-    end;
   end;
 end;
 

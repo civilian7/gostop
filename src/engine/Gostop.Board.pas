@@ -1766,13 +1766,29 @@ begin
   var LW := CS.Width * 0.75;
   var LH := CS.Height * 0.75;
   var LCen := CenterRegion;
-  var LPerRow := Min(LCount, 12);
-  var LRows := (LCount + LPerRow - 1) div LPerRow;
-  var LStep := Min(LW * 0.9, (LCen.Width - 60) / LPerRow);
-  var LPanelW := LStep * (LPerRow - 1) + LW + 36;
-  var LPanelH := LRows * (LH + 10) + 56;
   var LMidX := (LCen.Left + LCen.Right) / 2;
   var LMidY := (LCen.Top + LCen.Bottom) / 2;
+
+  // 부채꼴 가로 겹침 간격: 카드 수에 맞춰 자동 축소(패널 폭 안에 들어오게)
+  var LStep := LW * 0.55;
+  if LCount > 1 then
+  begin
+    var LMaxStep := (LCen.Width - 80) / (LCount - 1);
+    if LMaxStep < LStep then
+    begin
+      LStep := LMaxStep;
+    end;
+  end;
+
+  if LStep < 6 then
+  begin
+    LStep := 6;
+  end;
+
+  var LTotalW := LStep * (LCount - 1) + LW;
+  var LArcDropMax := LH * 0.35;   // 가장자리 카드가 아래로 처지는 최대량(부채 곡선)
+  var LPanelW := LTotalW + 60;
+  var LPanelH := LH + LArcDropMax + 70;
   var LPanel := RectF(LMidX - LPanelW / 2, LMidY - LPanelH / 2, LMidX + LPanelW / 2, LMidY + LPanelH / 2);
 
   Canvas.FillRound(LPanel, 10, $E0101010);
@@ -1790,22 +1806,30 @@ begin
 
   DrawLabel(RectF(LPanel.Left, LPanel.Top + 6, LPanel.Right, LPanel.Top + 34), LTitle, TAlphaColors.White, 16);
 
-  // 뒷면 펼침(행별 가운데 정렬). 비행 중인 카드 자리는 비워 둔다
+  // 부채꼴로 펼침: 중앙은 그대로, 가장자리로 갈수록 회전 + 아래로 처짐. 비행 중인 카드 자리는 비워 둔다
+  var LRowY := LPanel.Top + 46 + LH / 2;
+  var LStartX := LMidX - LTotalW / 2 + LW / 2;
+  var LHalfSpread := Min(28.0, 3.2 * (LCount - 1));   // 카드가 많을수록 전체 부채각이 커지다 상한에서 고정
+
   for var I := 0 to LCount - 1 do
   begin
-    var LRow := I div LPerRow;
-    var LCol := I mod LPerRow;
-    var LInRow := Min(LPerRow, LCount - LRow * LPerRow);
-    var LX0 := LMidX - (LStep * (LInRow - 1) + LW) / 2;
-    var LR := RectF(LX0 + LCol * LStep, LPanel.Top + 42 + LRow * (LH + 10),
-      LX0 + LCol * LStep + LW, LPanel.Top + 42 + LRow * (LH + 10) + LH);
-    FBonusRects.Add(LR);
+    var LCX := LStartX + I * LStep;
+    var LT: Single := 0;
+    if LCount > 1 then
+    begin
+      LT := (I / (LCount - 1)) * 2 - 1;   // -1..1
+    end;
+
+    var LAngle := LT * LHalfSpread;
+    var LCY := LRowY + Sqr(LT) * LArcDropMax;
+
+    FBonusRects.Add(RectF(LCX - LW / 2, LCY - LH / 2, LCX + LW / 2, LCY + LH / 2));
     if FPickActive and (I = FPickIndex) then
     begin
       Continue;
     end;
 
-    DrawBack(LR);
+    DrawCardRotated(LCX, LCY, LW, LH, LAngle, '', True);
   end;
 
   // 집은 카드 비행(ease-out)

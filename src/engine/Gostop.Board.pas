@@ -256,6 +256,7 @@ type
     FFlipChoosing: Boolean;            // 뒤집기 선택 대기(가져갈 패 고르기)
     FFlipOptAssets: array [0 .. 1] of string;
     FHoverHand: Integer;
+    FHoverBonus: Integer;
 
     FOnStateChanged: TNotifyEvent;
     FOnGameOver: TNotifyEvent;
@@ -700,6 +701,7 @@ begin
   HitTest := True;
   FBackColor := 'red';
   FHoverHand := -1;
+  FHoverBonus := -1;
   FPlayerCount := 2;
   FAiSkill := 70;
   FStatus := '새 게임을 시작하세요';
@@ -857,6 +859,7 @@ begin
 
   FGwangShow := False;
   FHoverHand := -1;
+  FHoverBonus := -1;
   FAgents := nil;
   if Assigned(FAiObjects) then
   begin
@@ -1697,6 +1700,7 @@ begin
     Exit;
   end;
 
+  FHoverBonus := -1;
   FPickIndex := AStockIndex;
 
   // 출발점: 펼쳐진 카드 rect(직전 Paint에서 기록) — 없으면 중앙 덱 위치
@@ -1786,9 +1790,12 @@ begin
   end;
 
   var LTotalW := LStep * (LCount - 1) + LW;
-  var LArcDropMax := LH * 0.35;   // 가장자리 카드가 아래로 처지는 최대량(부채 곡선)
+  var LArcDropMax := LH * 0.35;    // 가장자리 카드가 아래로 처지는 최대량(부채 곡선)
+  var LHoverRaise := LH * 0.22;    // 호버 시 위로 솟는 양(손패 호버와 동일한 비율)
+  var LTopPad := 54.0;             // 제목 아래 여백
+  var LBottomPad := 24.0;
   var LPanelW := LTotalW + 60;
-  var LPanelH := LH + LArcDropMax + 70;
+  var LPanelH := LTopPad + LHoverRaise + LH + LArcDropMax + LBottomPad;
   var LPanel := RectF(LMidX - LPanelW / 2, LMidY - LPanelH / 2, LMidX + LPanelW / 2, LMidY + LPanelH / 2);
 
   Canvas.FillRound(LPanel, 10, $E0101010);
@@ -1797,7 +1804,7 @@ begin
   var LTitle := '';
   if FGame.Current = FHumanIndex then
   begin
-    LTitle := '더미에서 가져올 패를 고르세요';
+    LTitle := '패를 고르세요';
   end
   else
   begin
@@ -1807,7 +1814,7 @@ begin
   DrawLabel(RectF(LPanel.Left, LPanel.Top + 6, LPanel.Right, LPanel.Top + 34), LTitle, TAlphaColors.White, 16);
 
   // 부채꼴로 펼침: 중앙은 그대로, 가장자리로 갈수록 회전 + 아래로 처짐. 비행 중인 카드 자리는 비워 둔다
-  var LRowY := LPanel.Top + 46 + LH / 2;
+  var LRowY := LPanel.Top + LTopPad + LHoverRaise + LH / 2;
   var LStartX := LMidX - LTotalW / 2 + LW / 2;
   var LHalfSpread := Min(28.0, 3.2 * (LCount - 1));   // 카드가 많을수록 전체 부채각이 커지다 상한에서 고정
 
@@ -1823,13 +1830,20 @@ begin
     var LAngle := LT * LHalfSpread;
     var LCY := LRowY + Sqr(LT) * LArcDropMax;
 
+    // 클릭·호버 판정 rect는 원래(솟아오르기 전) 위치로 고정 — 손패 호버와 동일하게, 판정이 흔들리지 않도록
     FBonusRects.Add(RectF(LCX - LW / 2, LCY - LH / 2, LCX + LW / 2, LCY + LH / 2));
     if FPickActive and (I = FPickIndex) then
     begin
       Continue;
     end;
 
-    DrawCardRotated(LCX, LCY, LW, LH, LAngle, '', True);
+    var LDrawY := LCY;
+    if I = FHoverBonus then
+    begin
+      LDrawY := LDrawY - LHoverRaise;
+    end;
+
+    DrawCardRotated(LCX, LDrawY, LW, LH, LAngle, '', True);
   end;
 
   // 집은 카드 비행(ease-out)
@@ -6325,6 +6339,33 @@ begin
     FHoverHand := LNew;
     Repaint;
   end;
+
+  // 보너스패 더미 뽑기: 사람 차례에 펼쳐진 패 위 호버 추적(손패 호버와 동일한 방식)
+  var LNewBonus := -1;
+  if (FGame <> nil) and (not Assigned(FDisplay)) and (FGame.Phase = gpAwaitingBonusDraw)
+    and (FGame.Current = FHumanIndex) and (not FPickActive) then
+  begin
+    var LPoint := PointF(X, Y);
+    for var K := FBonusRects.Count - 1 downto 0 do
+    begin
+      if FBonusRects[K].Contains(LPoint) then
+      begin
+        LNewBonus := K;
+        Break;
+      end;
+    end;
+  end;
+
+  if LNewBonus <> FHoverBonus then
+  begin
+    if LNewBonus >= 0 then
+    begin
+      TGostopAudio.Instance.Play('ui_hover');
+    end;
+
+    FHoverBonus := LNewBonus;
+    Repaint;
+  end;
 end;
 
 procedure TGostopBoard.DoMouseLeave;
@@ -6341,6 +6382,12 @@ begin
   if FHoverHand <> -1 then
   begin
     FHoverHand := -1;
+    Repaint;
+  end;
+
+  if FHoverBonus <> -1 then
+  begin
+    FHoverBonus := -1;
     Repaint;
   end;
 end;

@@ -148,6 +148,7 @@ type
     FBackColor: string;
     FStatus: string;
     FResultRows: TArray<TResultRow>;
+    FResultTitle: string;   // 정산창 제목(판돈 배수 안내, 없으면 빈 문자열) — FStakes 갱신 전 값 보존
     FAwaitingGoStop: Boolean;
 
     // 4인 광팔기
@@ -835,6 +836,7 @@ begin
   FAwaitingGoStop := False;
   FEffectText := '';
   FResultRows := nil;
+  FResultTitle := '';
   if Assigned(FSeonTimer) then
   begin
     FSeonTimer.Enabled := False;
@@ -2306,8 +2308,9 @@ begin
       var LWinRow: TResultRow;
       LWinRow.AvatarIdx := FSeatAvatar[TSeatPos(LWinnerSeat)];
       LWinRow.IsWinner := True;
-      LWinRow.HasAmount := False;
-      LWinRow.Text := Trim(Format('승%s', [StakesSuffix]));
+      LWinRow.HasAmount := True;
+      LWinRow.Amount := FNet4[LWinnerSeat] * FConfig.MoneyPerPoint * FStakes;
+      LWinRow.Flags := nil;
       LRows.Add(LWinRow);
 
       for var S := 0 to 3 do
@@ -2330,8 +2333,9 @@ begin
       var LWinRow: TResultRow;
       LWinRow.AvatarIdx := FSeatAvatar[PhysicalPos(FGame.Winner)];
       LWinRow.IsWinner := True;
-      LWinRow.HasAmount := False;
-      LWinRow.Text := Trim(Format('승%s', [StakesSuffix]));
+      LWinRow.HasAmount := True;
+      LWinRow.Amount := LSettle[FGame.Winner].Net * FConfig.MoneyPerPoint * FStakes;
+      LWinRow.Flags := nil;
       LRows.Add(LWinRow);
 
       for var I := 0 to FGame.PlayerCount - 1 do
@@ -2356,6 +2360,7 @@ begin
     end;
 
     FResultRows := LRows.ToArray;
+    FResultTitle := Trim(StakesSuffix);   // FStakes 갱신 전 값 — 아래에서 FStakes가 바뀌어도 이 판의 배수 정보 보존
   finally
     LRows.Free;
   end;
@@ -4780,14 +4785,19 @@ begin
 
   // 중앙 오버레이 패널 — 줄마다 큰 아바타(승자=환호/패자=슬픔) + 박 뱃지 + 우측정렬 금액 + 다음게임 버튼
   // 패널 폭은 창 크기에 비례시키지 않고 콘텐츠에 맞춘 고정폭(다른 표준 다이얼로그들과 동일한 방식)
-  var LRowH := 92.0;
-  var LAvSize := 68.0;
-  var LWinAvSize := 84.0;
-  var LAmountColW := 116.0;   // 금액은 패널 오른쪽 끝이 아니라 이 고정폭 안에서만 우측 정렬(간격 과다 방지)
+  var LRowH := 108.0;
+  var LAvSize := 84.0;
+  var LWinAvSize := 100.0;
+  var LAmountColW := 130.0;   // 금액은 패널 오른쪽 끝이 아니라 이 고정폭 안에서만 우측 정렬(간격 과다 방지)
   var LBtnH := 44.0;
   var LTopPad := 20.0;
+  if FResultTitle <> '' then
+  begin
+    LTopPad := 52.0;   // 판돈 배수 제목이 있으면 그만큼 위쪽 여백 확보
+  end;
+
   var LPanelH := LTopPad + LN * LRowH + 18 + LBtnH + 18;
-  var LPanel := DrawStdDialog('', 460.0, LPanelH);
+  var LPanel := DrawStdDialog(FResultTitle, 480.0, LPanelH);
   var LCX := (LPanel.Left + LPanel.Right) / 2;
   var LAmountR0 := LPanel.Right - 18 - LAmountColW;
 
@@ -4827,11 +4837,26 @@ begin
         LBadgeX := LBadgeR.Right + 6;
       end;
 
-      // 금액(천단위 콤마, 고정폭 금액란 안에서 우측 정렬)
-      var LAmtText := Format('%s원', [FormatFloat('#,##0', LRow.Amount)]);
-      Canvas.Fill.Color := TAlphaColors.White;
-      Canvas.Font.Size := 19;
-      Canvas.FillText(RectF(LAmountR0, LY, LPanel.Right - 18, LY + LRowH), LAmtText,
+      // 금액(천단위 콤마, 고정폭 금액란 안에서 우측 정렬). 승자는 받는 금액이므로 +부호로 구분
+      var LAmtSign := '';
+      if LRow.IsWinner and (LRow.Amount > 0) then
+      begin
+        LAmtSign := '+';
+      end;
+
+      var LAmtText := Format('%s%s원', [LAmtSign, FormatFloat('#,##0', LRow.Amount)]);
+      if LRow.IsWinner then
+      begin
+        Canvas.Fill.Color := TAlphaColors.Gold;
+        Canvas.Font.Size := 23;
+      end
+      else
+      begin
+        Canvas.Fill.Color := TAlphaColors.White;
+        Canvas.Font.Size := 19;
+      end;
+
+      Canvas.FillText(RectF(LAmountR0 - 20, LY, LPanel.Right - 18, LY + LRowH), LAmtText,
         False, 1, [], TTextAlign.Trailing, TTextAlign.Center);
     end
     else

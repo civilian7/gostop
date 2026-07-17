@@ -46,6 +46,14 @@ type
     seTie        // 동점 → 재경합 대기
   );
 
+  /// <summary>표준 다이얼로그 버튼 종류(색상 통일).</summary>
+  TDlgBtnKind = (
+    dbkNeutral,   // 회색(기본)
+    dbkPrimary,   // 녹색(긍정/확인)
+    dbkDanger,    // 빨강(취소/부정)
+    dbkAccent     // 금색(강조)
+  );
+
   /// <summary>딜(패 돌리기) 애니메이션에서 날아가는 카드 1장.</summary>
   TDealFly = record
     Target: TPointF;     // 착지 지점(중심)
@@ -151,6 +159,14 @@ type
     FShodangAccepter: Integer;                   // 수락자(밀어줄 대상)
     FShodangDecliner: Integer;                   // 거절자(독박 대상)
     FBtnShodang: TRectF;                         // 쇼당 걸기 버튼 영역
+
+    FShodangPending: Boolean;                    // AI 쇼당 → 사람 수락/거절 대기
+    FShodangPendCaller: Integer;                 // 쇼당 건 AI
+    FShodangPendAiOpp: Integer;                  // 다른 상대(AI) 인덱스
+    FShodangPendAiAccept: Boolean;               // 다른 상대(AI) 수락 여부(선결정)
+    FShodangCards: TArray<string>;               // 공개할 위협 패(AssetId)
+    FBtnShodangYes: TRectF;                      // 받기(수락)
+    FBtnShodangNo: TRectF;                       // 거절
     FBtnJoin: TRectF;
     FBtnGiveUp: TRectF;
     FBtnNext: TRectF;
@@ -370,6 +386,13 @@ type
     procedure DrawShodangButton;
     function  HumanCanShodang: Boolean;
     procedure HumanCallShodang;
+    procedure AiExecuteTurn;
+    procedure AiCallShodang(const ACaller: Integer);
+    procedure ResolveShodang(const ACaller, AOppA, AOppB: Integer; const AAccA, AAccB: Boolean);
+    procedure HumanRespondShodang(const AAccept: Boolean);
+    procedure DrawShodangPrompt;
+    function  DrawStdDialog(const ATitle: string; const AWidth, AHeight: Single): TRectF;
+    function  DrawStdButton(const ARect: TRectF; const ACaption: string; const AKind: TDlgBtnKind): TRectF;
   protected
     procedure Paint; override;
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Single); override;
@@ -779,6 +802,10 @@ begin
   FGiriProceed := nil;
   FreeAndNil(FGiriDeck);
 
+  // 쇼당 상태 정리
+  FShodangActive := False;
+  FShodangPending := False;
+
   // 잔상·스테일 상태 리셋(타이틀 복귀 시 배너·고/스톱 플래그 잔존 방지)
   FAwaitingGoStop := False;
   FEffectText := '';
@@ -919,6 +946,7 @@ begin
   FNextStartPos := AStartPos;
   FAwaitingGoStop := False;
   FShodangActive := False;   // 쇼당 상태 초기화(매 게임)
+  FShodangPending := False;
   for var S := 0 to 3 do
   begin
     FNet4[S] := 0;
@@ -2329,6 +2357,26 @@ begin
   begin
     FAiTimer.Enabled := False;
     StartBonusPick(Random(FGame.Stock.Count));
+    Exit;
+  end;
+
+  // AI 쇼당: 이 AI가 쇼당 상황이면 걸기 시도(3인). 대기/해결 후 흐름은 ResolveShodang이 잇는다
+  if (not FShodangActive) and (not FShodangPending) and (FPlayerCount = 3)
+    and (FGame.Phase = gpPlaying) and TShodang.Detect(FGame, FGame.Current).Callable then
+  begin
+    FAiTimer.Enabled := False;
+    AiCallShodang(FGame.Current);
+    Exit;
+  end;
+
+  AiExecuteTurn;
+end;
+
+// AI가 실제 턴을 수행(카드 내기 + 애니). 쇼당 계속 흐름에서도 재사용
+procedure TGostopBoard.AiExecuteTurn;
+begin
+  if (FGame = nil) or (FGame.Phase <> gpPlaying) then
+  begin
     Exit;
   end;
 
@@ -4751,27 +4799,53 @@ end;
 procedure TGostopBoard.DrawGoStopPrompt;
 begin
   var LScore := FEngine.ScoreOf(FHumanIndex).Total;
-
-  var LPanelW := Max(Width * 0.34, 320.0);
-  var LPanelH := 128.0;
-  var LPanel := RectF((Width - LPanelW) / 2, Height * 0.30, (Width + LPanelW) / 2, Height * 0.30 + LPanelH);
-  Canvas.FillRound(LPanel, 16, $F02E3A2E);
-  Canvas.StrokeRound(LPanel, 16, $FFFFD54A, 3);
-
-  DrawLabel(RectF(LPanel.Left, LPanel.Top + 14, LPanel.Right, LPanel.Top + 46), Format('%d점! 고 또는 스톱', [LScore]), TAlphaColors.Gold, 22);
+  var LPanel := DrawStdDialog(Format('%d점! 고 또는 스톱', [LScore]), Max(Width * 0.34, 340.0), 128.0);
 
   var LBtnW := 120.0;
   var LBtnH := 46.0;
   var LGap := 24.0;
   var LCX := (LPanel.Left + LPanel.Right) / 2;
   var LBtnY := LPanel.Bottom - LBtnH - 16;
-  FBtnGo := RectF(LCX - LBtnW - LGap / 2, LBtnY, LCX - LGap / 2, LBtnY + LBtnH);
-  FBtnStop := RectF(LCX + LGap / 2, LBtnY, LCX + LGap / 2 + LBtnW, LBtnY + LBtnH);
+  FBtnGo := DrawStdButton(RectF(LCX - LBtnW - LGap / 2, LBtnY, LCX - LGap / 2, LBtnY + LBtnH), '고', dbkPrimary);
+  FBtnStop := DrawStdButton(RectF(LCX + LGap / 2, LBtnY, LCX + LGap / 2 + LBtnW, LBtnY + LBtnH), '스톱', dbkDanger);
+end;
 
-  Canvas.FillRound(FBtnGo, 8, $FF2E7D32);
-  Canvas.FillRound(FBtnStop, 8, $FF8D3030);
-  DrawLabel(FBtnGo, '고', TAlphaColors.White, 20);
-  DrawLabel(FBtnStop, '스톱', TAlphaColors.White, 20);
+// 표준 다이얼로그: 딤 + 중앙 둥근 패널 + 제목. 모든 팝업이 재사용해 스타일 통일. 패널 rect 반환
+function TGostopBoard.DrawStdDialog(const ATitle: string; const AWidth, AHeight: Single): TRectF;
+begin
+  Canvas.FillRound(LocalRect, 0, $88000000);   // 배경 딤
+  Result := RectF(Width / 2 - AWidth / 2, Height / 2 - AHeight / 2, Width / 2 + AWidth / 2, Height / 2 + AHeight / 2);
+  Canvas.FillRound(Result, 18, $F02E3A2E);      // 따뜻한 다크
+  Canvas.StrokeRound(Result, 18, $FFE8C868, 2); // 부드러운 금색 테두리
+  if ATitle <> '' then
+  begin
+    DrawLabel(RectF(Result.Left, Result.Top + 16, Result.Right, Result.Top + 50), ATitle, TAlphaColors.Gold, 22);
+  end;
+end;
+
+// 표준 다이얼로그 버튼: 종류별 색상 통일. rect 반환(클릭 판정용)
+function TGostopBoard.DrawStdButton(const ARect: TRectF; const ACaption: string; const AKind: TDlgBtnKind): TRectF;
+begin
+  var LColor := $FF37474F;   // dbkNeutral
+  case AKind of
+    dbkPrimary:
+      begin
+        LColor := $FF2E7D32;
+      end;
+    dbkDanger:
+      begin
+        LColor := $FF8E2430;
+      end;
+    dbkAccent:
+      begin
+        LColor := $FFB8860B;
+      end;
+  end;
+
+  Canvas.FillRound(ARect, 9, LColor);
+  Canvas.StrokeRound(ARect, 9, $50FFFFFF, 1);
+  DrawLabel(ARect, ACaption, TAlphaColors.White, 17);
+  Result := ARect;
 end;
 
 // 사람이 지금 쇼당을 걸 수 있는가(3인·내 차례·손패로 두 상대 완성 위협)
@@ -4813,33 +4887,25 @@ begin
   DrawLabel(FBtnShodang, '쇼당!', TAlphaColors.White, 22);
 end;
 
-// 사람이 쇼당을 건다: 두 상대(AI)가 각자 수락/거절 → 둘 다 수락=나가리 / 한 명 수락=밀어주기(거절자 독박) / 둘 다 거절=계속
-procedure TGostopBoard.HumanCallShodang;
+// 두 상대의 게임 인덱스(ACaller 제외)
+function ShodangOpps(const AGame: TGameState; const ACaller: Integer): TArray<Integer>;
 begin
-  if not HumanCanShodang then
+  Result := nil;
+  for var I := 0 to AGame.PlayerCount - 1 do
   begin
-    Exit;
-  end;
-
-  TGostopAudio.Instance.Play('sfx_negotiate');
-
-  // 두 상대 게임 인덱스
-  var LOpps: TArray<Integer> := nil;
-  for var I := 0 to FGame.PlayerCount - 1 do
-  begin
-    if I <> FHumanIndex then
+    if I <> ACaller then
     begin
-      LOpps := LOpps + [I];
+      Result := Result + [I];
     end;
   end;
+end;
 
-  // AI 각자 수락 여부(밀어주면 자기가 나므로 수락 성향 높음, 약간의 변동)
-  var LAcc0 := Random(100) < 60;
-  var LAcc1 := Random(100) < 60;
-
-  if LAcc0 and LAcc1 then
+// 쇼당 결정 종합: 둘 다 수락=나가리 / 한 명 수락=밀어주기(거절자 독박) / 둘 다 거절=계속.
+// 계속 진행 시 호출자가 AI면 그 AI의 실제 턴을 이어서 실행한다.
+procedure TGostopBoard.ResolveShodang(const ACaller, AOppA, AOppB: Integer; const AAccA, AAccB: Boolean);
+begin
+  if AAccA and AAccB then
   begin
-    // 둘 다 수락 → 나가리(무효)
     FEffectText := '쇼당 — 둘 다 수락! 나가리';
     FEffectTimer.Enabled := False;
     FEffectTimer.Enabled := True;
@@ -4848,34 +4914,142 @@ begin
     Exit;
   end;
 
-  if (not LAcc0) and (not LAcc1) then
+  if (not AAccA) and (not AAccB) then
   begin
-    // 둘 다 거절 → 아무 일 없음, 계속
     FEffectText := '쇼당 — 둘 다 거절, 계속 진행';
-    FEffectTimer.Enabled := False;
-    FEffectTimer.Enabled := True;
+  end
+  else
+  begin
+    // 한 명 수락 → 그 사람을 밀어줌, 거절자는 독박 대기
+    var LAcc := AOppA;
+    var LDec := AOppB;
+    if not AAccA then
+    begin
+      LAcc := AOppB;
+      LDec := AOppA;
+    end;
+
+    FShodangActive := True;
+    FShodangCaller := ACaller;
+    FShodangAccepter := LAcc;
+    FShodangDecliner := LDec;
+    FEffectText := Format('쇼당! %s 수락 — %s 독박', [FGame.Player(LAcc).Name, FGame.Player(LDec).Name]);
+  end;
+
+  FEffectTimer.Enabled := False;
+  FEffectTimer.Enabled := True;
+
+  // 계속 진행: 호출자가 AI면 그 AI가 카드를 내야 함
+  if ACaller <> FHumanIndex then
+  begin
+    AiExecuteTurn;
+  end
+  else
+  begin
     Repaint;
+  end;
+end;
+
+// 사람이 쇼당을 건다(버튼) → 두 상대(AI) 자동 결정 후 종합
+procedure TGostopBoard.HumanCallShodang;
+begin
+  if not HumanCanShodang then
+  begin
     Exit;
   end;
 
-  // 한 명 수락 → 그 사람을 밀어줌, 거절자는 독박 대기
-  var LAccepter := LOpps[0];
-  var LDecliner := LOpps[1];
-  if not LAcc0 then
+  TGostopAudio.Instance.Play('sfx_negotiate');
+  var LOpps := ShodangOpps(FGame, FHumanIndex);
+  ResolveShodang(FHumanIndex, LOpps[0], LOpps[1], Random(100) < 60, Random(100) < 60);
+end;
+
+// AI가 쇼당을 건다: 사람이 상대면 수락/거절 다이얼로그, 관전(전원 AI)이면 자동 종합
+procedure TGostopBoard.AiCallShodang(const ACaller: Integer);
+begin
+  TGostopAudio.Instance.Play('sfx_negotiate');
+  var LOpps := ShodangOpps(FGame, ACaller);
+
+  var LHumanIsOpp := (not FSpectator) and (FHumanIndex >= 0)
+    and ((LOpps[0] = FHumanIndex) or (LOpps[1] = FHumanIndex));
+
+  if LHumanIsOpp then
   begin
-    LAccepter := LOpps[1];
-    LDecliner := LOpps[0];
+    // 다른 상대(AI)는 선결정, 사람은 다이얼로그로 결정 대기
+    var LAiOpp := LOpps[0];
+    if LOpps[0] = FHumanIndex then
+    begin
+      LAiOpp := LOpps[1];
+    end;
+
+    FShodangPending := True;
+    FShodangPendCaller := ACaller;
+    FShodangPendAiOpp := LAiOpp;
+    FShodangPendAiAccept := Random(100) < 60;
+
+    // 공개할 위협 패
+    FShodangCards := nil;
+    var LDet := TShodang.Detect(FGame, ACaller);
+    for var LT in LDet.Threats do
+    begin
+      FShodangCards := FShodangCards + [LT.CardId];
+    end;
+
+    Repaint;
+    if Assigned(FOnStateChanged) then
+    begin
+      FOnStateChanged(Self);
+    end;
+  end
+  else
+  begin
+    // 전원 AI: 둘 다 자동
+    ResolveShodang(ACaller, LOpps[0], LOpps[1], Random(100) < 60, Random(100) < 60);
+  end;
+end;
+
+// 사람이 AI 쇼당에 수락/거절 응답
+procedure TGostopBoard.HumanRespondShodang(const AAccept: Boolean);
+begin
+  if not FShodangPending then
+  begin
+    Exit;
   end;
 
-  FShodangActive := True;
-  FShodangCaller := FHumanIndex;
-  FShodangAccepter := LAccepter;
-  FShodangDecliner := LDecliner;
+  FShodangPending := False;
+  ResolveShodang(FShodangPendCaller, FHumanIndex, FShodangPendAiOpp, AAccept, FShodangPendAiAccept);
+end;
 
-  FEffectText := Format('쇼당! %s 수락 — %s 독박(밀어주기)', [FGame.Player(LAccepter).Name, FGame.Player(LDecliner).Name]);
-  FEffectTimer.Enabled := False;
-  FEffectTimer.Enabled := True;
-  Repaint;
+// AI 쇼당 → 사람에게 수락/거절 묻는 표준 다이얼로그(공개 패 + [받기][거절])
+procedure TGostopBoard.DrawShodangPrompt;
+begin
+  var LPanel := DrawStdDialog(Format('%s 쇼당! — 받으시겠습니까?', [FGame.Player(FShodangPendCaller).Name]), Max(Width * 0.4, 420.0), 260.0);
+
+  // 공개 패
+  var CS := CardSize;
+  var LCW := CS.Width * 0.7;
+  var LCH := CS.Height * 0.7;
+  var LN := Length(FShodangCards);
+  if LN > 0 then
+  begin
+    var LTotW := LCW + (LN - 1) * LCW * 1.2;
+    var LSX := (LPanel.Left + LPanel.Right) / 2 - LTotW / 2;
+    var LCY := LPanel.Top + 62;
+    for var I := 0 to LN - 1 do
+    begin
+      DrawFront(RectF(LSX + I * LCW * 1.2, LCY, LSX + I * LCW * 1.2 + LCW, LCY + LCH), FShodangCards[I]);
+    end;
+  end;
+
+  DrawLabel(RectF(LPanel.Left, LPanel.Bottom - 96, LPanel.Right, LPanel.Bottom - 74),
+    '받으면 이 판 나가리(둘 다 받을 때), 거절 시 밀리면 독박', $FFB8C4B8, 13);
+
+  var LBtnW := 130.0;
+  var LBtnH := 46.0;
+  var LGap := 24.0;
+  var LCX := (LPanel.Left + LPanel.Right) / 2;
+  var LBtnY := LPanel.Bottom - LBtnH - 16;
+  FBtnShodangYes := DrawStdButton(RectF(LCX - LBtnW - LGap / 2, LBtnY, LCX - LGap / 2, LBtnY + LBtnH), '받기', dbkPrimary);
+  FBtnShodangNo := DrawStdButton(RectF(LCX + LGap / 2, LBtnY, LCX + LGap / 2 + LBtnW, LBtnY + LBtnH), '거절', dbkDanger);
 end;
 
 procedure TGostopBoard.Paint;
@@ -5028,6 +5202,12 @@ begin
 
     // 사람 차례에 쇼당 가능하면 '쇼당!' 버튼 제시
     DrawShodangButton;
+  end;
+
+  // AI 쇼당 → 사람 수락/거절 대기 다이얼로그(최상단 모달)
+  if FShodangPending then
+  begin
+    DrawShodangPrompt;
   end;
 
   // 특수 상황 배너(쪽/따닥/싹쓸이/폭탄/흔들기/뻑/총통…)
@@ -5663,6 +5843,24 @@ begin
         ResolveGiri(K);
         Exit;
       end;
+    end;
+
+    Exit;
+  end;
+
+  // AI 쇼당 → 사람 수락/거절 응답(최상단 모달)
+  if FShodangPending then
+  begin
+    if FBtnShodangYes.Contains(LPoint) then
+    begin
+      TGostopAudio.Instance.Play('ui_click');
+      HumanRespondShodang(True);
+    end
+    else
+    if FBtnShodangNo.Contains(LPoint) then
+    begin
+      TGostopAudio.Instance.Play('ui_click');
+      HumanRespondShodang(False);
     end;
 
     Exit;

@@ -584,6 +584,10 @@ begin
       begin
         Result := 95;
       end;
+    pekSambbeok:
+      begin
+        Result := 90;
+      end;
     pekSseul:
       begin
         Result := 80;
@@ -654,6 +658,10 @@ begin
     pekCheotbbeok:
       begin
         Result := '첫뻑!';
+      end;
+    pekSambbeok:
+      begin
+        Result := '쓰리뻑!';
       end;
     pekChongtong:
       begin
@@ -2210,6 +2218,11 @@ begin
   // 결과 라인
   var LLines := TList<string>.Create;
   try
+    if FGame.ThreeBbeok then
+    begin
+      LLines.Add('쓰리뻑! — 즉시 승리 (고정 점수)');
+    end;
+
     if FGame.Winner < 0 then
     begin
       if LChongtong then

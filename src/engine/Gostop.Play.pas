@@ -19,6 +19,7 @@ type
     pekJabbeok,     // 자뻑(자기가 만든 뻑 더미를 자기가 먹음)
     pekYeonbbeok,   // 연뻑(뻑이 있는 상태에서 또 뻑)
     pekCheotbbeok,  // 첫뻑(게임 첫 수가 뻑)
+    pekSambbeok,    // 쓰리뻑(한 판에 뻑 3회 → 즉시 승리)
     pekJjok,        // 쪽(놓은 카드를 뒤집은 같은 월로 먹음)
     pekTtadak,      // 따닥
     pekSseul,       // 쓸(싹쓸이)
@@ -65,6 +66,7 @@ type
     FShakeCount: Integer;
     FCardDebt: Integer;
     FPendingShakeMonth: Integer;
+    FBbeokCount: Integer;
   public
     /// <summary>이름을 지정해 빈 플레이어를 생성합니다.</summary>
     constructor Create(const AName: string);
@@ -86,6 +88,8 @@ type
     property CardDebt: Integer read FCardDebt write FCardDebt;
     /// <summary>흔들기를 선언한 월(0=없음). 이 월을 실제로 내야 흔들기가 성립한다.</summary>
     property PendingShakeMonth: Integer read FPendingShakeMonth write FPendingShakeMonth;
+    /// <summary>이번 게임에서 이 플레이어가 만든 누적 뻑 횟수(3회=쓰리뻑 즉시 승리 판정).</summary>
+    property BbeokCount: Integer read FBbeokCount write FBbeokCount;
   end;
 
   /// <summary>게임 전체 상태(플레이어들·바닥·더미·차례·단계·사건 로그). 모든 카드의 수명을 소유한다.</summary>
@@ -100,6 +104,7 @@ type
     FEvents: TList<TPlayEvent>;
     FBbeokCreator: TDictionary<Integer, Integer>;
     FPlayCount: Integer;
+    FThreeBbeok: Boolean;
   public
     /// <summary>플레이어 이름 목록으로 게임 상태를 생성합니다(빈 손패·바닥·더미).</summary>
     constructor Create(const APlayerNames: array of string);
@@ -134,6 +139,8 @@ type
     property BbeokCreator: TDictionary<Integer, Integer> read FBbeokCreator;
     /// <summary>지금까지 손패를 낸(플레이한) 총 횟수. 첫뻑 판정에 사용.</summary>
     property PlayCount: Integer read FPlayCount write FPlayCount;
+    /// <summary>쓰리뻑(한 플레이어가 뻑 3회)으로 즉시 승리한 판인지. 정산 시 고정 점수 처리.</summary>
+    property ThreeBbeok: Boolean read FThreeBbeok write FThreeBbeok;
   end;
 
   /// <summary>게임 종료 시 한 플레이어의 최종 정산 결과.</summary>
@@ -355,6 +362,7 @@ begin
   FShakeCount := 0;
   FCardDebt := 0;
   FPendingShakeMonth := 0;
+  FBbeokCount := 0;
 end;
 
 destructor TPlayer.Destroy;
@@ -414,6 +422,7 @@ begin
     Result.Player(I).ShakeCount := FPlayers[I].ShakeCount;
     Result.Player(I).CardDebt := FPlayers[I].CardDebt;
     Result.Player(I).PendingShakeMonth := FPlayers[I].PendingShakeMonth;   // 흔들기 커밋 보존(누락 시 시뮬 배수 왜곡)
+    Result.Player(I).BbeokCount := FPlayers[I].BbeokCount;
   end;
 
   Result.Floor.AddRange(FFloor);
@@ -1024,6 +1033,18 @@ begin
 
       // 뻑 더미의 생성자 기록(나중에 이 월을 먹으면 자뻑/뻑 회수 판정)
       FState.BbeokCreator.AddOrSetValue(LMonth, FState.Current);
+
+      // 쓰리뻑: 한 판에 같은 사람이 뻑 3회 → 즉시 승리(고정 점수)
+      LPlayer.BbeokCount := LPlayer.BbeokCount + 1;
+      if LPlayer.BbeokCount >= 3 then
+      begin
+        FState.ThreeBbeok := True;
+        FState.Winner := FState.Current;
+        FState.Phase := gpFinished;
+        AddEvent(pekSambbeok, FState.Current, LMonth, Format('%s 쓰리뻑! 즉시 승리', [LPlayer.Name]));
+        Exit(False);
+      end;
+
       AdvanceTurn;
       Exit(False);
     end;
@@ -1325,6 +1346,30 @@ begin
   end;
 
   var LWinner := FState.Winner;
+
+  // 쓰리뻑 즉시 승리: 고정 점수(2인 맞고 7점 / 3인+ 3점), 박·고 배수 미적용
+  if FState.ThreeBbeok then
+  begin
+    var LFixed := 3;
+    if FState.PlayerCount = 2 then
+    begin
+      LFixed := 7;
+    end;
+
+    var LTot := 0;
+    for var P := 0 to FState.PlayerCount - 1 do
+    begin
+      if P <> LWinner then
+      begin
+        Result[P].Net := -LFixed;
+        LTot := LTot + LFixed;
+      end;
+    end;
+
+    Result[LWinner].Net := LTot;
+    Exit;
+  end;
+
   var LWinnerP := FState.Player(LWinner);
   var LWinBreak := TScorer.Evaluate(LWinnerP.Captured, FRules.Score);
 

@@ -334,7 +334,7 @@ begin
       begin
         Play('sfx_shake');
       end;
-    pekBbeok, pekJabbeok, pekYeonbbeok, pekCheotbbeok:
+    pekBbeok, pekJabbeok, pekYeonbbeok, pekCheotbbeok, pekSambbeok:
       begin
         Play('sfx_bbeok');
       end;

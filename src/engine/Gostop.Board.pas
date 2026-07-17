@@ -289,6 +289,10 @@ type
     procedure DrawBack(const R: TRectF);
     procedure DrawLabel(const R: TRectF; const AText: string; const AColor: TAlphaColor; const ASize: Single);
     procedure DrawCapturedGrouped(const APile: TList<THwatuCard>; const AX, AY: Single; const AScale: Single);
+    procedure DrawCapturedRows(const APile: TList<THwatuCard>; const AX, ARight, ATopY, AScale, ARowStep: Single);
+    procedure DrawCapturedFan(const APile: TList<THwatuCard>; const AX, ARight, AY, AScale: Single; const AAnchorRight: Boolean = False);
+    procedure DrawCapturedFanV(const APile: TList<THwatuCard>; const ACX, ATopY, ABottomY, AScale, AAngle: Single; const AAnchorBottom: Boolean = False);
+    function  CapturedSequence(const APile: TList<THwatuCard>): TArray<Integer>;
     procedure DrawCapturedLine(const APile: TList<THwatuCard>; const ACX, ACY, ADX, ADY, ACardW, ACardH, AAngle: Single);
     procedure DrawCardRotated(const ACenterX, ACenterY, ACardW, ACardH, AAngle: Single; const AAssetId: string; const ABack: Boolean);
     procedure DrawHumanHand(const ARegion: TRectF);
@@ -1794,7 +1798,7 @@ begin
   var LPanelW := Max(Width * 0.5, 460.0);
   var LPanelH := 260.0;
   var LPanel := RectF(Width / 2 - LPanelW / 2, Height / 2 - LPanelH / 2, Width / 2 + LPanelW / 2, Height / 2 + LPanelH / 2);
-  Canvas.FillRound(LPanel, 16, $EA1C1C1C);
+  Canvas.FillRound(LPanel, 16, $F02E3A2E);
   Canvas.StrokeRound(LPanel, 16, $FFFFD54A, 3);
 
   DrawLabel(RectF(LPanel.Left, LPanel.Top + 14, LPanel.Right, LPanel.Top + 50),
@@ -2301,6 +2305,274 @@ begin
   end;
 end;
 
+// 획득 패를 광→열끗→띠→피 순으로 정렬한 인덱스 시퀀스(연속 부채용)
+function TGostopBoard.CapturedSequence(const APile: TList<THwatuCard>): TArray<Integer>;
+begin
+  Result := nil;
+  for var G := 0 to 3 do
+  begin
+    var LGi := TList<Integer>.Create;
+    try
+      for var I := 0 to APile.Count - 1 do
+      begin
+        if CapturedGroup(APile[I]) = G then
+        begin
+          LGi.Add(I);
+        end;
+      end;
+
+      SortIndexList(APile, LGi);
+      for var K := 0 to LGi.Count - 1 do
+      begin
+        Result := Result + [LGi[K]];
+      end;
+    finally
+      LGi.Free;
+    end;
+  end;
+end;
+
+// 획득 패를 하나의 촘촘한 가로 부채로 그린다(광→열끗→띠→피 정렬, 마지막 장이 온전히 보임).
+// [AX..ARight] 폭 안에 들어가도록 겹침 간격 자동 축소(최대 획득 수치에서도 넘치지 않음)
+procedure TGostopBoard.DrawCapturedFan(const APile: TList<THwatuCard>; const AX, ARight, AY, AScale: Single; const AAnchorRight: Boolean);
+begin
+  if APile.Count = 0 then
+  begin
+    Exit;
+  end;
+
+  var CS := CardSize;
+  var LW := CS.Width * AScale;
+  var LH := CS.Height * AScale;
+  var LSeq := CapturedSequence(APile);
+  var LN := Length(LSeq);
+
+  // 그룹(광/열끗/띠/피) 경계 수 — 그룹 사이에 간격을 줘 묶여 보이게
+  var LBounds := 0;
+  for var K := 1 to LN - 1 do
+  begin
+    if CapturedGroup(APile[LSeq[K]]) <> CapturedGroup(APile[LSeq[K - 1]]) then
+    begin
+      Inc(LBounds);
+    end;
+  end;
+
+  var LGap := LW * 0.4;      // 그룹 사이 간격
+  var LStep := LW * 0.3;     // 그룹 내 겹침
+  var LAvail := ARight - AX;
+  if LN > 1 then
+  begin
+    // 폭 초과 시 간격→겹침 순으로 축소
+    if LW + (LN - 1) * LStep + LBounds * LGap > LAvail then
+    begin
+      var LForSteps := LAvail - LW - LBounds * LGap;
+      if LForSteps < (LN - 1) * 2 then
+      begin
+        LGap := LW * 0.15;
+        LForSteps := LAvail - LW - LBounds * LGap;
+      end;
+
+      LStep := LForSteps / (LN - 1);
+      if LStep < 2 then
+      begin
+        LStep := 2;
+      end;
+    end;
+  end;
+
+  // 오른쪽 앵커면 패널 쪽(오른쪽)에 붙도록 실제 폭만큼 시작점 이동
+  var LX := AX;
+  if AAnchorRight then
+  begin
+    var LTotal := LW + (LN - 1) * LStep + LBounds * LGap;
+    LX := ARight - LTotal;
+    if LX < AX then
+    begin
+      LX := AX;
+    end;
+  end;
+
+  for var K := 0 to LN - 1 do
+  begin
+    if (K > 0) and (CapturedGroup(APile[LSeq[K]]) <> CapturedGroup(APile[LSeq[K - 1]])) then
+    begin
+      LX := LX + LGap;
+    end;
+
+    DrawFront(RectF(LX, AY, LX + LW, AY + LH), APile[LSeq[K]].AssetId);
+    LX := LX + LStep;
+  end;
+end;
+
+// 세로 방향 촘촘 부채(좌/우 자리용, 90/270 회전). [ATopY..ABottomY] 안에 들어가게 자동 축소
+procedure TGostopBoard.DrawCapturedFanV(const APile: TList<THwatuCard>; const ACX, ATopY, ABottomY, AScale, AAngle: Single; const AAnchorBottom: Boolean);
+begin
+  if APile.Count = 0 then
+  begin
+    Exit;
+  end;
+
+  var CS := CardSize;
+  var LW := CS.Width * AScale;
+  var LH := CS.Height * AScale;
+  var LSeq := CapturedSequence(APile);
+  var LN := Length(LSeq);
+
+  // 그룹(광/열끗/띠/피) 경계 수 — 그룹 사이 간격으로 묶여 보이게
+  var LBounds := 0;
+  for var K := 1 to LN - 1 do
+  begin
+    if CapturedGroup(APile[LSeq[K]]) <> CapturedGroup(APile[LSeq[K - 1]]) then
+    begin
+      Inc(LBounds);
+    end;
+  end;
+
+  // 회전 시 세로로 쌓이는 시각 높이는 카드 폭(LW)
+  var LGap := LW * 0.45;
+  var LStep := LW * 0.3;
+  var LAvail := ABottomY - ATopY;
+  if LN > 1 then
+  begin
+    if LW + (LN - 1) * LStep + LBounds * LGap > LAvail then
+    begin
+      var LForSteps := LAvail - LW - LBounds * LGap;
+      if LForSteps < (LN - 1) * 2 then
+      begin
+        LGap := LW * 0.18;
+        LForSteps := LAvail - LW - LBounds * LGap;
+      end;
+
+      LStep := LForSteps / (LN - 1);
+      if LStep < 2 then
+      begin
+        LStep := 2;
+      end;
+    end;
+  end;
+
+  // 아래 앵커면 패널 쪽(아래)에 붙도록 실제 높이만큼 시작점 이동
+  var LY := ATopY + LW / 2;
+  if AAnchorBottom then
+  begin
+    var LTotal := LW + (LN - 1) * LStep + LBounds * LGap;
+    LY := ABottomY - LTotal + LW / 2;
+    if LY < ATopY + LW / 2 then
+    begin
+      LY := ATopY + LW / 2;
+    end;
+  end;
+
+  for var K := 0 to LN - 1 do
+  begin
+    if (K > 0) and (CapturedGroup(APile[LSeq[K]]) <> CapturedGroup(APile[LSeq[K - 1]])) then
+    begin
+      LY := LY + LGap;
+    end;
+
+    DrawCardRotated(ACX, LY, LW, LH, AAngle, APile[LSeq[K]].AssetId, False);
+    LY := LY + LStep;
+  end;
+end;
+
+// 획득 패를 2행으로 배치. 1행: 광·열끗·띠(그룹 간격), 2행: 피. 행 내부는 가로로 겹쳐 나열
+// 겹침 간격은 [AX..ARight] 폭 안에 그 행의 카드가 다 들어가도록 자동 축소(최대 획득 수치에서도 넘치지 않음)
+// ARowStep = 두 행 사이 세로 간격
+procedure TGostopBoard.DrawCapturedRows(const APile: TList<THwatuCard>; const AX, ARight, ATopY, AScale, ARowStep: Single);
+
+  // 그룹 G의 장수
+  function CountOf(const AGroup: Integer): Integer;
+  begin
+    Result := 0;
+    for var I := 0 to APile.Count - 1 do
+    begin
+      if CapturedGroup(APile[I]) = AGroup then
+      begin
+        Inc(Result);
+      end;
+    end;
+  end;
+
+  // 한 행에 그룹 하나를 AStep 간격으로 그린 뒤 다음 그룹 시작 X를 돌려준다(빈 그룹은 그대로)
+  function DrawGroupAt(const AGroup: Integer; const AStartX, ARowY, ACardW, ACardH, AStep, AGap: Single): Single;
+  begin
+    var LIdx := TList<Integer>.Create;
+    try
+      for var I := 0 to APile.Count - 1 do
+      begin
+        if CapturedGroup(APile[I]) = AGroup then
+        begin
+          LIdx.Add(I);
+        end;
+      end;
+
+      if LIdx.Count = 0 then
+      begin
+        Exit(AStartX);
+      end;
+
+      SortIndexList(APile, LIdx);
+      for var K := 0 to LIdx.Count - 1 do
+      begin
+        var LR := RectF(AStartX + K * AStep, ARowY, AStartX + K * AStep + ACardW, ARowY + ACardH);
+        DrawFront(LR, APile[LIdx[K]].AssetId);
+      end;
+
+      Result := AStartX + AStep * (LIdx.Count - 1) + ACardW + AGap;
+    finally
+      LIdx.Free;
+    end;
+  end;
+
+  // 카드 수·그룹 간격을 고려해 폭 안에 들어갈 겹침 간격 산정(선호 간격을 넘지 않음)
+  function FitStep(const ACount, AGaps: Integer; const ACardW, AGap, APrefer, AAvailW: Single): Single;
+  begin
+    Result := APrefer;
+    if ACount > 1 then
+    begin
+      var LMax := (AAvailW - ACardW - AGaps * AGap) / (ACount - 1);
+      if LMax < Result then
+      begin
+        Result := LMax;
+      end;
+
+      if Result < 1 then
+      begin
+        Result := 1;
+      end;
+    end;
+  end;
+
+begin
+  var CS := CardSize;
+  var LW := CS.Width * AScale;
+  var LH := CS.Height * AScale;
+  var LGroupGap := LW * 0.35;      // 그룹 사이 간격
+  var LPrefer := LW * 0.5;         // 선호 가로 겹침(넉넉하면 이 간격)
+  var LAvail := ARight - AX;
+
+  // 1행: 광(0)·열끗(1)·띠(2) — 세 그룹 합산 장수 + 그룹 간격 고려해 폭에 맞춤
+  var LN0 := CountOf(0);
+  var LN1 := CountOf(1);
+  var LN2 := CountOf(2);
+  var LRow1 := LN0 + LN1 + LN2;
+  var LGaps1 := Ord(LN0 > 0) + Ord(LN1 > 0) + Ord(LN2 > 0) - 1;
+  if LGaps1 < 0 then
+  begin
+    LGaps1 := 0;
+  end;
+
+  var LStep1 := FitStep(LRow1, LGaps1, LW, LGroupGap, LPrefer, LAvail);
+  var LX := AX;
+  LX := DrawGroupAt(0, LX, ATopY, LW, LH, LStep1, LGroupGap);
+  LX := DrawGroupAt(1, LX, ATopY, LW, LH, LStep1, LGroupGap);
+  DrawGroupAt(2, LX, ATopY, LW, LH, LStep1, LGroupGap);
+
+  // 2행: 피(3)
+  var LStep3 := FitStep(CountOf(3), 0, LW, LGroupGap, LPrefer, LAvail);
+  DrawGroupAt(3, AX, ATopY + ARowStep, LW, LH, LStep3, LGroupGap);
+end;
+
 function TGostopBoard.SeatRegion(const APos: TSeatPos): TRectF;
 begin
   Result := TBoardLayout.SeatRegion(Width, Height, APos);
@@ -2449,10 +2721,27 @@ begin
     Exit;
   end;
 
-  // 정보 패널을 제외한 카드 공간에 획득 더미(위) + 손패(아래)
-  var LArea := SeatCardArea(spBottom);
-  DrawCapturedGrouped(RState.Player(FHumanIndex).Captured, LArea.Left + 4, ARegion.Top + 8, 0.5);
-  DrawHandList(RState.Player(FHumanIndex).Hand, LArea, not Assigned(FDisplay));
+  // 가로형: 패널 왼쪽 / 오른쪽 위=먹은패 부채, 오른쪽 아래=손패(앞면) 부채
+  var CS := CardSize;
+  var LPanel := PlayerPanelRect(spBottom);
+  var LCardsL := LPanel.Right + 14;
+  var LCardsR := ARegion.Right - 6;
+
+  // 손패(앞면) — 오른쪽 영역 하단에 부채
+  var LHandRegion := RectF(LCardsL, ARegion.Top, LCardsR + 6, ARegion.Bottom);
+  DrawHandList(RState.Player(FHumanIndex).Hand, LHandRegion, not Assigned(FDisplay));
+
+  // 먹은패 — 손패 위 촘촘 가로 부채
+  var LHandTop := ARegion.Bottom - CS.Height - 8;
+  var LCapScale := 0.72;
+  var LCapH := CS.Height * LCapScale;
+  var LCapY := LHandTop - 12 - LCapH;
+  if LCapY < ARegion.Top + 6 then
+  begin
+    LCapY := ARegion.Top + 6;
+  end;
+
+  DrawCapturedFan(RState.Player(FHumanIndex).Captured, LCardsL, LCardsR, LCapY, LCapScale);
 end;
 
 function TGostopBoard.PlayerAtPos(const APos: TSeatPos): Integer;
@@ -3049,7 +3338,7 @@ begin
   var LPanel := RectF(Width / 2 - LPanelW / 2, Height / 2 - LPanelH / 2,
     Width / 2 + LPanelW / 2, Height / 2 + LPanelH / 2);
 
-  Canvas.FillRound(LPanel, 14, $F0141414);
+  Canvas.FillRound(LPanel, 14, $F02E3A2E);
   Canvas.StrokeRound(LPanel, 14, $FFFFD54A, 2);
   DrawLabel(RectF(LPanel.Left, LPanel.Top + 12, LPanel.Right, LPanel.Top + 46), '게임 룰 설정', TAlphaColors.Gold, 22);
 
@@ -3490,24 +3779,35 @@ end;
 // 대전 설정 다이얼로그(슬롯머신): 행 클릭=내 시트, 난이도 클릭=순환, 관전 토글
 procedure TGostopBoard.DrawMatchSetup;
 begin
-  var LRowH := 58.0;
-  var LPanelW := 480.0;
-  var LPanelH := 60 + FSetupCount * LRowH + 118;
+  // 일관된 여백·행 높이로 정돈
+  const LPad = 22.0;        // 패널 좌우 안여백
+  const LRowH = 60.0;       // 행 높이(간격 포함)
+  const LRowGap = 10.0;     // 행 사이 간격
+  const LHintH = 26.0;      // 안내 문구 높이
+  const LBtnH = 40.0;       // 버튼 높이
+  const LBtnGap = 16.0;     // 버튼 사이 간격
+  const LRowGap2 = 12.0;    // 버튼 행 사이 간격
+  const LSkW = 100.0;       // 난이도 버튼 폭
+
+  var LPanelW := 500.0;
+  // 제목(48) + 행들 + 안내 + 버튼2행 + 하단여백
+  var LPanelH := 48 + FSetupCount * LRowH + LHintH + 8 + LBtnH + LRowGap2 + LBtnH + 22;
   var LPanel := RectF(Width / 2 - LPanelW / 2, Height / 2 - LPanelH / 2,
     Width / 2 + LPanelW / 2, Height / 2 + LPanelH / 2);
+  var LCx := (LPanel.Left + LPanel.Right) / 2;
 
-  Canvas.FillRound(LPanel, 14, $F0141414);
+  Canvas.FillRound(LPanel, 14, $F02E3A2E);
   Canvas.StrokeRound(LPanel, 14, $FFFFD54A, 2);
-  DrawLabel(RectF(LPanel.Left, LPanel.Top + 10, LPanel.Right, LPanel.Top + 44),
+  DrawLabel(RectF(LPanel.Left, LPanel.Top + 12, LPanel.Right, LPanel.Top + 42),
     Format('대전 설정 — %d인전', [FSetupCount]), TAlphaColors.Gold, 21);
 
   for var R := 0 to FSetupCount - 1 do
   begin
-    var LY := LPanel.Top + 56 + R * LRowH;
-    var LRow := RectF(LPanel.Left + 18, LY, LPanel.Right - 18, LY + LRowH - 8);
-    FSetupRowRects[R] := RectF(LRow.Left, LRow.Top, LRow.Right - 118, LRow.Bottom);
+    var LY := LPanel.Top + 50 + R * LRowH;
+    var LRow := RectF(LPanel.Left + LPad, LY, LPanel.Right - LPad, LY + LRowH - LRowGap);
+    FSetupRowRects[R] := RectF(LRow.Left, LRow.Top, LRow.Right - LSkW - 12, LRow.Bottom);
 
-    // 내 시트 행은 금테 강조
+    // 행 배경 — 내 시트 행은 금테 강조
     Canvas.Fill.Color := $FF20301F;
     if R = FSetupHumanRow then
     begin
@@ -3522,10 +3822,10 @@ begin
       Canvas.DrawRect(LRow, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
     end;
 
-    // 시트 라벨
-    DrawLabel(RectF(LRow.Left + 6, LRow.Top, LRow.Left + 48, LRow.Bottom), Format('P%d', [R + 1]), $FFB8C4B8, 15);
+    // 시트 라벨(세로 중앙)
+    DrawLabel(RectF(LRow.Left + 12, LRow.Top, LRow.Left + 48, LRow.Bottom), Format('P%d', [R + 1]), $FFB8C4B8, 15);
 
-    // 아바타(릴) + 이름
+    // 아바타(릴) — 세로 중앙 정렬
     var LAvIdx := FSlotDisp[R];
     var LName := '';
     if R = FSetupHumanRow then
@@ -3542,7 +3842,9 @@ begin
       end;
     end;
 
-    var LAv := RectF(LRow.Left + 52, LRow.Top + 5, LRow.Left + 52 + LRowH - 18, LRow.Top + 5 + LRowH - 18);
+    var LAvSize := LRow.Height - 12;
+    var LAvY := LRow.Top + (LRow.Height - LAvSize) / 2;
+    var LAv := RectF(LRow.Left + 54, LAvY, LRow.Left + 54 + LAvSize, LAvY + LAvSize);
     if Assigned(FAvatarPool) and (LAvIdx >= 0) and (LAvIdx < FAvatarPool.Count) then
     begin
       var LBmp := FAvatarPool[LAvIdx];
@@ -3552,15 +3854,18 @@ begin
     Canvas.Stroke.Color := $80FFFFFF;
     Canvas.Stroke.Thickness := 1;
     Canvas.DrawEllipse(LAv, 1);
+
+    // 이름(아바타 오른쪽 ~ 난이도 버튼 왼쪽, 세로 중앙)
     Canvas.Fill.Color := TAlphaColors.White;
     Canvas.Font.Size := 16;
-    Canvas.FillText(RectF(LAv.Right + 12, LRow.Top, LRow.Right - 124, LRow.Bottom), LName,
+    Canvas.FillText(RectF(LAv.Right + 14, LRow.Top, LRow.Right - LSkW - 20, LRow.Bottom), LName,
       False, 1, [], TTextAlign.Leading, TTextAlign.Center);
 
-    // 난이도(AI 행만)
+    // 난이도(AI 행만) — 세로 중앙, 폭 일정
     if R <> FSetupHumanRow then
     begin
-      FSetupSkRects[R] := RectF(LRow.Right - 110, LRow.Top + 9, LRow.Right - 12, LRow.Bottom - 9);
+      var LSkY := LRow.Top + (LRow.Height - 34) / 2;
+      FSetupSkRects[R] := RectF(LRow.Right - LSkW - 6, LSkY, LRow.Right - 6, LSkY + 34);
       Canvas.FillRound(FSetupSkRects[R], 8, $FF37474F);
       DrawLabel(FSetupSkRects[R], SkillLabel(FSetupSkill[R]), $FFFFE082, 14);
     end
@@ -3570,38 +3875,38 @@ begin
     end;
   end;
 
-  var LBY := LPanel.Top + 56 + FSetupCount * LRowH + 8;
-  DrawLabel(RectF(LPanel.Left, LBY, LPanel.Right, LBY + 20), 'AI 행을 클릭하면 그 시트에 내가 앉습니다', $FF8A968A, 12);
+  // 안내 문구(중앙)
+  var LBY := LPanel.Top + 50 + FSetupCount * LRowH + 2;
+  DrawLabel(RectF(LPanel.Left, LBY, LPanel.Right, LBY + LHintH), 'AI 행을 클릭하면 그 시트에 내가 앉습니다', $FF8A968A, 12);
+  LBY := LBY + LHintH + 8;
 
-  // 다시 돌리기 · 관전 토글
-  FBtnSetupSpin := RectF(LPanel.Left + 30, LBY + 26, LPanel.Left + 30 + 130, LBY + 26 + 36);
+  // 보조 버튼 행: [다시 돌리기] [관전 모드] — 중앙 정렬 한 쌍
+  var LBtnW := 160.0;
+  FBtnSetupSpin := RectF(LCx - LBtnW - LBtnGap / 2, LBY, LCx - LBtnGap / 2, LBY + LBtnH);
   Canvas.FillRound(FBtnSetupSpin, 8, $FF5D4037);
-  DrawLabel(FBtnSetupSpin, '다시 돌리기', TAlphaColors.White, 14);
+  DrawLabel(FBtnSetupSpin, '다시 돌리기', TAlphaColors.White, 15);
 
-  FBtnSetupWatch := RectF(LPanel.Right - 30 - 130, LBY + 26, LPanel.Right - 30, LBY + 26 + 36);
-  Canvas.Fill.Color := $FF37474F;
+  FBtnSetupWatch := RectF(LCx + LBtnGap / 2, LBY, LCx + LBtnGap / 2 + LBtnW, LBY + LBtnH);
   if FSetupHumanRow < 0 then
   begin
-    Canvas.Fill.Color := $FF6A1B9A;
-  end;
-
-  Canvas.FillRect(FBtnSetupWatch, 8, 8, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-  if FSetupHumanRow < 0 then
-  begin
-    DrawLabel(FBtnSetupWatch, '관전 모드: 켬', TAlphaColors.White, 14);
+    Canvas.FillRound(FBtnSetupWatch, 8, $FF6A1B9A);
+    DrawLabel(FBtnSetupWatch, '관전 모드: 켬', TAlphaColors.White, 15);
   end
   else
   begin
-    DrawLabel(FBtnSetupWatch, '관전 모드: 끔', TAlphaColors.White, 14);
+    Canvas.FillRound(FBtnSetupWatch, 8, $FF37474F);
+    DrawLabel(FBtnSetupWatch, '관전 모드: 끔', TAlphaColors.White, 15);
   end;
 
-  // 시작 · 취소
-  FBtnSetupStart := RectF(Width / 2 - 148, LBY + 72, Width / 2 - 8, LBY + 72 + 40);
-  Canvas.FillRound(FBtnSetupStart, 10, $FF2E7D32);
+  LBY := LBY + LBtnH + LRowGap2;
+
+  // 주 버튼 행: [시작] [취소] — 중앙 정렬 한 쌍(보조 버튼과 같은 폭)
+  FBtnSetupStart := RectF(LCx - LBtnW - LBtnGap / 2, LBY, LCx - LBtnGap / 2, LBY + LBtnH);
+  Canvas.FillRound(FBtnSetupStart, 8, $FF2E7D32);
   DrawLabel(FBtnSetupStart, '시작', TAlphaColors.White, 17);
 
-  FBtnSetupCancel := RectF(Width / 2 + 8, LBY + 72, Width / 2 + 148, LBY + 72 + 40);
-  Canvas.FillRound(FBtnSetupCancel, 10, $FF8E2430);
+  FBtnSetupCancel := RectF(LCx + LBtnGap / 2, LBY, LCx + LBtnGap / 2 + LBtnW, LBY + LBtnH);
+  Canvas.FillRound(FBtnSetupCancel, 8, $FF8E2430);
   DrawLabel(FBtnSetupCancel, '취소', TAlphaColors.White, 17);
 end;
 
@@ -3711,19 +4016,32 @@ begin
   var LBox := PlayerPanelRect(APos);
   // 현재 차례면 패널을 강조(자리 프레임 대신)
   var LIsCurrent := (FGame <> nil) and (LIdx >= 0) and (LIdx = FGame.Current) and (FGame.Phase = gpPlaying);
+  // 관전(4인 빠진 자리)은 회색으로 흐리게
+  var LIsSpectator := (FGame <> nil) and (LIdx < 0);
   if LIsCurrent then
   begin
-    Canvas.FillRound(LBox, 8, $F02A2410);
-    Canvas.StrokeRound(LBox, 8, $FFFFD54A, 3);
+    Canvas.FillRound(LBox, 10, $F03A4A32);          // 현재 차례(밝은 올리브)
+    Canvas.StrokeRound(LBox, 10, $FFFFD54A, 3);
+  end
+  else
+  if LIsSpectator then
+  begin
+    Canvas.FillRound(LBox, 10, $99525A52);          // 관전(회색·흐리게)
+    Canvas.StrokeRound(LBox, 10, $22FFFFFF, 1);
   end
   else
   begin
-    Canvas.FillRound(LBox, 8, $E6141414);
-    Canvas.StrokeRound(LBox, 8, $40FFFFFF, 1);
+    Canvas.FillRound(LBox, 10, $F0384038);          // 기본(밝은 다크 그린그레이)
+    Canvas.StrokeRound(LBox, 10, $50FFFFFF, 1);
   end;
 
-  // 좌측 열: 아바타(세로 중앙 정렬, 72×72) | 우측 열: 나머지 정보
-  var LAv := RectF(LBox.Left + 10, LBox.Top + 22, LBox.Left + 82, LBox.Top + 94);
+  // 세로형 통일: 아바타 위(가로 중앙) → 정보 아래
+  var LAvSize := 60.0;
+  var LCxB := (LBox.Left + LBox.Right) / 2;
+  var LAv := RectF(LCxB - LAvSize / 2, LBox.Top + 8, LCxB + LAvSize / 2, LBox.Top + 8 + LAvSize);
+  var LInfo := RectF(LBox.Left + 8, LAv.Bottom + 6, LBox.Right - 8, LBox.Bottom - 4);
+
+  // 아바타 그리기
   var LAvDrawn := False;
   if Assigned(FAvatarPool) and (FSeatAvatar[APos] >= 0) and (FSeatAvatar[APos] < FAvatarPool.Count) then
   begin
@@ -3740,59 +4058,49 @@ begin
   Canvas.Stroke.Color := $80FFFFFF;
   Canvas.DrawEllipse(LAv, 1);
 
-  // 내 아바타 rect(클릭하면 아바타 선택 열림)
   if APos = spBottom then
   begin
     FMyAvatarRect := LAv;
   end;
 
-  // 좌우 열 구분선(아바타 | 정보)
-  Canvas.Stroke.Color := $28FFFFFF;
-  Canvas.DrawLine(PointF(LAv.Right + 8, LBox.Top + 12), PointF(LAv.Right + 8, LBox.Bottom - 12), 1);
+  // 정보 스택(LInfo 기준): 이름 → 머니 → 전적 → 배지
+  var LIL := LInfo.Left;
+  var LIR := LInfo.Right;
+  var LIT := LInfo.Top;
 
-  // 우측 열 시작 x
-  var LInfoX := LAv.Right + 12;
-
-  // 1) 이름(닉네임)
-  Canvas.Fill.Color := TAlphaColors.White;
-  Canvas.Font.Size := 15;
-  Canvas.FillText(RectF(LInfoX, LBox.Top + 8, LBox.Right - 38, LBox.Top + 32), LLabel,
-    False, 1, [], TTextAlign.Leading, TTextAlign.Center);
-
-  // 선 배지: 현재 게임의 선(논리 좌석 0)에 표시. 이름 오른쪽 끝(우상단 코너)
+  // 선 배지 — 카드 좌상단 코너(정보와 겹치지 않게)
   if (FGame <> nil) and (LogicalSeatOf(APos) = 0) then
   begin
-    var LSB := RectF(LBox.Right - 34, LBox.Top + 8, LBox.Right - 6, LBox.Top + 30);
+    var LSB := RectF(LBox.Left + 3, LBox.Top + 3, LBox.Left + 27, LBox.Top + 23);
     Canvas.FillRound(LSB, 6, $FFD32F2F);
     Canvas.StrokeRound(LSB, 6, TAlphaColors.White, 1);
-    DrawLabel(LSB, '선', TAlphaColors.White, 13);
+    DrawLabel(LSB, '선', TAlphaColors.White, 11);
   end;
+
+  // 1) 이름 — 전체 폭 사용(잘림 방지)
+  Canvas.Fill.Color := TAlphaColors.White;
+  Canvas.Font.Size := 13;
+  Canvas.FillText(RectF(LIL, LIT + 0, LIR - 2, LIT + 20), LLabel,
+    False, 1, [], TTextAlign.Leading, TTextAlign.Center);
 
   // 2) 보유머니
   Canvas.Fill.Color := TAlphaColors.White;
-  Canvas.Font.Size := 14;
-  Canvas.FillText(RectF(LInfoX, LBox.Top + 34, LBox.Right - 6, LBox.Top + 54),
+  Canvas.Font.Size := 13;
+  Canvas.FillText(RectF(LIL, LIT + 21, LIR, LIT + 39),
     Format('%s원', [FormatFloat('#,##0', FMoney[APos])]), False, 1, [], TTextAlign.Leading, TTextAlign.Center);
 
-  // 3) 전적 + 이번 판 운(굴림) 별점(우측)
+  // 3) 전적 (운 별점은 숨김 — 내부 로직으로만 작동)
   Canvas.Fill.Color := $FFB8C4B8;
-  Canvas.Font.Size := 12;
-  Canvas.FillText(RectF(LInfoX, LBox.Top + 56, LBox.Right - 6, LBox.Top + 74),
+  Canvas.Font.Size := 11;
+  Canvas.FillText(RectF(LIL, LIT + 40, LIR, LIT + 55),
     Format('%d승 %d패', [FWins[APos], FLosses[APos]]), False, 1, [], TTextAlign.Leading, TTextAlign.Center);
-  if FSeatLuckRoll[APos] > 0 then
-  begin
-    Canvas.Fill.Color := $C0FFD54A;
-    Canvas.Font.Size := 11;
-    Canvas.FillText(RectF(LInfoX, LBox.Top + 56, LBox.Right - 8, LBox.Top + 74),
-      StringOfChar('★', (FSeatLuckRoll[APos] + 19) div 20), False, 1, [], TTextAlign.Trailing, TTextAlign.Center);
-  end;
 
-  // 4) 이번 게임 정보: 점수·고·흔들 배지(우측 열 하단) / 관전(4인 빠진 자리) / 게임 전엔 생략
+  // 4) 이번 게임 정보: 점수·고·흔들 배지 / 관전 / 게임 전엔 생략
   if (FGame <> nil) and (LIdx < 0) then
   begin
     Canvas.Fill.Color := $FF8A968A;
     Canvas.Font.Size := 12;
-    Canvas.FillText(RectF(LInfoX, LBox.Top + 78, LBox.Right - 6, LBox.Top + 100), '관전',
+    Canvas.FillText(RectF(LIL, LIT + 57, LIR, LIT + 77), '관전',
       False, 1, [], TTextAlign.Leading, TTextAlign.Center);
     Exit;
   end;
@@ -3805,96 +4113,146 @@ begin
   var LScore := FEngine.ScoreOf(LIdx).Total;
   var LGo := FGame.Player(LIdx).GoCount;
   var LShake := FGame.Player(LIdx).ShakeCount;
-  var LBX := LInfoX;
-  var LBY := LBox.Top + 80;
+  var LBX := LIL;
+  var LBY := LIT + 57;
 
   // 점수 배지(항상 표시)
   Canvas.Fill.Color := $FF37474F;
-  Canvas.FillRect(RectF(LBX, LBY, LBX + 30, LBY + 22), 6, 6,
+  Canvas.FillRect(RectF(LBX, LBY, LBX + 26, LBY + 20), 5, 5,
     [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-  DrawLabel(RectF(LBX, LBY, LBX + 30, LBY + 22), Format('%d점', [LScore]), $FFFFE082, 12);
-  LBX := LBX + 32;
+  DrawLabel(RectF(LBX, LBY, LBX + 26, LBY + 20), Format('%d점', [LScore]), $FFFFE082, 11);
+  LBX := LBX + 28;
 
   // 고 배지
   if LGo > 0 then
   begin
     Canvas.Fill.Color := $FFB35900;
-    Canvas.FillRect(RectF(LBX, LBY, LBX + 24, LBY + 22), 6, 6,
+    Canvas.FillRect(RectF(LBX, LBY, LBX + 20, LBY + 20), 5, 5,
       [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-    DrawLabel(RectF(LBX, LBY, LBX + 24, LBY + 22), Format('%d고', [LGo]), TAlphaColors.White, 12);
-    LBX := LBX + 26;
+    DrawLabel(RectF(LBX, LBY, LBX + 20, LBY + 20), Format('%d고', [LGo]), TAlphaColors.White, 11);
+    LBX := LBX + 22;
   end;
 
   // 흔들기 배지
   if LShake > 0 then
   begin
     Canvas.Fill.Color := $FF8E2430;
-    Canvas.FillRect(RectF(LBX, LBY, LBX + 28, LBY + 22), 6, 6,
+    Canvas.FillRect(RectF(LBX, LBY, LBX + 24, LBY + 20), 5, 5,
       [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-    DrawLabel(RectF(LBX, LBY, LBX + 28, LBY + 22), Format('흔%d', [LShake]), TAlphaColors.White, 12);
+    DrawLabel(RectF(LBX, LBY, LBX + 24, LBY + 20), Format('흔%d', [LShake]), TAlphaColors.White, 11);
   end;
 end;
 
 procedure TGostopBoard.DrawOpponent(const AGameIndex: Integer; const APos: TSeatPos; const ARegion: TRectF);
 begin
   var CS := CardSize;
-  var LBackW := CS.Width * 0.45;
-  var LBackH := CS.Height * 0.45;
-  var LCapW := CS.Width * 0.5;    // 획득 패는 크게(잘 보이게)
-  var LCapH := CS.Height * 0.5;
+  var LBackW := CS.Width * 0.5;
+  var LBackH := CS.Height * 0.5;
   var LHand := RState.Player(AGameIndex).Hand;
   var LCaptured := RState.Player(AGameIndex).Captured;
   var LHandCount := LHand.Count;
-  var LHandStep := LBackW * 0.45;
-  var LArea := SeatCardArea(APos);   // 정보 패널을 제외한 카드 공간
+  var LHandStep := LBackW * 0.5;
+  var LPanel := PlayerPanelRect(APos);
 
   case APos of
     spTop, spBottom:
       begin
-        // 가로 배치(회전 없음). 관전 모드에선 아래 자리도 이 형태
-        var LCX0 := (LArea.Left + LArea.Right) / 2 - LHandStep * (LHandCount - 1) / 2;
-        var LCY := LArea.Top + 10 + LBackH / 2;
-        if APos = spBottom then
+        // 가로형. P1(위)=패널 오른쪽→카드 왼쪽 / P3자리(아래 관전)=패널 왼쪽→카드 오른쪽
+        var LCardsL: Single;
+        var LCardsR: Single;
+        if APos = spTop then
         begin
-          LCY := LArea.Top + 16 + LBackH / 2;
+          LCardsL := ARegion.Left + 6;
+          LCardsR := LPanel.Left - 14;
+        end
+        else
+        begin
+          LCardsL := LPanel.Right + 14;
+          LCardsR := ARegion.Right - 6;
+        end;
+
+        // 먹은패(위) — P1(위)은 패널(오른쪽)에 붙여 우측 앵커
+        DrawCapturedFan(LCaptured, LCardsL, LCardsR, ARegion.Top + 8, 0.66, APos = spTop);
+
+        // 손패(뒷면, 아래) — 가로 부채. P1은 우측(패널쪽) 앵커
+        var LHandY := ARegion.Bottom - LBackH - 8;
+        var LStep := LHandStep;
+        if LHandCount > 1 then
+        begin
+          var LMax := (LCardsR - LCardsL - LBackW) / (LHandCount - 1);
+          if LMax < LStep then
+          begin
+            LStep := LMax;
+          end;
+        end;
+
+        var LHandX0 := LCardsL;
+        if APos = spTop then
+        begin
+          LHandX0 := LCardsR - (LBackW + (LHandCount - 1) * LStep);
+          if LHandX0 < LCardsL then
+          begin
+            LHandX0 := LCardsL;
+          end;
         end;
 
         for var I := 0 to LHandCount - 1 do
         begin
-          DrawCardRotated(LCX0 + I * LHandStep, LCY, LBackW, LBackH, 0, '', True);
+          DrawCardRotated(LHandX0 + LBackW / 2 + I * LStep, LHandY + LBackH / 2, LBackW, LBackH, 0, '', True);
         end;
-
-        DrawCapturedGrouped(LCaptured, LArea.Left + 4, LCY + LBackH / 2 + 6, 0.5);
       end;
 
-    spLeft:
+    spLeft, spRight:
       begin
-        // 세로 배치 + 90도 회전
-        var LXC := LArea.Left + 6 + LBackH / 2;
-        var LCY0 := LArea.Top + LBackW / 2;
-        for var I := 0 to LHandCount - 1 do
+        // 세로형. P2(왼)=패널 위→카드 아래(90°) / P4(오른)=패널 아래→카드 위(270°)
+        var LAng := 90.0;
+        var LTop: Single;
+        var LBot: Single;
+        if APos = spLeft then
         begin
-          DrawCardRotated(LXC, LCY0 + I * LHandStep, LBackW, LBackH, 90, '', True);
+          LTop := LPanel.Bottom + 14;
+          LBot := ARegion.Bottom - 6;
+        end
+        else
+        begin
+          LAng := 270.0;
+          LTop := ARegion.Top + 6;
+          LBot := LPanel.Top - 14;
         end;
 
-        // 획득 패는 기둥 아래쪽에서 위로 쌓는다(아래→위 정리)
-        var LCapXC := LArea.Left + 6 + LBackH + 10 + LCapH / 2;
-        DrawCapturedLine(LCaptured, LCapXC, LArea.Bottom - LCapW / 2, 0, -LCapW * 0.5, LCapW, LCapH, 90);
-      end;
+        var LColW := ARegion.Right - ARegion.Left;
+        var LXHand := ARegion.Left + LColW * 0.30;   // 손패(뒷면) 열
+        var LXCap := ARegion.Left + LColW * 0.70;    // 먹은패 열
 
-    spRight:
-      begin
-        // 세로 배치 + 270도 회전
-        var LXC := LArea.Right - 6 - LBackH / 2;
-        var LCY0 := LArea.Top + LBackW / 2;
-        for var I := 0 to LHandCount - 1 do
+        // 손패(뒷면) 세로 부채
+        var LStep := LHandStep;
+        if LHandCount > 1 then
         begin
-          DrawCardRotated(LXC, LCY0 + I * LHandStep, LBackW, LBackH, 270, '', True);
+          var LMax := (LBot - LTop - LBackW) / (LHandCount - 1);
+          if LMax < LStep then
+          begin
+            LStep := LMax;
+          end;
         end;
 
-        // 획득 패는 기둥 아래쪽에서 위로 쌓는다(아래→위 정리)
-        var LCapXC := LArea.Right - 6 - LBackH - 10 - LCapH / 2;
-        DrawCapturedLine(LCaptured, LCapXC, LArea.Bottom - LCapW / 2, 0, -LCapW * 0.5, LCapW, LCapH, 270);
+        // P4(오른)은 패널(아래)에 붙여 아래 앵커
+        var LHandY0 := LTop;
+        if APos = spRight then
+        begin
+          LHandY0 := LBot - (LBackW + (LHandCount - 1) * LStep);
+          if LHandY0 < LTop then
+          begin
+            LHandY0 := LTop;
+          end;
+        end;
+
+        for var I := 0 to LHandCount - 1 do
+        begin
+          DrawCardRotated(LXHand, LHandY0 + LBackW / 2 + I * LStep, LBackW, LBackH, LAng, '', True);
+        end;
+
+        // 먹은패 세로 촘촘 부채. P4는 아래(패널쪽) 앵커
+        DrawCapturedFanV(LCaptured, LXCap, LTop, LBot, 0.66, LAng, APos = spRight);
       end;
   end;
 end;
@@ -4117,7 +4475,7 @@ begin
     // 광+조커 + 실제 보유한 족보(고도리·초단 등) 카드까지 표시
     var LGwang := TFourPlayer.SaleCards(LHand, CfgScore);
 
-    DrawLabel(RectF(0, Height * 0.06, Width, Height * 0.10), '당신은 P4 — 내 팔 패(광·조커·족보, 팔면 아래 값을 받습니다)', $FFFFE082, 16);
+    DrawLabel(RectF(0, Height * 0.06, Width, Height * 0.10), '광 팔기', TAlphaColors.Gold, 20);
 
     var CS := CardSize;
     var LGCount := TFourPlayer.GwangCount(LHand, CfgScore);
@@ -4137,8 +4495,7 @@ begin
     end;
 
     DrawLabel(RectF(0, Height * 0.12 + CS.Height + 6, Width, Height * 0.12 + CS.Height + 34),
-      Format('광값 = %d × %d원 = %s원 (P2·P3에게서 각각)',
-        [LGCount, GWANG_UNIT_PRICE * FConfig.MoneyPerPoint, FormatFloat('#,##0', LGCount * GWANG_UNIT_PRICE * FConfig.MoneyPerPoint)]),
+      Format('P2·P3에게서 각 %s원', [FormatFloat('#,##0', LGCount * GWANG_UNIT_PRICE * FConfig.MoneyPerPoint)]),
       TAlphaColors.White, 16);
   end;
 
@@ -4191,7 +4548,7 @@ begin
   var LPanelH := 18 + LHeadH + (LN - 1) * LLineH + 14 + LBtnH + 18;
   var LPanel := RectF(Width * 0.26, (Height - LPanelH) / 2, Width * 0.74, (Height + LPanelH) / 2);
 
-  Canvas.FillRound(LPanel, 16, $EA1C1C1C);
+  Canvas.FillRound(LPanel, 16, $F02E3A2E);
   Canvas.StrokeRound(LPanel, 16, $FFFFD54A, 3);
 
   var LY := LPanel.Top + 18;
@@ -4226,7 +4583,7 @@ begin
   var LPanelW := Max(Width * 0.34, 320.0);
   var LPanelH := 128.0;
   var LPanel := RectF((Width - LPanelW) / 2, Height * 0.30, (Width + LPanelW) / 2, Height * 0.30 + LPanelH);
-  Canvas.FillRound(LPanel, 16, $EA1C1C1C);
+  Canvas.FillRound(LPanel, 16, $F02E3A2E);
   Canvas.StrokeRound(LPanel, 16, $FFFFD54A, 3);
 
   DrawLabel(RectF(LPanel.Left, LPanel.Top + 14, LPanel.Right, LPanel.Top + 46), Format('%d점! 고 또는 스톱', [LScore]), TAlphaColors.Gold, 22);

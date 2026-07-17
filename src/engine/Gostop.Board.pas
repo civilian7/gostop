@@ -74,6 +74,8 @@ type
     FFeltTile: TBitmap;
     FAvatars: array [TSeatPos] of TBitmap;      // 자리별 아바타(절차 생성 폴백)
     FAvatarPool: TObjectList<TBitmap>;          // 파일 아바타 풀(assets\avatars, 지연 로드)
+    FAvatarCheerPool: TObjectList<TBitmap>;     // 환호(승리) 상태 풀. FAvatarPool과 인덱스 정렬(없으면 nil)
+    FAvatarSadPool: TObjectList<TBitmap>;       // 슬픔(패배) 상태 풀. FAvatarPool과 인덱스 정렬(없으면 nil)
     FSeatAvatar: array [TSeatPos] of Integer;   // 자리별 배정(풀 인덱스, -1=미배정)
     FHumanAvatarIdx: Integer;                   // 사람이 고른 아바타(-1=랜덤). 매치 간 유지
     FAvatarPicking: Boolean;                    // 아바타 선택 오버레이 표시 중
@@ -136,6 +138,8 @@ type
     FBackColor: string;
     FStatus: string;
     FResultLines: TArray<string>;
+    FResultAvatarIdx: TArray<Integer>;    // FResultLines와 나란한 배열. 해당 줄의 아바타 풀 인덱스(-1=없음)
+    FResultIsWinner: TArray<Boolean>;     // FResultLines와 나란한 배열. True=환호 이미지, False=슬픔 이미지
     FAwaitingGoStop: Boolean;
 
     // 4인 광팔기
@@ -337,6 +341,9 @@ type
     procedure DrawPanels;
     procedure GenerateAvatars;
     procedure LoadAvatarPool;
+    function  LoadStateAvatar(const AFile: string): TBitmap;
+    procedure ApplyCircularMask(const ABmp: TBitmap);
+    function  ResultAvatarBitmap(const AAvatarIdx: Integer; const AIsWinner: Boolean): TBitmap;
     procedure AssignAvatars;
     procedure SetHumanAvatar(const AIndex: Integer);
     procedure DrawAvatarPicker;
@@ -786,6 +793,8 @@ begin
   FreeAndNil(FBonusRects);
   FreeAndNil(FAvatarRects);
   FreeAndNil(FAvatarPool);
+  FreeAndNil(FAvatarCheerPool);
+  FreeAndNil(FAvatarSadPool);
   FreeAndNil(FFeltTile);
   FreeAndNil(FImages);
   FreeAndNil(FFloorIndexMap);
@@ -819,6 +828,8 @@ begin
   FAwaitingGoStop := False;
   FEffectText := '';
   FResultLines := nil;
+  FResultAvatarIdx := nil;
+  FResultIsWinner := nil;
   if Assigned(FSeonTimer) then
   begin
     FSeonTimer.Enabled := False;
@@ -2249,12 +2260,16 @@ begin
     end;
   end;
 
-  // 결과 라인
+  // 결과 라인(+ 나란한 아바타 인덱스·승패 — 정산창 초상화 표시용)
   var LLines := TList<string>.Create;
+  var LAvatarIdx := TList<Integer>.Create;
+  var LIsWinner := TList<Boolean>.Create;
   try
     if FGame.ThreeBbeok then
     begin
       LLines.Add('쓰리뻑! — 즉시 승리 (고정 점수)');
+      LAvatarIdx.Add(-1);
+      LIsWinner.Add(False);
     end;
 
     if FGame.Winner < 0 then
@@ -2262,12 +2277,20 @@ begin
       if LChongtong then
       begin
         LLines.Add('총통! — 무효 판');
+        LAvatarIdx.Add(-1);
+        LIsWinner.Add(False);
         LLines.Add('다음 게임으로 넘어갑니다');
+        LAvatarIdx.Add(-1);
+        LIsWinner.Add(False);
       end
       else
       begin
         LLines.Add('나가리 (무승부)');
+        LAvatarIdx.Add(-1);
+        LIsWinner.Add(False);
         LLines.Add(Format('다음 판 판돈 ×%d!', [FStakes * 2]));
+        LAvatarIdx.Add(-1);
+        LIsWinner.Add(False);
       end;
     end
     else
@@ -2275,18 +2298,24 @@ begin
     begin
       var LWinnerSeat := FSeatMap[FGame.Winner];
       LLines.Add(Trim(Format('%s 승%s', [SeatLabel(LWinnerSeat), StakesSuffix])));
+      LAvatarIdx.Add(FSeatAvatar[TSeatPos(LWinnerSeat)]);
+      LIsWinner.Add(True);
       for var S := 0 to 3 do
       begin
         // 승자 제외 + 게임에 참가하지 않은(빠진/관전) 좌석은 정산에 표시하지 않음
         if (S <> LWinnerSeat) and (S <> FSitOutSeat) then
         begin
           LLines.Add(Trim(Format('%s   %d원  %s', [SeatLabel(S), FNet4[S] * FConfig.MoneyPerPoint * FStakes, LSeatFlag[S]])));
+          LAvatarIdx.Add(FSeatAvatar[TSeatPos(S)]);
+          LIsWinner.Add(False);
         end;
       end;
     end
     else
     begin
       LLines.Add(Trim(Format('%s 승%s', [FGame.Player(FGame.Winner).Name, StakesSuffix])));
+      LAvatarIdx.Add(FSeatAvatar[PhysicalPos(FGame.Winner)]);
+      LIsWinner.Add(True);
       for var I := 0 to FGame.PlayerCount - 1 do
       begin
         if I <> FGame.Winner then
@@ -2299,13 +2328,19 @@ begin
 
           LLines.Add(Trim(Format('%s   %d원  %s',
             [FGame.Player(I).Name, LSettle[I].Net * FConfig.MoneyPerPoint * FStakes, LFlag])));
+          LAvatarIdx.Add(FSeatAvatar[PhysicalPos(I)]);
+          LIsWinner.Add(False);
         end;
       end;
     end;
 
     FResultLines := LLines.ToArray;
+    FResultAvatarIdx := LAvatarIdx.ToArray;
+    FResultIsWinner := LIsWinner.ToArray;
   finally
     LLines.Free;
+    LAvatarIdx.Free;
+    LIsWinner.Free;
   end;
 
   // 판돈 배수 갱신: 나가리면 다음 판 ×2 이월(총통 무효 판은 그대로 유지), 승부가 나면 1로 복귀
@@ -2965,7 +3000,69 @@ begin
   end;
 end;
 
-// assets\avatars 의 avatar_*.png 를 풀로 로드(지연, 1회)
+// 지정한 파일을 로드해 원형 마스크(안티에일리어싱 경계)를 입힌다. 실패/미존재면 nil.
+// 소스 파일 자체는 사각형·투명배경으로 두고, 원형 표현은 여기(앱)에서 처리한다.
+function TGostopBoard.LoadStateAvatar(const AFile: string): TBitmap;
+begin
+  Result := nil;
+  if not TFile.Exists(AFile) then
+  begin
+    Exit;
+  end;
+
+  try
+    Result := TBitmap.CreateFromFile(AFile);
+    ApplyCircularMask(Result);
+  except
+    FreeAndNil(Result);
+  end;
+end;
+
+// 비트맵에 중앙 내접원 마스크를 적용(경계 1.5px는 부드럽게 감쇠)
+procedure TGostopBoard.ApplyCircularMask(const ABmp: TBitmap);
+begin
+  if not Assigned(ABmp) then
+  begin
+    Exit;
+  end;
+
+  var LData: TBitmapData;
+  if not ABmp.Map(TMapAccess.ReadWrite, LData) then
+  begin
+    Exit;
+  end;
+
+  try
+    var LCx := ABmp.Width / 2;
+    var LCy := ABmp.Height / 2;
+    var LR := Min(LCx, LCy);
+    for var Y := 0 to ABmp.Height - 1 do
+    begin
+      for var X := 0 to ABmp.Width - 1 do
+      begin
+        var LDx := X + 0.5 - LCx;
+        var LDy := Y + 0.5 - LCy;
+        var LDist := Sqrt(LDx * LDx + LDy * LDy);
+        if LDist > LR then
+        begin
+          LData.SetPixel(X, Y, TAlphaColors.Null);
+        end
+        else
+        if LDist > LR - 1.5 then
+        begin
+          var LRec := TAlphaColorRec(LData.GetPixel(X, Y));
+          LRec.A := Round(LRec.A * EnsureRange((LR - LDist) / 1.5, 0, 1));
+          LData.SetPixel(X, Y, TAlphaColor(LRec));
+        end;
+      end;
+    end;
+  finally
+    ABmp.Unmap(LData);
+  end;
+end;
+
+// assets\avatars 의 avatar_*.png 를 풀로 로드(지연, 1회). 환호·슬픔 상태 풀도 같은 인덱스로 나란히 로드
+// (assets\characters.json에 등록된 파일이 있으면 로드, 없으면 nil — 그리면 텍스트만 폴백).
 procedure TGostopBoard.LoadAvatarPool;
 begin
   if Assigned(FAvatarPool) then
@@ -2974,6 +3071,8 @@ begin
   end;
 
   FAvatarPool := TObjectList<TBitmap>.Create(True);
+  FAvatarCheerPool := TObjectList<TBitmap>.Create(True);
+  FAvatarSadPool := TObjectList<TBitmap>.Create(True);
   var LDir := THwatuAssets.AvatarDir;
   if (LDir = '') or (not TDirectory.Exists(LDir)) then
   begin
@@ -2988,7 +3087,13 @@ begin
       FAvatarPool.Add(TBitmap.CreateFromFile(LFile));
     except
       // 손상/열기 실패 파일은 건너뜀(풀에서 제외)
+      Continue;
     end;
+
+    // 파일 순서 = characters.json 인덱스 순서(프로젝트 불변식) → 같은 인덱스로 상태 이미지 매칭
+    var LIdx := FAvatarPool.Count - 1;
+    FAvatarCheerPool.Add(LoadStateAvatar(TPath.Combine(LDir, TGostopCharacters.CheerImageOf(LIdx))));
+    FAvatarSadPool.Add(LoadStateAvatar(TPath.Combine(LDir, TGostopCharacters.SadImageOf(LIdx))));
   end;
 end;
 
@@ -4650,6 +4755,37 @@ begin
   FBtnGiveUp := DrawStdButton(RectF(LCX + LGap / 2, LBtnY, LCX + LGap / 2 + LBtnW, LBtnY + LBtnH), '포기', dbkDanger);
 end;
 
+// 정산 줄에 표시할 아바타 비트맵. 승자=환호, 패자=슬픔(없으면 평상시로 폴백). 인덱스 없으면 nil
+function TGostopBoard.ResultAvatarBitmap(const AAvatarIdx: Integer; const AIsWinner: Boolean): TBitmap;
+begin
+  Result := nil;
+  if AAvatarIdx < 0 then
+  begin
+    Exit;
+  end;
+
+  LoadAvatarPool;
+  if AIsWinner then
+  begin
+    if Assigned(FAvatarCheerPool) and (AAvatarIdx < FAvatarCheerPool.Count) then
+    begin
+      Result := FAvatarCheerPool[AAvatarIdx];
+    end;
+  end
+  else
+  begin
+    if Assigned(FAvatarSadPool) and (AAvatarIdx < FAvatarSadPool.Count) then
+    begin
+      Result := FAvatarSadPool[AAvatarIdx];
+    end;
+  end;
+
+  if (not Assigned(Result)) and Assigned(FAvatarPool) and (AAvatarIdx < FAvatarPool.Count) then
+  begin
+    Result := FAvatarPool[AAvatarIdx];   // 상태 이미지가 없으면 평상시 아바타로 폴백
+  end;
+end;
+
 procedure TGostopBoard.DrawGameOver;
 begin
   var LN := Length(FResultLines);
@@ -4658,25 +4794,56 @@ begin
     Exit;
   end;
 
-  // 중앙 오버레이 패널 — 승자 + 좌석별 금액·박 + 다음게임 버튼(표준 다이얼로그)
-  var LHeadH := 46.0;
-  var LLineH := 30.0;
+  // 중앙 오버레이 패널 — 줄마다 아바타(승자=환호/패자=슬픔) + 텍스트 + 다음게임 버튼(표준 다이얼로그)
+  var LRowH := 44.0;
   var LBtnH := 44.0;
-  var LPanelH := 18 + LHeadH + (LN - 1) * LLineH + 14 + LBtnH + 18;
-  var LPanel := DrawStdDialog(FResultLines[0], Width * 0.48, LPanelH);
+  var LTopPad := 22.0;
+  var LPanelH := LTopPad + LN * LRowH + 18 + LBtnH + 18;
+  var LPanel := DrawStdDialog('', Width * 0.48, LPanelH);
+  var LCX := (LPanel.Left + LPanel.Right) / 2;
 
-  var LY := LPanel.Top + 18 + LHeadH;
-  // 플레이어별 라인(헤드라인은 표준 다이얼로그 제목으로 대체)
-  for var I := 1 to LN - 1 do
+  var LY := LPanel.Top + LTopPad;
+  for var I := 0 to LN - 1 do
   begin
-    DrawLabel(RectF(LPanel.Left, LY, LPanel.Right, LY + LLineH), FResultLines[I], TAlphaColors.White, 18);
-    LY := LY + LLineH;
+    var LAvIdx := -1;
+    var LIsWin := False;
+    if I < Length(FResultAvatarIdx) then
+    begin
+      LAvIdx := FResultAvatarIdx[I];
+      LIsWin := FResultIsWinner[I];
+    end;
+
+    var LBmp := ResultAvatarBitmap(LAvIdx, LIsWin);
+    var LAvSize := 34.0;
+    if LIsWin then
+    begin
+      LAvSize := 46.0;
+    end;
+
+    var LTextLeft := LPanel.Left + 16;
+    if Assigned(LBmp) then
+    begin
+      var LAvR := RectF(LPanel.Left + 14, LY + (LRowH - LAvSize) / 2,
+        LPanel.Left + 14 + LAvSize, LY + (LRowH - LAvSize) / 2 + LAvSize);
+      Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), LAvR, 1, False);
+      LTextLeft := LAvR.Right + 10;
+    end;
+
+    var LTextColor := TAlphaColors.White;
+    var LFontSize := 17.0;
+    if LIsWin then
+    begin
+      LTextColor := TAlphaColors.Gold;
+      LFontSize := 20.0;
+    end;
+
+    DrawLabel(RectF(LTextLeft, LY, LPanel.Right - 14, LY + LRowH), FResultLines[I], LTextColor, LFontSize);
+    LY := LY + LRowH;
   end;
 
   // 버튼 2개: 새게임(이전 승자가 선으로 계속) / 중지(매치 종료)
   var LBtnW := 140.0;
   var LGap := 16.0;
-  var LCX := (LPanel.Left + LPanel.Right) / 2;
   FBtnNext := DrawStdButton(RectF(LCX - LBtnW - LGap / 2, LY + 12, LCX - LGap / 2, LY + 12 + LBtnH), '새게임', dbkPrimary);
   FBtnQuit := DrawStdButton(RectF(LCX + LGap / 2, LY + 12, LCX + LGap / 2 + LBtnW, LY + 12 + LBtnH), '중지', dbkDanger);
 end;

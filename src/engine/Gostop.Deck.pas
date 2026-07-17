@@ -187,7 +187,8 @@ end;
 
 procedure TDeck.Shuffle;
 begin
-  Randomize;
+  // Randomize는 호출자(앱 시작 시 1회) 책임 — 매번 호출하면 전역 난수 상태를 덮어써
+  // 시드 재현·운 보정(전역 Random 공유)과 간섭한다
   DoShuffle(
     function(ABound: Integer): Integer
     begin

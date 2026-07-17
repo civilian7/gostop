@@ -63,7 +63,7 @@ type
     function Determinize(const AReal: TGameState; const ASelfIndex: Integer): TGameState;
     procedure RolloutStep(const AEngine: TTurnEngine);
     procedure RunToTerminal(const AEngine: TTurnEngine);
-    function OutcomeOf(const AState: TGameState; const ASelfIndex: Integer): Double;
+    function OutcomeFromEngine(const AEngine: TTurnEngine; const ASelfIndex: Integer): Double;
     function GreedyBest(const AMoves: TArray<TAiMove>): TAiMove;
     procedure DoPlay(const AEngine: TTurnEngine);
     procedure DoGoStop(const AEngine: TTurnEngine);
@@ -333,17 +333,22 @@ begin
       LList.Add(LMove);
     end;
 
-    var LSeenMonth := TDictionary<Integer, Boolean>.Create;
-    try
+    var LSeenMonth: array [0 .. 12] of Boolean;
+    for var M := 0 to 12 do
+    begin
+      LSeenMonth[M] := False;
+    end;
+
+    begin
       for var I := 0 to LHand.Count - 1 do
       begin
         var LM := LHand[I].Month;
-        if LSeenMonth.ContainsKey(LM) then
+        if (LM < 0) or (LM > 12) or LSeenMonth[LM] then
         begin
           Continue;
         end;
 
-        LSeenMonth.Add(LM, True);
+        LSeenMonth[LM] := True;
         if AEngine.CanBomb(LM) then
         begin
           var LBomb: TAiMove;
@@ -364,8 +369,6 @@ begin
           LList.Add(LBomb);
         end;
       end;
-    finally
-      LSeenMonth.Free;
     end;
 
     Result := LList.ToArray;
@@ -562,21 +565,22 @@ begin
   end;
 end;
 
-function TAiPlayer.OutcomeOf(const AState: TGameState; const ASelfIndex: Integer): Double;
+// 정산 순손익(고 보너스·배수·박 반영)을 결과값으로 — 고/스톱·수읽기 판단이 실제 손익과 일치
+function TAiPlayer.OutcomeFromEngine(const AEngine: TTurnEngine; const ASelfIndex: Integer): Double;
 begin
-  if AState.Winner < 0 then
+  if AEngine.State.Winner < 0 then
   begin
     Exit(0);
   end;
 
-  var LBreak := TScorer.Evaluate(AState.Player(AState.Winner).Captured, TScoreOptions.Default);
-  if AState.Winner = ASelfIndex then
+  var LSettle := AEngine.FinalSettlement;
+  if (ASelfIndex >= 0) and (ASelfIndex <= High(LSettle)) then
   begin
-    Result := LBreak.Total;
+    Result := LSettle[ASelfIndex].Net;
   end
   else
   begin
-    Result := -LBreak.Total;
+    Result := 0;
   end;
 end;
 
@@ -621,15 +625,15 @@ begin
     begin
       var LWorld := Determinize(LState, LSelf);
       try
-        var LWEngine := TTurnEngine.Create(LWorld, TScoreOptions.Default);
+        var LWEngine := TTurnEngine.Create(LWorld, AEngine.Rules);
         try
+          LWEngine.CollectEvents := False;
           ExecuteMove(LWEngine, LTopK[C]);
           RunToTerminal(LWEngine);
+          LSum := LSum + OutcomeFromEngine(LWEngine, LSelf);
         finally
           LWEngine.Free;
         end;
-
-        LSum := LSum + OutcomeOf(LWorld, LSelf);
       finally
         LWorld.Free;
       end;
@@ -683,22 +687,36 @@ begin
     Exit;
   end;
 
-  // 고능력: 스톱(지금 승리, 값=내 점수) vs 고(롤아웃 기대값)를 비교. 고박 위험이 자동 반영됨.
-  var LStopValue: Double := LScore;
+  // 고능력: 스톱(지금 승리) vs 고(롤아웃 기대값)를 실제 정산 손익 기준으로 비교.
+  // 스톱값 = 지금 스톱 시 내 순손익(고 보너스·박 반영)
+  var LStopWorld := Determinize(LState, LSelf);
+  var LStopValue: Double;
+  try
+    var LSE := TTurnEngine.Create(LStopWorld, AEngine.Rules);
+    try
+      LSE.CollectEvents := False;
+      LSE.DeclareStop;
+      LStopValue := OutcomeFromEngine(LSE, LSelf);
+    finally
+      LSE.Free;
+    end;
+  finally
+    LStopWorld.Free;
+  end;
   var LGoSum: Double := 0;
   for var D := 1 to LSims do
   begin
     var LWorld := Determinize(LState, LSelf);
     try
-      var LWEngine := TTurnEngine.Create(LWorld, TScoreOptions.Default);
+      var LWEngine := TTurnEngine.Create(LWorld, AEngine.Rules);
       try
+        LWEngine.CollectEvents := False;
         LWEngine.DeclareGo;
         RunToTerminal(LWEngine);
+        LGoSum := LGoSum + OutcomeFromEngine(LWEngine, LSelf);
       finally
         LWEngine.Free;
       end;
-
-      LGoSum := LGoSum + OutcomeOf(LWorld, LSelf);
     finally
       LWorld.Free;
     end;

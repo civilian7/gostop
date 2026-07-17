@@ -113,6 +113,12 @@ begin
       Exit(True);
     end;
 
+    // 손상 WAV 방어: 청크 크기가 비정상(음수·과대)이면 무한루프 대신 중단
+    if (LSize > Cardinal(Length(ARaw))) or (Integer(LSize) < 0) then
+    begin
+      Break;
+    end;
+
     LPos := LBody + Integer(LSize);
     if (LSize and 1) = 1 then
     begin
@@ -247,6 +253,7 @@ begin
   var LPath := TPath.Combine(FDir, AName + '.wav');
   if not TFile.Exists(LPath) then
   begin
+    FBuffers.Add(AName, nil);   // 네거티브 캐시: 없는 파일을 매번 디스크 확인하지 않음
     Exit;
   end;
 
@@ -256,8 +263,13 @@ begin
     begin
       FBuffers.Add(AName, LData);
       Result := LData;
+    end
+    else
+    begin
+      FBuffers.Add(AName, nil);   // 파싱 실패도 캐시
     end;
   except
+    FBuffers.AddOrSetValue(AName, nil);
     Result := nil;
   end;
 end;

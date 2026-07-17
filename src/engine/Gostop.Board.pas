@@ -770,6 +770,15 @@ procedure TGostopBoard.ClearGame;
 begin
   FAiTimer.Enabled := False;
   FAnimTimer.Enabled := False;
+  if Assigned(FEffectTimer) then
+  begin
+    FEffectTimer.Enabled := False;
+  end;
+
+  // 잔상·스테일 상태 리셋(타이틀 복귀 시 배너·고/스톱 플래그 잔존 방지)
+  FAwaitingGoStop := False;
+  FEffectText := '';
+  FResultLines := nil;
   if Assigned(FSeonTimer) then
   begin
     FSeonTimer.Enabled := False;
@@ -1169,6 +1178,12 @@ end;
 
 procedure TGostopBoard.SeonTimerTick(Sender: TObject);
 begin
+  if (not FSeonPicking) or (FSeonDeck = nil) then
+  begin
+    FSeonTimer.Enabled := False;
+    Exit;
+  end;
+
   Inc(FSeonTicks);
   case FSeonStep of
     seReveal:
@@ -1539,9 +1554,10 @@ end;
 
 procedure TGostopBoard.PickTick(Sender: TObject);
 begin
-  if not FPickActive then
+  if (not FPickActive) or (FEngine = nil) then
   begin
     FPickTimer.Enabled := False;
+    FPickActive := False;
     Exit;
   end;
 
@@ -2036,6 +2052,11 @@ end;
 
 procedure TGostopBoard.HumanGo;
 begin
+  if Assigned(FDisplay) or FDealing then
+  begin
+    Exit;
+  end;
+
   if FAwaitingGoStop and (FGame <> nil) then
   begin
     TGostopAudio.Instance.Play('sfx_go');
@@ -2047,6 +2068,11 @@ end;
 
 procedure TGostopBoard.HumanStop;
 begin
+  if Assigned(FDisplay) or FDealing then
+  begin
+    Exit;
+  end;
+
   if FAwaitingGoStop and (FGame <> nil) then
   begin
     TGostopAudio.Instance.Play('sfx_stop');
@@ -2563,10 +2589,12 @@ begin
     end;
 
     var LPick := Random(FAvatarPool.Count);
-    while (LPick = FSeatAvatar[spTop]) or (LPick = FSeatAvatar[spLeft]) or
-      (LPick = FSeatAvatar[spBottom]) or (LPick = FSeatAvatar[spRight]) do
+    var LGuard := 0;
+    while ((LPick = FSeatAvatar[spTop]) or (LPick = FSeatAvatar[spLeft]) or
+      (LPick = FSeatAvatar[spBottom]) or (LPick = FSeatAvatar[spRight])) and (LGuard < FAvatarPool.Count) do
     begin
       LPick := (LPick + 1) mod FAvatarPool.Count;
+      Inc(LGuard);
     end;
 
     FSeatAvatar[LP] := LPick;
@@ -2590,10 +2618,12 @@ begin
     if (LP <> spBottom) and (FSeatAvatar[LP] = AIndex) then
     begin
       var LPick := Random(FAvatarPool.Count);
-      while (LPick = FSeatAvatar[spTop]) or (LPick = FSeatAvatar[spLeft]) or
-        (LPick = FSeatAvatar[spBottom]) or (LPick = FSeatAvatar[spRight]) do
+      var LGuard := 0;
+      while ((LPick = FSeatAvatar[spTop]) or (LPick = FSeatAvatar[spLeft]) or
+        (LPick = FSeatAvatar[spBottom]) or (LPick = FSeatAvatar[spRight])) and (LGuard < FAvatarPool.Count) do
       begin
         LPick := (LPick + 1) mod FAvatarPool.Count;
+        Inc(LGuard);
       end;
 
       FSeatAvatar[LP] := LPick;
@@ -5430,7 +5460,8 @@ begin
     for var K := 0 to FFloorRects.Count - 1 do
     begin
       var LRealFloor := FFloorIndexMap[K];
-      if (FGame.Floor[LRealFloor].Month = FChooseMonth) and FFloorRects[K].Contains(LPoint) then
+      if (LRealFloor >= 0) and (LRealFloor < FGame.Floor.Count) and
+        (FGame.Floor[LRealFloor].Month = FChooseMonth) and FFloorRects[K].Contains(LPoint) then
       begin
         PlayChosen(FChooseHandIndex, FloorMatchOrdinal(LRealFloor, FChooseMonth));
         Exit;
@@ -5445,8 +5476,13 @@ begin
   begin
     if FHandRects[K].Contains(LPoint) then
     begin
-      FClickRect := FHandRects[K];   // 놓기 애니 출발점
       var LRealIdx := FHandIndexMap[K];
+      if (LRealIdx < 0) or (LRealIdx >= FGame.Player(FHumanIndex).Hand.Count) then
+      begin
+        Exit;   // 애니 직후 스테일 rect — 다음 Repaint까지 무시
+      end;
+
+      FClickRect := FHandRects[K];   // 놓기 애니 출발점
       var LCard := FGame.Player(FHumanIndex).Hand[LRealIdx];
       var LMonth := LCard.Month;
 

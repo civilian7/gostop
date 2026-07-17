@@ -5,6 +5,7 @@ interface
 {$REGION 'uses'}
 uses
   System.SysUtils,
+  System.Math,
   System.Generics.Collections,
   Gostop.Cards;
 {$ENDREGION}
@@ -348,13 +349,13 @@ begin
   Result.Multiplier := 1;
   if AGoCount >= AOptions.GoDoubleFromCount then
   begin
-    Result.Multiplier := Result.Multiplier * (1 shl (AGoCount - (AOptions.GoDoubleFromCount - 1)));
+    Result.Multiplier := Result.Multiplier * (1 shl Min(AGoCount - (AOptions.GoDoubleFromCount - 1), 10));
   end;
 
   // 흔들기: 각 ×2
   if AShakeCount > 0 then
   begin
-    Result.Multiplier := Result.Multiplier * (1 shl AShakeCount);
+    Result.Multiplier := Result.Multiplier * (1 shl Min(AShakeCount, 10));
   end;
 
   // 광박: 승자가 광 점수를 냈고 패자가 광을 하나도 못 먹음

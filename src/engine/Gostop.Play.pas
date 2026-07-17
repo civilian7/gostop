@@ -178,6 +178,7 @@ type
     FOnEvent: TProc<TPlayEvent>;
     FFlipChoiceEnabled: Boolean;
     FBonusDrawEnabled: Boolean;
+    FCollectEvents: Boolean;        // False면 이벤트 기록·콜백 생략(AI 롤아웃 성능용)
     FPlayerLuck: TArray<Integer>;   // 플레이어별 이번 판 운(0~100). 비어 있으면 보정 없음
     FPendingBonus: TArray<THwatuCard>;   // 이번 턴에 내려놓은 보너스패(뻑이면 뻑 무더기에 함께 묻힘)
     FFlipCard: THwatuCard;
@@ -306,6 +307,10 @@ type
     ///   False=더미 맨 위에서 자동 보충). UI 게임에서 켠다. 기본 False.
     /// </summary>
     property BonusDrawEnabled: Boolean read FBonusDrawEnabled write FBonusDrawEnabled;
+    /// <summary>이벤트 기록·콜백 여부(기본 True). AI 롤아웃은 False로 꺼서 할당을 줄인다.</summary>
+    property CollectEvents: Boolean read FCollectEvents write FCollectEvents;
+    /// <summary>이 엔진의 룰셋(읽기). AI가 시뮬 세계에 같은 룰을 적용할 때 사용.</summary>
+    property Rules: TRuleSet read FRules;
     /// <summary>
     ///   플레이어별 이번 판 운(0~100, 게임 인덱스 순). 설정하면 더미 뒤집기 때 운이 높을수록
     ///   유리한 카드가, 낮을수록 불리한 카드가 나올 확률이 커진다(맨 위 2장 은밀 교환).
@@ -403,6 +408,7 @@ begin
     Result.Player(I).LastGoScore := FPlayers[I].LastGoScore;
     Result.Player(I).ShakeCount := FPlayers[I].ShakeCount;
     Result.Player(I).CardDebt := FPlayers[I].CardDebt;
+    Result.Player(I).PendingShakeMonth := FPlayers[I].PendingShakeMonth;   // 흔들기 커밋 보존(누락 시 시뮬 배수 왜곡)
   end;
 
   Result.Floor.AddRange(FFloor);
@@ -419,6 +425,11 @@ end;
 
 function TGameState.Player(const AIndex: Integer): TPlayer;
 begin
+  if (AIndex < 0) or (AIndex >= FPlayers.Count) then
+  begin
+    raise EHwatuError.CreateFmt('플레이어 인덱스 오류: %d (총 %d명)', [AIndex, FPlayers.Count]);
+  end;
+
   Result := FPlayers[AIndex];
 end;
 
@@ -448,6 +459,7 @@ begin
   inherited Create;
   FState := AState;
   FRules := ARules;
+  FCollectEvents := True;
 end;
 
 constructor TTurnEngine.Create(const AState: TGameState; const AOptions: TScoreOptions);
@@ -461,6 +473,11 @@ procedure TTurnEngine.AddEvent(const AKind: TPlayEventKind; const APlayerIndex: 
 var
   LEvent: TPlayEvent;
 begin
+  if not FCollectEvents then
+  begin
+    Exit;
+  end;
+
   LEvent.Kind := AKind;
   LEvent.PlayerIndex := APlayerIndex;
   LEvent.Month := AMonth;
@@ -474,20 +491,24 @@ end;
 
 function TTurnEngine.MatchIndices(const AMonth: Integer): TArray<Integer>;
 begin
-  var LList := TList<Integer>.Create;
-  try
-    for var I := 0 to FState.Floor.Count - 1 do
+  // 핫패스(AI 롤아웃) — TList 없이 단일 배열 할당으로 처리
+  SetLength(Result, 8);
+  var LCount := 0;
+  for var I := 0 to FState.Floor.Count - 1 do
+  begin
+    if FState.Floor[I].Month = AMonth then
     begin
-      if FState.Floor[I].Month = AMonth then
+      if LCount >= Length(Result) then
       begin
-        LList.Add(I);
+        SetLength(Result, LCount + 4);
       end;
-    end;
 
-    Result := LList.ToArray;
-  finally
-    LList.Free;
+      Result[LCount] := I;
+      Inc(LCount);
+    end;
   end;
+
+  SetLength(Result, LCount);
 end;
 
 procedure TTurnEngine.CaptureInto(const ACaptured: TList<THwatuCard>; const AIndices: TArray<Integer>; const AChoice: Integer);
@@ -661,6 +682,12 @@ end;
 
 procedure TTurnEngine.ApplyFloorBonus;
 begin
+  // 딜 직후(플레이 시작 전) 1회만 유효 — 중복/뒤늦은 호출로 부당 획득 방지
+  if (FState.Phase <> gpPlaying) or (FState.PlayCount > 0) then
+  begin
+    Exit;
+  end;
+
   var LIdx := 0;
   while LIdx < FState.Floor.Count do
   begin
@@ -872,14 +899,13 @@ begin
     raise EHwatuError.CreateFmt('손패 인덱스 오류: %d (손패 %d장)', [AHandIndex, LPlayer.Hand.Count]);
   end;
 
-  // 흔들기 커밋: 흔든 월이 있으면 그 월을 내야 한다(옵션)
-  if FRules.EnforceShakeMonth and (LPlayer.PendingShakeMonth <> 0) and (LPlayer.Hand[AHandIndex].Month <> LPlayer.PendingShakeMonth) then
+  // 흔들기 커밋: 흔든 월이 있으면 그 월을 내야 한다(옵션). 보너스패는 실제 패가 아니므로 허용
+  if FRules.EnforceShakeMonth and (LPlayer.PendingShakeMonth <> 0) and
+    (LPlayer.Hand[AHandIndex].Kind <> hkBonus) and
+    (LPlayer.Hand[AHandIndex].Month <> LPlayer.PendingShakeMonth) then
   begin
     raise EHwatuError.CreateFmt('%d월을 흔들었으므로 그 월의 카드를 내야 합니다.', [LPlayer.PendingShakeMonth]);
   end;
-
-  var LFirstPlay := FState.PlayCount = 0;
-  FState.PlayCount := FState.PlayCount + 1;
 
   var LHand := LPlayer.Hand[AHandIndex];
   // 자동 흔들기 판정용: 내기 전 같은 월 보유 수 & 명시적 흔들기 커밋 여부
@@ -895,7 +921,6 @@ begin
 
   LPlayer.Hand.Delete(AHandIndex);
   var LMonth := LHand.Month;
-  LPlayer.PendingShakeMonth := 0;
 
   var LCaptured := TList<THwatuCard>.Create;
   try
@@ -933,6 +958,12 @@ begin
 
       Exit(False);
     end;
+
+    // 실제 패를 낸 시점에만 흔들기 커밋을 소모하고 판 수를 센다
+    // (보너스패는 위에서 단락 — 커밋 유지, 첫뻑 판정도 소모하지 않음)
+    LPlayer.PendingShakeMonth := 0;
+    var LFirstPlay := FState.PlayCount = 0;
+    FState.PlayCount := FState.PlayCount + 1;
 
     // 더미 뒤집기(보너스패는 즉시 획득하고 다음 장을 뒤집는다)
     var LDraw: THwatuCard;
@@ -1094,16 +1125,7 @@ begin
     end;
 
     // 점수 & 고/스톱
-    var LScore := TScorer.Evaluate(LPlayer.Captured, FRules.Score);
-    if (LScore.Total >= 3) and (LScore.Total > LPlayer.LastGoScore) then
-    begin
-      FState.Phase := gpAwaitingGoStop;
-      AddEvent(pekGoStop, FState.Current, 0, Format('%s %d점 — 고/스톱 선택', [LPlayer.Name, LScore.Total]));
-      Exit(True);
-    end;
-
-    AdvanceTurn;
-    Result := False;
+    Result := ScoreAndFinish(LPlayer);
   finally
     LCaptured.Free;
   end;
@@ -1186,6 +1208,11 @@ begin
     raise EHwatuError.Create('뒤집기 선택 대기 단계가 아닙니다.');
   end;
 
+  if (AOrdinal < 0) or (AOrdinal > 1) then
+  begin
+    raise EHwatuError.CreateFmt('뒤집기 선택지는 0/1이어야 합니다(%d).', [AOrdinal]);
+  end;
+
   var LPlayer := FState.CurrentPlayer;
   var LChosen := FFlipOpt0;
   if AOrdinal = 1 then
@@ -1219,6 +1246,11 @@ begin
     AddEvent(pekSseul, FState.Current, FFlipCard.Month, LPlayer.Name + ' 싹쓸이!');
     StealPiFromOthers(FState.Current);
   end;
+
+  // 전이 상태 클리어(스테일 조회 방지)
+  FFlipCard := Default(THwatuCard);
+  FFlipOpt0 := Default(THwatuCard);
+  FFlipOpt1 := Default(THwatuCard);
 
   Result := ScoreAndFinish(LPlayer);
 end;
@@ -1357,14 +1389,25 @@ begin
     raise EHwatuError.CreateFmt('%d번 플레이어는 총통 조건(같은 월 4장)이 아닙니다.', [APlayerIndex]);
   end;
 
+  if FState.Phase <> gpPlaying then
+  begin
+    raise EHwatuError.Create('총통은 플레이 중에만 선언할 수 있습니다.');
+  end;
+
+  // 총통 = 무효 판(승자 없이 종료) — ApplyHandChongtong과 동일 규칙
   FState.Phase := gpFinished;
-  FState.Winner := APlayerIndex;
-  AddEvent(pekChongtong, APlayerIndex, LMonth, Format('%s 총통 선언! (%d월 4장) 승리', [FState.Player(APlayerIndex).Name, LMonth]));
+  FState.Winner := -1;
+  AddEvent(pekChongtong, APlayerIndex, LMonth, Format('%s 총통 선언! (%d월 4장) — 무효 판', [FState.Player(APlayerIndex).Name, LMonth]));
 end;
 
 function TTurnEngine.ApplyHandChongtong: Boolean;
 begin
   // 딜 직후 총통(같은 월 4장)이 나오면 그 판은 무효 — 승자 없이 끝내고 다음 게임으로
+  if FState.Phase <> gpPlaying then
+  begin
+    Exit(False);
+  end;
+
   for var P := 0 to FState.PlayerCount - 1 do
   begin
     var LMonth: Integer;
@@ -1407,6 +1450,11 @@ begin
   end;
 
   var LPlayer := FState.CurrentPlayer;
+  if LPlayer.PendingShakeMonth <> 0 then
+  begin
+    raise EHwatuError.Create('이미 흔들기를 선언했습니다(중복 선언으로 배수를 불릴 수 없음).');
+  end;
+
   LPlayer.ShakeCount := LPlayer.ShakeCount + 1;
   LPlayer.PendingShakeMonth := AMonth;   // 이 월을 실제로 내야 성립(커밋)
   AddEvent(pekShake, FState.Current, AMonth, Format('%s 흔들기! (%d월)', [LPlayer.Name, AMonth]));
@@ -1471,16 +1519,7 @@ begin
   FlipStockAndResolve(LPlayer);
 
   // 점수 도달 시 고/스톱, 아니면 턴 넘김
-  var LScore := TScorer.Evaluate(LPlayer.Captured, FRules.Score);
-  if (LScore.Total >= 3) and (LScore.Total > LPlayer.LastGoScore) then
-  begin
-    FState.Phase := gpAwaitingGoStop;
-    AddEvent(pekGoStop, FState.Current, 0, Format('%s %d점 — 고/스톱 선택', [LPlayer.Name, LScore.Total]));
-    Exit(True);
-  end;
-
-  AdvanceTurn;
-  Result := False;
+  Result := ScoreAndFinish(LPlayer);
 end;
 
 function TTurnEngine.CanFlipOnly: Boolean;
@@ -1505,16 +1544,7 @@ begin
   AddEvent(pekTurnPass, FState.Current, 0, Format('%s 뒤집기만(카드빚 갚기, %d 남음)', [LPlayer.Name, LPlayer.CardDebt]));
   FlipStockAndResolve(LPlayer);
 
-  var LScore := TScorer.Evaluate(LPlayer.Captured, FRules.Score);
-  if (LScore.Total >= 3) and (LScore.Total > LPlayer.LastGoScore) then
-  begin
-    FState.Phase := gpAwaitingGoStop;
-    AddEvent(pekGoStop, FState.Current, 0, Format('%s %d점 — 고/스톱 선택', [LPlayer.Name, LScore.Total]));
-    Exit(True);
-  end;
-
-  AdvanceTurn;
-  Result := False;
+  Result := ScoreAndFinish(LPlayer);
 end;
 {$ENDREGION}
 

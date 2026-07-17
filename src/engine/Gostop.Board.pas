@@ -2113,6 +2113,21 @@ procedure TGostopBoard.BuildFinalSummary;
 begin
   var LSettle := FEngine.FinalSettlement;
 
+  // 쇼당 독박: 수락자(밀어줄 대상)가 이겼으면 거절자가 전액(호출자 몫까지)을 독박,
+  // 호출자는 면제(피박·광박은 각 패자별 계산이 이미 반영됨 — 합만 거절자에게 몰아줌)
+  var LDokbakIdx := -1;
+  if FShodangActive and (FPlayerCount = 3) and (FGame.Winner >= 0)
+    and (FGame.Winner = FShodangAccepter)
+    and (FShodangCaller >= 0) and (FShodangDecliner >= 0)
+    and (FShodangCaller <> FGame.Winner) and (FShodangDecliner <> FGame.Winner) then
+  begin
+    var LCallerLoss := -LSettle[FShodangCaller].Net;
+    var LDeclinerLoss := -LSettle[FShodangDecliner].Net;
+    LSettle[FShodangCaller].Net := 0;                                   // 호출자 면제
+    LSettle[FShodangDecliner].Net := -(LCallerLoss + LDeclinerLoss);    // 거절자 독박(양쪽 몫)
+    LDokbakIdx := FShodangDecliner;
+  end;
+
   var LSeatFlag: array [0 .. 3] of string;
   for var S := 0 to 3 do
   begin
@@ -2207,8 +2222,14 @@ begin
       begin
         if I <> FGame.Winner then
         begin
+          var LFlag := FlagStr(LSettle[I]);
+          if I = LDokbakIdx then
+          begin
+            LFlag := Trim('쇼당 독박 ' + LFlag);
+          end;
+
           LLines.Add(Trim(Format('%s   %d원  %s',
-            [FGame.Player(I).Name, LSettle[I].Net * FConfig.MoneyPerPoint * FStakes, FlagStr(LSettle[I])])));
+            [FGame.Player(I).Name, LSettle[I].Net * FConfig.MoneyPerPoint * FStakes, LFlag])));
         end;
       end;
     end;

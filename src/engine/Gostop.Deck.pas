@@ -67,6 +67,12 @@ type
     /// <returns>뽑힌 카드 배열(뽑은 순서).</returns>
     /// <exception cref="EHwatuDeckEmpty">남은 카드보다 많이 뽑으려 하면 발생.</exception>
     function DrawMany(const ACount: Integer): TArray<THwatuCard>;
+    /// <summary>
+    ///   덱을 지정 위치에서 컷(기리)합니다. AIndex 위치의 카드와 그 위(끝쪽)를 통째로
+    ///   아래(앞쪽)로 내려 위아래를 바꿉니다. 딜 전 말번의 커팅에 사용.
+    /// </summary>
+    /// <param name="AIndex">컷 기준 인덱스(0 또는 끝이면 변화 없음).</param>
+    procedure Cut(const AIndex: Integer);
     /// <summary>덱이 비어 있으면 True를 반환합니다.</summary>
     function IsEmpty: Boolean;
     /// <summary>덱에 남은 카드 장수.</summary>
@@ -246,6 +252,33 @@ begin
   for var I := 0 to ACount - 1 do
   begin
     Result[I] := Draw;
+  end;
+end;
+
+procedure TDeck.Cut(const AIndex: Integer);
+begin
+  if (AIndex <= 0) or (AIndex >= FCards.Count) then
+  begin
+    Exit;
+  end;
+
+  // [0..AIndex-1] 과 [AIndex..end] 를 맞바꾼다(위아래 뒤집기)
+  var LNew := TList<THwatuCard>.Create;
+  try
+    for var I := AIndex to FCards.Count - 1 do
+    begin
+      LNew.Add(FCards[I]);
+    end;
+
+    for var I := 0 to AIndex - 1 do
+    begin
+      LNew.Add(FCards[I]);
+    end;
+
+    FCards.Clear;
+    FCards.AddRange(LNew);
+  finally
+    LNew.Free;
   end;
 end;
 

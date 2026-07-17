@@ -159,6 +159,12 @@ type
     FGwangTimer: TTimer;               // 발표 후 자동 진행
 
     // 선 뽑기(밤일낮장) — 새 매치 시작 시 각자 카드 1장을 뒤집어 선 결정
+    FGiriPhase: Boolean;                           // 기리(딜 전 말번 커팅) 진행 중
+    FGiriDeck: TDeck;                              // 기리 대기 중인 셔플 덱(딜 직전)
+    FGiriProceed: TProc;                           // 기리 결정 후 실제 딜 진행
+    FGiriRects: TList<TRectF>;                     // 기리 카드 클릭 영역
+    FBtnTung: TRectF;                              // 퉁(컷 안 함) 버튼
+
     FSeonPicking: Boolean;                         // 선 뽑기 진행 중
     FSeonStep: TSeonStep;                          // 현재 단계
     FSeonIsDay: Boolean;                           // 낮(큰 월=선) / 밤(작은 월=선)
@@ -235,6 +241,7 @@ type
     procedure AfterAction;
     procedure StartPlay;
     procedure StartNegotiation;
+    procedure StartNegotiationDeal;
     procedure ResolveNegotiation(const AP2Give, AP3Give, AP4Sell: Boolean);
     procedure DrawGwangSale;
     procedure GwangTimerTick(Sender: TObject);
@@ -242,6 +249,10 @@ type
     procedure NegAnimTick(Sender: TObject);
     procedure ProceedAfterSeon;
     procedure BeginSeonPick;
+    function  MalbeonPos: TSeatPos;
+    procedure RequestGiri(const ADeck: TDeck; const AProceed: TProc);
+    procedure ResolveGiri(const ACutIndex: Integer);
+    procedure DrawGiri;
     function  SeonActivePositions: TArray<TSeatPos>;
     function  SeonPosLabel(const APos: TSeatPos): string;
     procedure SeonDealRound;
@@ -650,6 +661,7 @@ begin
   FPlayerCount := 2;
   FAiSkill := 70;
   FStatus := '새 게임을 시작하세요';
+  FGiriRects := TList<TRectF>.Create;
   FHandRects := TList<TRectF>.Create;
   FHandIndexMap := TList<Integer>.Create;
   FFloorRects := TList<TRectF>.Create;
@@ -736,6 +748,8 @@ begin
   FreeAndNil(FFloorRects);
   FreeAndNil(FHandIndexMap);
   FreeAndNil(FHandRects);
+  FreeAndNil(FGiriRects);
+  FreeAndNil(FGiriDeck);
   inherited Destroy;
 end;
 
@@ -747,6 +761,11 @@ begin
   begin
     FEffectTimer.Enabled := False;
   end;
+
+  // 기리 대기 상태 정리(대기 중 취소 시 덱 누수 방지)
+  FGiriPhase := False;
+  FGiriProceed := nil;
+  FreeAndNil(FGiriDeck);
 
   // 잔상·스테일 상태 리셋(타이틀 복귀 시 배너·고/스톱 플래그 잔존 방지)
   FAwaitingGoStop := False;
@@ -924,6 +943,109 @@ begin
   end;
 end;
 
+// 말번(마지막 차례) 물리 위치. 선 다음 반시계로 마지막 = 논리 좌석 (N-1)
+function TGostopBoard.MalbeonPos: TSeatPos;
+begin
+  if FPlayerCount = 4 then
+  begin
+    Result := TSeatPos((Ord(FNextStartPos) + 3) mod 4);
+  end
+  else
+  begin
+    Result := PhysicalPos(FPlayerCount - 1);
+  end;
+end;
+
+// 기리: 딜 직전 말번에게 덱 커팅 권리. 사람 말번이면 화면에 나열해 클릭받고, AI/관전이면 자동 결정
+procedure TGostopBoard.RequestGiri(const ADeck: TDeck; const AProceed: TProc);
+begin
+  FGiriDeck := ADeck;
+  FGiriProceed := AProceed;
+
+  if (not FSpectator) and (MalbeonPos = spBottom) then
+  begin
+    // 사람이 말번 → 커팅 UI
+    FGiriPhase := True;
+    Repaint;
+    if Assigned(FOnStateChanged) then
+    begin
+      FOnStateChanged(Self);
+    end;
+  end
+  else
+  begin
+    // AI 말번(또는 관전): 절반 확률로 임의 위치 컷, 아니면 퉁
+    var LCut := -1;
+    if (ADeck.Count > 10) and (Random(2) = 0) then
+    begin
+      LCut := 4 + Random(ADeck.Count - 8);
+    end;
+
+    ResolveGiri(LCut);
+  end;
+end;
+
+// 기리 결정 적용: ACutIndex>=0이면 그 위치에서 컷, 아니면 퉁(그대로). 이어서 딜 진행
+procedure TGostopBoard.ResolveGiri(const ACutIndex: Integer);
+begin
+  FGiriPhase := False;
+  if (ACutIndex >= 0) and Assigned(FGiriDeck) then
+  begin
+    FGiriDeck.Cut(ACutIndex);
+    TGostopAudio.Instance.Play('card_flip');
+  end;
+
+  var LProceed := FGiriProceed;
+  FGiriProceed := nil;
+  if Assigned(LProceed) then
+  begin
+    LProceed();
+  end;
+end;
+
+// 기리 화면: 셔플된 덱을 격자로 나열(뒷면). 한 장 클릭=그 위치 컷, 퉁=그대로
+procedure TGostopBoard.DrawGiri;
+begin
+  if FGiriDeck = nil then
+  begin
+    Exit;
+  end;
+
+  Canvas.FillRound(LocalRect, 0, $A0000000);
+  DrawLabel(RectF(0, Height * 0.07, Width, Height * 0.12), '기리 — 자를 위치의 패를 클릭하세요', TAlphaColors.Gold, 24);
+
+  FGiriRects.Clear;
+  var CS := CardSize;
+  var LCW := CS.Width * 0.5;
+  var LCH := CS.Height * 0.5;
+  var LN := FGiriDeck.Count;
+  var LCols := 13;
+  var LRows := (LN + LCols - 1) div LCols;
+  var LGapX := LCW * 0.18;
+  var LGapY := LCH * 0.22;
+  var LTotW := LCols * LCW + (LCols - 1) * LGapX;
+  var LTotH := LRows * LCH + (LRows - 1) * LGapY;
+  var LX0 := Width / 2 - LTotW / 2;
+  var LY0 := Height / 2 - LTotH / 2 - 20;
+
+  for var I := 0 to LN - 1 do
+  begin
+    var LC := I mod LCols;
+    var LRw := I div LCols;
+    var LR := RectF(LX0 + LC * (LCW + LGapX), LY0 + LRw * (LCH + LGapY),
+      LX0 + LC * (LCW + LGapX) + LCW, LY0 + LRw * (LCH + LGapY) + LCH);
+    FGiriRects.Add(LR);
+    DrawBack(LR);
+  end;
+
+  // 퉁 버튼
+  var LBtnY := LY0 + LTotH + 26;
+  FBtnTung := RectF(Width / 2 - 80, LBtnY, Width / 2 + 80, LBtnY + 46);
+  Canvas.FillRound(FBtnTung, 10, $FF8D6E30);
+  Canvas.StrokeRound(FBtnTung, 10, $80FFFFFF, 1);
+  DrawLabel(FBtnTung, '퉁~ (그대로)', TAlphaColors.White, 18);
+end;
+
 // 선(FNextStartPos)이 정해진 뒤 실제 딜·플레이로 진입한다.
 procedure TGostopBoard.ProceedAfterSeon;
 begin
@@ -933,50 +1055,48 @@ begin
   end
   else
   begin
-    // 2/3인: 바로 딜 후 플레이 (보너스패 3장 포함 — 정통 51장)
+    // 2/3인: 셔플 후 기리(말번 커팅) → 딜 → 플레이 (보너스패 3장 포함, 정통 51장)
     var LDeck := TDeck.Create(CfgDeckOptions);
-    try
-      LDeck.ShuffleSecure;
-      var LConfig := TDealConfig.ForPlayers(2);
-      if FPlayerCount = 3 then
-      begin
-        LConfig := TDealConfig.Custom(3, 7, 6);
-      end;
-
-      var LTable := TDealer.Deal(LDeck, LConfig);
-      try
-        // 운 반영은 딜이 아니라 뒤집기 흐름(FEngine.PlayerLuck)에서 — 손패 재배정은
-        // 검증 결과 승률 예측력이 없어(46%) 채택하지 않음
-        FSeatMap := nil;   // 2/3인은 좌석맵 미사용
-        var LNames: TArray<string>;
-        SetLength(LNames, FPlayerCount);   // 이름은 아래에서 물리 위치 기준으로 부여
-        FGame := TGameState.Create(LNames);
-        TGameSetup.Load(FGame, LTable);
-      finally
-        LTable.Free;
-      end;
-    finally
-      LDeck.Free;
-    end;
-
-    // 이름 부여(물리 위치 기준 표시 이름: 나=닉네임, AI=아바타 닉네임)
-    for var I := 0 to FPlayerCount - 1 do
-    begin
-      FGame.Player(I).Name := SeatDisplayName(PhysicalPos(I));
-    end;
-
-    // 딜 애니메이션(각 자리 손패 + 바닥) 후 플레이 시작
-    var LCounts: TArray<Integer>;
-    SetLength(LCounts, 4);
-    for var I := 0 to FPlayerCount - 1 do
-    begin
-      LCounts[Ord(PhysicalPos(I))] := FGame.Player(I).Hand.Count;
-    end;
-
-    BeginDealAnimation(FGame.Floor.ToArray, LCounts,
+    LDeck.ShuffleSecure;
+    RequestGiri(LDeck,
       procedure
       begin
-        StartPlay;
+        var LConfig := TDealConfig.ForPlayers(2);
+        if FPlayerCount = 3 then
+        begin
+          LConfig := TDealConfig.Custom(3, 7, 6);
+        end;
+
+        var LTable := TDealer.Deal(FGiriDeck, LConfig);
+        try
+          FSeatMap := nil;   // 2/3인은 좌석맵 미사용
+          var LNames: TArray<string>;
+          SetLength(LNames, FPlayerCount);
+          FGame := TGameState.Create(LNames);
+          TGameSetup.Load(FGame, LTable);
+        finally
+          LTable.Free;
+        end;
+
+        FreeAndNil(FGiriDeck);
+
+        for var I := 0 to FPlayerCount - 1 do
+        begin
+          FGame.Player(I).Name := SeatDisplayName(PhysicalPos(I));
+        end;
+
+        var LCounts: TArray<Integer>;
+        SetLength(LCounts, 4);
+        for var I := 0 to FPlayerCount - 1 do
+        begin
+          LCounts[Ord(PhysicalPos(I))] := FGame.Player(I).Hand.Count;
+        end;
+
+        BeginDealAnimation(FGame.Floor.ToArray, LCounts,
+          procedure
+          begin
+            StartPlay;
+          end);
       end);
   end;
 end;
@@ -1651,17 +1771,21 @@ end;
 
 procedure TGostopBoard.StartNegotiation;
 begin
-  // 4인 딜 (보너스패 3장 포함 — 정통 51장)
+  // 4인: 셔플 후 기리(말번 커팅) → 딜 → 협상
   var LDeck := TDeck.Create(CfgDeckOptions);
-  try
-    LDeck.ShuffleSecure;
-    FTable4 := TDealer.Deal(LDeck, TDealConfig.Custom(4, 7, 6));
-  finally
-    LDeck.Free;
-  end;
+  LDeck.ShuffleSecure;
+  RequestGiri(LDeck,
+    procedure
+    begin
+      FTable4 := TDealer.Deal(FGiriDeck, TDealConfig.Custom(4, 7, 6));
+      FreeAndNil(FGiriDeck);
+      StartNegotiationDeal;
+    end);
+end;
 
-  // 운 반영은 뒤집기 흐름(FEngine.PlayerLuck, StartPlay에서 설정)에서 처리
-
+// 딜 완료 후 협상 애니·진행(기리 콜백에서 호출)
+procedure TGostopBoard.StartNegotiationDeal;
+begin
   // 딜 애니메이션(4자리 각 7장 + 바닥) 후 협상 진행
   BeginDealAnimation(FTable4.Floor.ToArray, [7, 7, 7, 7],
     procedure
@@ -4629,6 +4753,13 @@ begin
   // 하단 컨트롤 바(볼륨·음소거·속도) — 모든 화면 공통
   DrawControlBar;
 
+  // 기리(딜 전 말번 커팅) 단계
+  if FGiriPhase then
+  begin
+    DrawGiri;
+    Exit;
+  end;
+
   // 선 뽑기(밤일낮장) 단계
   if FSeonPicking then
   begin
@@ -5359,6 +5490,28 @@ procedure TGostopBoard.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y:
 begin
   inherited;
   var LPoint := PointF(X, Y);
+
+  // 기리(말번 커팅): 카드 클릭=그 위치 컷 / 퉁=그대로
+  if FGiriPhase then
+  begin
+    if FBtnTung.Contains(LPoint) then
+    begin
+      TGostopAudio.Instance.Play('ui_click');
+      ResolveGiri(-1);
+      Exit;
+    end;
+
+    for var K := 0 to FGiriRects.Count - 1 do
+    begin
+      if FGiriRects[K].Contains(LPoint) then
+      begin
+        ResolveGiri(K);
+        Exit;
+      end;
+    end;
+
+    Exit;
+  end;
 
   // 광 판매 발표: 아무 곳이나 클릭하면 즉시 진행(스킵)
   if FGwangShow then

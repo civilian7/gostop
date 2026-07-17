@@ -325,7 +325,8 @@ type
     procedure DrawBack(const R: TRectF);
     procedure DrawLabel(const R: TRectF; const AText: string; const AColor: TAlphaColor; const ASize: Single);
     procedure DrawCapturedFan(const APile: TList<THwatuCard>; const AX, ARight, AY, AScale: Single; const AAnchorRight: Boolean = False);
-    procedure DrawCapturedFanV(const APile: TList<THwatuCard>; const ACX, ATopY, ABottomY, AScale, AAngle: Single; const AAnchorBottom: Boolean = False);
+    procedure DrawCapturedFanV(const APile: TList<THwatuCard>; const ACX, ATopY, ABottomY, AScale, AAngle: Single;
+      const AAnchorBottom: Boolean = False; const AReverse: Boolean = False);
     function  CapturedSequence(const APile: TList<THwatuCard>): TArray<Integer>;
     procedure DrawCardRotated(const ACenterX, ACenterY, ACardW, ACardH, AAngle: Single; const AAssetId: string; const ABack: Boolean);
     procedure DrawHumanHand(const ARegion: TRectF);
@@ -2373,10 +2374,10 @@ begin
   AiExecuteTurn;
 end;
 
-// AI가 실제 턴을 수행(카드 내기 + 애니). 쇼당 계속 흐름에서도 재사용
+// AI가 실제 턴을 수행(카드 내기 또는 고/스톱 결정 + 애니). 쇼당 계속 흐름에서도 재사용
 procedure TGostopBoard.AiExecuteTurn;
 begin
-  if (FGame = nil) or (FGame.Phase <> gpPlaying) then
+  if (FGame = nil) or (not (FGame.Phase in [gpPlaying, gpAwaitingGoStop])) then
   begin
     Exit;
   end;
@@ -2586,7 +2587,9 @@ begin
 end;
 
 // 세로 방향 촘촘 부채(좌/우 자리용, 90/270 회전). [ATopY..ABottomY] 안에 들어가게 자동 축소
-procedure TGostopBoard.DrawCapturedFanV(const APile: TList<THwatuCard>; const ACX, ATopY, ABottomY, AScale, AAngle: Single; const AAnchorBottom: Boolean);
+// AReverse=True면 그룹 순서를 뒤집어(피→띠→열끗→광) 그려, AAnchorBottom과 함께 쓰면 광이 맨 아래에 온다
+procedure TGostopBoard.DrawCapturedFanV(const APile: TList<THwatuCard>; const ACX, ATopY, ABottomY, AScale, AAngle: Single;
+  const AAnchorBottom: Boolean; const AReverse: Boolean);
 begin
   if APile.Count = 0 then
   begin
@@ -2597,6 +2600,17 @@ begin
   var LW := CS.Width * AScale;
   var LH := CS.Height * AScale;
   var LSeq := CapturedSequence(APile);
+  if AReverse then
+  begin
+    for var Lo := 0 to (Length(LSeq) div 2) - 1 do
+    begin
+      var LHi := High(LSeq) - Lo;
+      var LTmp := LSeq[Lo];
+      LSeq[Lo] := LSeq[LHi];
+      LSeq[LHi] := LTmp;
+    end;
+  end;
+
   var LN := Length(LSeq);
 
   // 그룹(광/열끗/띠/피) 경계 수 — 그룹 사이 간격으로 묶여 보이게
@@ -4290,8 +4304,8 @@ begin
           DrawCardRotated(LXHand, LHandY0 + LBackW / 2 + I * LStep, LBackW, LBackH, LAng, '', True);
         end;
 
-        // 먹은패 세로 촘촘 부채. P4는 아래(패널쪽) 앵커
-        DrawCapturedFanV(LCaptured, LXCap, LTop, LBot, 0.66, LAng, APos = spRight);
+        // 먹은패 세로 촘촘 부채. P4는 아래(패널쪽) 앵커 + 그룹 순서 반전(광이 맨 아래)
+        DrawCapturedFanV(LCaptured, LXCap, LTop, LBot, 0.66, LAng, APos = spRight, APos = spRight);
       end;
   end;
 end;

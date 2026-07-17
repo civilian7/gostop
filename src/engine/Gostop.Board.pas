@@ -2146,16 +2146,10 @@ begin
   // 쇼당 독박: 수락자(밀어줄 대상)가 이겼으면 거절자가 전액(호출자 몫까지)을 독박,
   // 호출자는 면제(피박·광박은 각 패자별 계산이 이미 반영됨 — 합만 거절자에게 몰아줌)
   var LDokbakIdx := -1;
-  if FShodangActive and (FPlayerCount = 3) and (FGame.Winner >= 0)
-    and (FGame.Winner = FShodangAccepter)
-    and (FShodangCaller >= 0) and (FShodangDecliner >= 0)
-    and (FShodangCaller <> FGame.Winner) and (FShodangDecliner <> FGame.Winner) then
+  if FShodangActive then
   begin
-    var LCallerLoss := -LSettle[FShodangCaller].Net;
-    var LDeclinerLoss := -LSettle[FShodangDecliner].Net;
-    LSettle[FShodangCaller].Net := 0;                                   // 호출자 면제
-    LSettle[FShodangDecliner].Net := -(LCallerLoss + LDeclinerLoss);    // 거절자 독박(양쪽 몫)
-    LDokbakIdx := FShodangDecliner;
+    LDokbakIdx := TShodang.ApplyDokbak(LSettle, FPlayerCount, FGame.Winner,
+      FShodangCaller, FShodangAccepter, FShodangDecliner);
   end;
 
   var LSeatFlag: array [0 .. 3] of string;
@@ -4711,36 +4705,32 @@ end;
 // 계속 진행 시 호출자가 AI면 그 AI의 실제 턴을 이어서 실행한다.
 procedure TGostopBoard.ResolveShodang(const ACaller, AOppA, AOppB: Integer; const AAccA, AAccB: Boolean);
 begin
-  if AAccA and AAccB then
-  begin
-    FEffectText := '쇼당 — 둘 다 수락! 나가리';
-    FEffectTimer.Enabled := False;
-    FEffectTimer.Enabled := True;
-    FEngine.DeclareNagari;
-    AfterAction;
-    Exit;
-  end;
+  var LDecision := TShodang.Resolve(ACaller, AOppA, AOppB, AAccA, AAccB);
 
-  if (not AAccA) and (not AAccB) then
-  begin
-    FEffectText := '쇼당 — 둘 다 거절, 계속 진행';
-  end
+  case LDecision.Outcome of
+    soNagari:
+      begin
+        FEffectText := '쇼당 — 둘 다 수락! 나가리';
+        FEffectTimer.Enabled := False;
+        FEffectTimer.Enabled := True;
+        FEngine.DeclareNagari;
+        AfterAction;
+        Exit;
+      end;
+    soContinue:
+      begin
+        FEffectText := '쇼당 — 둘 다 거절, 계속 진행';
+      end;
   else
-  begin
-    // 한 명 수락 → 그 사람을 밀어줌, 거절자는 독박 대기
-    var LAcc := AOppA;
-    var LDec := AOppB;
-    if not AAccA then
     begin
-      LAcc := AOppB;
-      LDec := AOppA;
+      // 한 명 수락 → 그 사람을 밀어줌, 거절자는 독박 대기
+      FShodangActive := True;
+      FShodangCaller := LDecision.Caller;
+      FShodangAccepter := LDecision.Accepter;
+      FShodangDecliner := LDecision.Decliner;
+      FEffectText := Format('쇼당! %s 수락 — %s 독박',
+        [FGame.Player(LDecision.Accepter).Name, FGame.Player(LDecision.Decliner).Name]);
     end;
-
-    FShodangActive := True;
-    FShodangCaller := ACaller;
-    FShodangAccepter := LAcc;
-    FShodangDecliner := LDec;
-    FEffectText := Format('쇼당! %s 수락 — %s 독박', [FGame.Player(LAcc).Name, FGame.Player(LDec).Name]);
   end;
 
   FEffectTimer.Enabled := False;

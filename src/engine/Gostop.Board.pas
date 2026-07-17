@@ -29,6 +29,7 @@ uses
   Gostop.AI,
   Gostop.Characters,
   Gostop.Settings,
+  Gostop.Board.Layout,
   Gostop.FourPlayer,
   Gostop.CardImages,
   Gostop.Audio,
@@ -36,14 +37,6 @@ uses
 {$ENDREGION}
 
 type
-  /// <summary>보드 위 좌석의 화면 위치.</summary>
-  TSeatPos = (
-    spTop,
-    spLeft,
-    spBottom,
-    spRight
-  );
-
   /// <summary>선 뽑기(밤일낮장) 진행 단계.</summary>
   TSeonStep = (
     seReveal,    // 각 자리 카드 공개 대기(AI 자동·사람 클릭)
@@ -375,8 +368,7 @@ implementation
 
 const
   GWANG_UNIT_PRICE = 1;      // 광 1개당 단가(광값 = 광개수 × 단가)
-  PANEL_W = 160;             // 플레이어 정보 패널 너비(전 자리 동일)
-  PANEL_H = 104;             // 플레이어 정보 패널 높이(전 자리 동일)
+  // PANEL_W/PANEL_H는 Gostop.Board.Layout 유닛에 있음(uses로 참조)
 
 // 군용담요 텍스처용 결정론적 섬유 잡음(-32..31). 좌표 해시 기반(Random 미사용).
 function FeltNoise(const AX, AY: Integer): Integer;
@@ -1259,8 +1251,7 @@ end;
 // 덱(무더기) 위치 — 중앙 영역 우측(라이브 보드의 더미 위치와 이어지는 느낌)
 function TGostopBoard.DealDeckPoint: TPointF;
 begin
-  var LCen := CenterRegion;
-  Result := PointF(LCen.Right - CardSize.Width * 0.7, (LCen.Top + LCen.Bottom) / 2);
+  Result := TBoardLayout.DealDeckPoint(Width, Height);
 end;
 
 procedure TGostopBoard.BeginDealAnimation(const AFloor: TArray<THwatuCard>; const ACounts: TArray<Integer>; const AOnDone: TProc);
@@ -2039,8 +2030,7 @@ end;
 
 function TGostopBoard.CardSize: TSizeF;
 begin
-  var LH := Height * 0.15;
-  Result := TSizeF.Create(LH * 600 / 978, LH);
+  Result := TBoardLayout.CardSize(Height);
 end;
 
 function TGostopBoard.CanCaptureCard(const ACard: THwatuCard): Boolean;
@@ -2141,32 +2131,12 @@ end;
 
 function TGostopBoard.SeatRegion(const APos: TSeatPos): TRectF;
 begin
-  // 항상 4인 구조로 고정: 좌/우 좌석은 세로 전체, 상/하/중앙은 두 기둥 사이(서로 침범 없음)
-  case APos of
-    spTop:
-      begin
-        Result := RectF(Width * 0.19, Height * 0.012, Width * 0.81, Height * 0.25);
-      end;
-    spBottom:
-      begin
-        // 아래는 하단 컨트롤 바(볼륨·속도) 자리를 남기고 끝냄
-        Result := RectF(Width * 0.19, Height * 0.70, Width * 0.81, Height * 0.95);
-      end;
-    spLeft:
-      begin
-        Result := RectF(Width * 0.005, Height * 0.02, Width * 0.18, Height * 0.95);
-      end;
-  else
-    begin
-      Result := RectF(Width * 0.82, Height * 0.02, Width * 0.995, Height * 0.95);
-    end;
-  end;
+  Result := TBoardLayout.SeatRegion(Width, Height, APos);
 end;
 
 function TGostopBoard.CenterRegion: TRectF;
 begin
-  // 위 영역(P1)을 키운 만큼 중앙을 아래로
-  Result := RectF(Width * 0.19, Height * 0.265, Width * 0.81, Height * 0.685);
+  Result := TBoardLayout.CenterRegion(Width, Height);
 end;
 
 procedure TGostopBoard.DrawRegion(const ARegion: TRectF; const AHighlight: Boolean);
@@ -2351,50 +2321,13 @@ end;
 // P1(위)=우상, 나(아래)=좌상, P2(좌)=좌상, P4(우)=좌하
 function TGostopBoard.PlayerPanelRect(const APos: TSeatPos): TRectF;
 begin
-  var LR := SeatRegion(APos);
-  var LW := Min(PANEL_W, LR.Width - 8);   // 좁은 창 안전 클램프
-  case APos of
-    spTop:
-      begin
-        Result := RectF(LR.Right - 4 - LW, LR.Top + 4, LR.Right - 4, LR.Top + 4 + PANEL_H);
-      end;
-    spBottom:
-      begin
-        Result := RectF(LR.Left + 4, LR.Top + 4, LR.Left + 4 + LW, LR.Top + 4 + PANEL_H);
-      end;
-    spLeft:
-      begin
-        Result := RectF(LR.Left + 4, LR.Top + 4, LR.Left + 4 + LW, LR.Top + 4 + PANEL_H);
-      end;
-  else
-    begin
-      Result := RectF(LR.Left + 4, LR.Bottom - 4 - PANEL_H, LR.Left + 4 + LW, LR.Bottom - 4);
-    end;
-  end;
+  Result := TBoardLayout.PlayerPanelRect(Width, Height, APos);
 end;
 
 // 자리에서 카드가 놓일 공간(정보 패널 제외 영역)
 function TGostopBoard.SeatCardArea(const APos: TSeatPos): TRectF;
 begin
-  var LR := SeatRegion(APos);
-  case APos of
-    spTop:
-      begin
-        Result := RectF(LR.Left, LR.Top, LR.Right - PANEL_W - 12, LR.Bottom);
-      end;
-    spBottom:
-      begin
-        Result := RectF(LR.Left + PANEL_W + 12, LR.Top, LR.Right, LR.Bottom);
-      end;
-    spLeft:
-      begin
-        Result := RectF(LR.Left, LR.Top + PANEL_H + 10, LR.Right, LR.Bottom);
-      end;
-  else
-    begin
-      Result := RectF(LR.Left, LR.Top, LR.Right, LR.Bottom - PANEL_H - 10);
-    end;
-  end;
+  Result := TBoardLayout.SeatCardArea(Width, Height, APos);
 end;
 
 // 자리별 아바타 4종을 절차 생성(원형 배경 + 얼굴 + 자리별 개성: 머리/안경/미소/수염)

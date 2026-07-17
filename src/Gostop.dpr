@@ -12,6 +12,7 @@ uses
   Gostop.AI in 'engine\Gostop.AI.pas',
   Gostop.Characters in 'engine\Gostop.Characters.pas',
   Gostop.Settings in 'engine\Gostop.Settings.pas',
+  Gostop.Board.Layout in 'engine\Gostop.Board.Layout.pas',
   Gostop.FourPlayer in 'engine\Gostop.FourPlayer.pas',
   Gostop.Assets in 'engine\Gostop.Assets.pas',
   Gostop.Audio in 'engine\Gostop.Audio.pas',

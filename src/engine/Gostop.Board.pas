@@ -1970,16 +1970,8 @@ begin
   // 선 기준 역할(P4=판매자) + 아바타 이름
   var LSeller := Format('%s(%s)', [RoleLabel(FGwang.SellerSeat), SeatLabel(FGwang.SellerSeat)]);
 
-  // 반투명 딤 + 중앙 패널
-  Canvas.FillRound(LocalRect, 0, $80000000);
-  var LPanelW := Max(Width * 0.5, 460.0);
-  var LPanelH := 260.0;
-  var LPanel := RectF(Width / 2 - LPanelW / 2, Height / 2 - LPanelH / 2, Width / 2 + LPanelW / 2, Height / 2 + LPanelH / 2);
-  Canvas.FillRound(LPanel, 16, $F02E3A2E);
-  Canvas.StrokeRound(LPanel, 16, $FFFFD54A, 3);
-
-  DrawLabel(RectF(LPanel.Left, LPanel.Top + 14, LPanel.Right, LPanel.Top + 50),
-    Format('%s 광 팔기!', [LSeller]), TAlphaColors.Gold, 26);
+  // 표준 다이얼로그(딤 + 중앙 패널 + 제목)
+  var LPanel := DrawStdDialog(Format('%s 광 팔기!', [LSeller]), Max(Width * 0.5, 460.0), 260.0);
 
   // 판 광 패(가로 나열)
   var CS := CardSize;
@@ -4009,17 +4001,10 @@ begin
   const LRowGap2 = 12.0;    // 버튼 행 사이 간격
   const LSkW = 100.0;       // 난이도 버튼 폭
 
-  var LPanelW := 500.0;
   // 제목(48) + 행들 + 안내 + 버튼2행 + 하단여백
   var LPanelH := 48 + FSetupCount * LRowH + LHintH + 8 + LBtnH + LRowGap2 + LBtnH + 22;
-  var LPanel := RectF(Width / 2 - LPanelW / 2, Height / 2 - LPanelH / 2,
-    Width / 2 + LPanelW / 2, Height / 2 + LPanelH / 2);
+  var LPanel := DrawStdDialog(Format('대전 설정 — %d인전', [FSetupCount]), 500.0, LPanelH);
   var LCx := (LPanel.Left + LPanel.Right) / 2;
-
-  Canvas.FillRound(LPanel, 14, $F02E3A2E);
-  Canvas.StrokeRound(LPanel, 14, $FFFFD54A, 2);
-  DrawLabel(RectF(LPanel.Left, LPanel.Top + 12, LPanel.Right, LPanel.Top + 42),
-    Format('대전 설정 — %d인전', [FSetupCount]), TAlphaColors.Gold, 21);
 
   for var R := 0 to FSetupCount - 1 do
   begin
@@ -4102,32 +4087,23 @@ begin
 
   // 보조 버튼 행: [다시 돌리기] [관전 모드] — 중앙 정렬 한 쌍
   var LBtnW := 160.0;
-  FBtnSetupSpin := RectF(LCx - LBtnW - LBtnGap / 2, LBY, LCx - LBtnGap / 2, LBY + LBtnH);
-  Canvas.FillRound(FBtnSetupSpin, 8, $FF5D4037);
-  DrawLabel(FBtnSetupSpin, '다시 돌리기', TAlphaColors.White, 15);
+  FBtnSetupSpin := DrawStdButton(RectF(LCx - LBtnW - LBtnGap / 2, LBY, LCx - LBtnGap / 2, LBY + LBtnH), '다시 돌리기', dbkNeutral);
 
-  FBtnSetupWatch := RectF(LCx + LBtnGap / 2, LBY, LCx + LBtnGap / 2 + LBtnW, LBY + LBtnH);
+  var LWatchRect := RectF(LCx + LBtnGap / 2, LBY, LCx + LBtnGap / 2 + LBtnW, LBY + LBtnH);
   if FSetupHumanRow < 0 then
   begin
-    Canvas.FillRound(FBtnSetupWatch, 8, $FF6A1B9A);
-    DrawLabel(FBtnSetupWatch, '관전 모드: 켬', TAlphaColors.White, 15);
+    FBtnSetupWatch := DrawStdButton(LWatchRect, '관전 모드: 켬', dbkAccent);
   end
   else
   begin
-    Canvas.FillRound(FBtnSetupWatch, 8, $FF37474F);
-    DrawLabel(FBtnSetupWatch, '관전 모드: 끔', TAlphaColors.White, 15);
+    FBtnSetupWatch := DrawStdButton(LWatchRect, '관전 모드: 끔', dbkNeutral);
   end;
 
   LBY := LBY + LBtnH + LRowGap2;
 
   // 주 버튼 행: [시작] [취소] — 중앙 정렬 한 쌍(보조 버튼과 같은 폭)
-  FBtnSetupStart := RectF(LCx - LBtnW - LBtnGap / 2, LBY, LCx - LBtnGap / 2, LBY + LBtnH);
-  Canvas.FillRound(FBtnSetupStart, 8, $FF2E7D32);
-  DrawLabel(FBtnSetupStart, '시작', TAlphaColors.White, 17);
-
-  FBtnSetupCancel := RectF(LCx + LBtnGap / 2, LBY, LCx + LBtnGap / 2 + LBtnW, LBY + LBtnH);
-  Canvas.FillRound(FBtnSetupCancel, 8, $FF8E2430);
-  DrawLabel(FBtnSetupCancel, '취소', TAlphaColors.White, 17);
+  FBtnSetupStart := DrawStdButton(RectF(LCx - LBtnW - LBtnGap / 2, LBY, LCx - LBtnGap / 2, LBY + LBtnH), '시작', dbkPrimary);
+  FBtnSetupCancel := DrawStdButton(RectF(LCx + LBtnGap / 2, LBY, LCx + LBtnGap / 2 + LBtnW, LBY + LBtnH), '취소', dbkDanger);
 end;
 
 // 타이틀 메뉴(게임 없음 상태): 로고 + 대전 버튼 + 종료
@@ -4735,22 +4711,16 @@ begin
   var LGap := 30.0;
   var LCX := Width / 2;
   var LBtnY := Height * 0.60;
-  FBtnJoin := RectF(LCX - LBtnW - LGap / 2, LBtnY, LCX - LGap / 2, LBtnY + LBtnH);
-  FBtnGiveUp := RectF(LCX + LGap / 2, LBtnY, LCX + LGap / 2 + LBtnW, LBtnY + LBtnH);
-
-  Canvas.FillRound(FBtnJoin, 8, $FF2E7D32);
-  Canvas.FillRound(FBtnGiveUp, 8, $FF8D3030);
-
+  var LJoinCap := '참가';
+  var LGiveCap := '포기';
   if FNegIsSell then
   begin
-    DrawLabel(FBtnJoin, '광팔기', TAlphaColors.White, 18);
-    DrawLabel(FBtnGiveUp, '안팔기', TAlphaColors.White, 18);
-  end
-  else
-  begin
-    DrawLabel(FBtnJoin, '참가', TAlphaColors.White, 18);
-    DrawLabel(FBtnGiveUp, '포기', TAlphaColors.White, 18);
+    LJoinCap := '광팔기';
+    LGiveCap := '안팔기';
   end;
+
+  FBtnJoin := DrawStdButton(RectF(LCX - LBtnW - LGap / 2, LBtnY, LCX - LGap / 2, LBtnY + LBtnH), LJoinCap, dbkPrimary);
+  FBtnGiveUp := DrawStdButton(RectF(LCX + LGap / 2, LBtnY, LCX + LGap / 2 + LBtnW, LBtnY + LBtnH), LGiveCap, dbkDanger);
 end;
 
 procedure TGostopBoard.DrawGameOver;
@@ -4761,22 +4731,15 @@ begin
     Exit;
   end;
 
-  // 중앙 오버레이 패널 — 승자 + 좌석별 금액·박 + 다음게임 버튼
+  // 중앙 오버레이 패널 — 승자 + 좌석별 금액·박 + 다음게임 버튼(표준 다이얼로그)
   var LHeadH := 46.0;
   var LLineH := 30.0;
   var LBtnH := 44.0;
   var LPanelH := 18 + LHeadH + (LN - 1) * LLineH + 14 + LBtnH + 18;
-  var LPanel := RectF(Width * 0.26, (Height - LPanelH) / 2, Width * 0.74, (Height + LPanelH) / 2);
+  var LPanel := DrawStdDialog(FResultLines[0], Width * 0.48, LPanelH);
 
-  Canvas.FillRound(LPanel, 16, $F02E3A2E);
-  Canvas.StrokeRound(LPanel, 16, $FFFFD54A, 3);
-
-  var LY := LPanel.Top + 18;
-  // 헤드라인(승자 또는 나가리)
-  DrawLabel(RectF(LPanel.Left, LY, LPanel.Right, LY + LHeadH), FResultLines[0], TAlphaColors.Gold, 26);
-  LY := LY + LHeadH;
-
-  // 플레이어별 라인
+  var LY := LPanel.Top + 18 + LHeadH;
+  // 플레이어별 라인(헤드라인은 표준 다이얼로그 제목으로 대체)
   for var I := 1 to LN - 1 do
   begin
     DrawLabel(RectF(LPanel.Left, LY, LPanel.Right, LY + LLineH), FResultLines[I], TAlphaColors.White, 18);
@@ -4787,13 +4750,8 @@ begin
   var LBtnW := 140.0;
   var LGap := 16.0;
   var LCX := (LPanel.Left + LPanel.Right) / 2;
-  FBtnNext := RectF(LCX - LBtnW - LGap / 2, LY + 12, LCX - LGap / 2, LY + 12 + LBtnH);
-  Canvas.FillRound(FBtnNext, 8, $FF2E7D32);
-  DrawLabel(FBtnNext, '새게임', TAlphaColors.White, 18);
-
-  FBtnQuit := RectF(LCX + LGap / 2, LY + 12, LCX + LGap / 2 + LBtnW, LY + 12 + LBtnH);
-  Canvas.FillRound(FBtnQuit, 8, $FF8E2430);
-  DrawLabel(FBtnQuit, '중지', TAlphaColors.White, 18);
+  FBtnNext := DrawStdButton(RectF(LCX - LBtnW - LGap / 2, LY + 12, LCX - LGap / 2, LY + 12 + LBtnH), '새게임', dbkPrimary);
+  FBtnQuit := DrawStdButton(RectF(LCX + LGap / 2, LY + 12, LCX + LGap / 2 + LBtnW, LY + 12 + LBtnH), '중지', dbkDanger);
 end;
 
 procedure TGostopBoard.DrawGoStopPrompt;

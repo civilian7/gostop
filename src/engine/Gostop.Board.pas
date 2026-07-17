@@ -330,7 +330,8 @@ type
     function  CapturedSequence(const APile: TList<THwatuCard>): TArray<Integer>;
     procedure DrawCardRotated(const ACenterX, ACenterY, ACardW, ACardH, AAngle: Single; const AAssetId: string; const ABack: Boolean);
     procedure DrawHumanHand(const ARegion: TRectF);
-    procedure DrawHandList(const AHand: TList<THwatuCard>; const ARegion: TRectF; const AInteractive: Boolean);
+    procedure DrawHandList(const AHand: TList<THwatuCard>; const ARegion: TRectF; const AInteractive: Boolean;
+      const ARaiseIds: TArray<string> = nil);
     procedure DrawPlayerPanel(const APos: TSeatPos);
     procedure DrawPanels;
     procedure GenerateAvatars;
@@ -2720,7 +2721,8 @@ begin
   end;
 end;
 
-procedure TGostopBoard.DrawHandList(const AHand: TList<THwatuCard>; const ARegion: TRectF; const AInteractive: Boolean);
+procedure TGostopBoard.DrawHandList(const AHand: TList<THwatuCard>; const ARegion: TRectF; const AInteractive: Boolean;
+  const ARaiseIds: TArray<string>);
 begin
   if AInteractive then
   begin
@@ -2755,6 +2757,16 @@ begin
     if AInteractive and (D = FHoverHand) then
     begin
       LDrawR.Offset(0, -CS.Height * 0.16);
+    end;
+
+    // 지정된 패(예: 팔 수 있는 광·족보패)는 살짝 위로 들어 보여준다
+    for var LRaiseId in ARaiseIds do
+    begin
+      if LRaiseId = AHand[LRealIdx].AssetId then
+      begin
+        LDrawR.Offset(0, -CS.Height * 0.15);
+        Break;
+      end;
     end;
 
     DrawFront(LDrawR, AHand[LRealIdx].AssetId);
@@ -4513,47 +4525,58 @@ begin
     DrawRegion(SeatRegion(LP), False);
   end;
 
-  // 내 손패(참가/포기·광팔기 판단용) — 화면 하단에 붙여 표시(메시지 바 위)
-  if (FTable4 <> nil) and (FTable4.PlayerCount = 4) then
+  if FNegIsSell then
   begin
-    var LHandRegion := RectF(Width * 0.05, Height * 0.68, Width * 0.95, Height * 0.93);
-    DrawLabel(RectF(0, Height * 0.63, Width, Height * 0.67), '내 손패', $FFD8E0D0, 15);
-    DrawHandList(FTable4.Hand(FHumanLogical), LHandRegion, False);
-  end;
-
-  // 광팔기 결정(P4)이면 내 광 패와 예상 광값을 상단에 크게 보여준다
-  if FNegIsSell and (FTable4 <> nil) then
-  begin
-    var LHand := FTable4.Hand(FHumanLogical);
-    // 광+조커 + 실제 보유한 족보(고도리·초단 등) 카드까지 표시
-    var LGwang := TFourPlayer.SaleCards(LHand, CfgScore);
-
-    DrawLabel(RectF(0, Height * 0.06, Width, Height * 0.10), '광 팔기', TAlphaColors.Gold, 20);
-
-    var CS := CardSize;
-    var LGCount := TFourPlayer.GwangCount(LHand, CfgScore);
-    if Length(LGwang) > 0 then
+    // 광팔기 결정(P4)은 기존 레이아웃 유지: 내 손패 + 광 패 흔들기 + 하단(중앙) 버튼
+    if (FTable4 <> nil) and (FTable4.PlayerCount = 4) then
     begin
-      var LTotW := CS.Width + (Length(LGwang) - 1) * CS.Width * 1.12;
-      var LStartX := Width / 2 - LTotW / 2;
-      var LGY := Height * 0.12 + CS.Height / 2;
-      for var I := 0 to High(LGwang) do
-      begin
-        // 카드마다 위상을 어긋나게 줘 좌우로 흔드는(shake) 느낌 — 수평 이동 강조
-        var LPh := FNegAnimPhase + I * 0.9;
-        var LDX := Sin(LPh) * CS.Width * 0.18;   // 좌우 흔들림(수평)
-        var LAng := Sin(LPh) * 3.0;              // 미세 회전
-        DrawCardRotated(LStartX + I * CS.Width * 1.12 + CS.Width / 2 + LDX, LGY, CS.Width, CS.Height, LAng, LGwang[I].AssetId, False);
-      end;
+      var LHandRegion := RectF(Width * 0.05, Height * 0.68, Width * 0.95, Height * 0.93);
+      DrawLabel(RectF(0, Height * 0.63, Width, Height * 0.67), '내 손패', $FFD8E0D0, 15);
+      DrawHandList(FTable4.Hand(FHumanLogical), LHandRegion, False);
     end;
 
-    DrawLabel(RectF(0, Height * 0.12 + CS.Height + 6, Width, Height * 0.12 + CS.Height + 34),
-      Format('P2·P3에게서 각 %s원', [FormatFloat('#,##0', LGCount * GWANG_UNIT_PRICE * FConfig.MoneyPerPoint)]),
-      TAlphaColors.White, 16);
+    if FTable4 <> nil then
+    begin
+      var LHand := FTable4.Hand(FHumanLogical);
+      // 광+조커 + 실제 보유한 족보(고도리·초단 등) 카드까지 표시
+      var LGwang := TFourPlayer.SaleCards(LHand, CfgScore);
+
+      DrawLabel(RectF(0, Height * 0.06, Width, Height * 0.10), '광 팔기', TAlphaColors.Gold, 20);
+
+      var CS := CardSize;
+      var LGCount := TFourPlayer.GwangCount(LHand, CfgScore);
+      if Length(LGwang) > 0 then
+      begin
+        var LTotW := CS.Width + (Length(LGwang) - 1) * CS.Width * 1.12;
+        var LStartX := Width / 2 - LTotW / 2;
+        var LGY := Height * 0.12 + CS.Height / 2;
+        for var I := 0 to High(LGwang) do
+        begin
+          // 카드마다 위상을 어긋나게 줘 좌우로 흔드는(shake) 느낌 — 수평 이동 강조
+          var LPh := FNegAnimPhase + I * 0.9;
+          var LDX := Sin(LPh) * CS.Width * 0.18;   // 좌우 흔들림(수평)
+          var LAng := Sin(LPh) * 3.0;              // 미세 회전
+          DrawCardRotated(LStartX + I * CS.Width * 1.12 + CS.Width / 2 + LDX, LGY, CS.Width, CS.Height, LAng, LGwang[I].AssetId, False);
+        end;
+      end;
+
+      DrawLabel(RectF(0, Height * 0.12 + CS.Height + 6, Width, Height * 0.12 + CS.Height + 34),
+        Format('P2·P3에게서 각 %s원', [FormatFloat('#,##0', LGCount * GWANG_UNIT_PRICE * FConfig.MoneyPerPoint)]),
+        TAlphaColors.White, 16);
+    end;
+
+    var LSellBtnW := 140.0;
+    var LSellBtnH := 48.0;
+    var LSellGap := 30.0;
+    var LSellCX := Width / 2;
+    var LSellBtnY := Height * 0.60;
+    FBtnJoin := DrawStdButton(RectF(LSellCX - LSellBtnW - LSellGap / 2, LSellBtnY, LSellCX - LSellGap / 2, LSellBtnY + LSellBtnH), '광팔기', dbkPrimary);
+    FBtnGiveUp := DrawStdButton(RectF(LSellCX + LSellGap / 2, LSellBtnY, LSellCX + LSellGap / 2 + LSellBtnW, LSellBtnY + LSellBtnH), '안팔기', dbkDanger);
+    Exit;
   end;
 
-  // 중앙: 바닥패 1장만 표시(광팔기 결정 화면에선 생략 — 위에 광 패 표시)
-  if (not FNegIsSell) and (FTable4 <> nil) and (FTable4.Floor.Count > 0) then
+  // 참가/포기: 표준 다이얼로그 — 손패(팔 수 있는 패는 살짝 위로) + 하단 버튼
+  if (FTable4 <> nil) and (FTable4.Floor.Count > 0) then
   begin
     var CS := CardSize;
     var LC := CenterRegion;
@@ -4562,22 +4585,31 @@ begin
     DrawFront(RectF(LX, LY, LX + CS.Width, LY + CS.Height), FTable4.Floor[0].AssetId);
   end;
 
-  // 참가/포기 버튼 — 중앙 카드 아래
+  var LPanelW := Min(Width * 0.86, 760.0);
+  var LPanelH := 300.0;
+  var LPanel := DrawStdDialog('참가하시겠습니까?', LPanelW, LPanelH);
+
+  if (FTable4 <> nil) and (FTable4.PlayerCount = 4) then
+  begin
+    var LHand := FTable4.Hand(FHumanLogical);
+    var LSaleCards := TFourPlayer.SaleCards(LHand, CfgScore);
+    var LRaiseIds: TArray<string>;
+    for var LSaleCard in LSaleCards do
+    begin
+      LRaiseIds := LRaiseIds + [LSaleCard.AssetId];
+    end;
+
+    var LHandRegion := RectF(LPanel.Left + 24, LPanel.Top + 60, LPanel.Right - 24, LPanel.Bottom - 88);
+    DrawHandList(LHand, LHandRegion, False, LRaiseIds);
+  end;
+
   var LBtnW := 140.0;
   var LBtnH := 48.0;
   var LGap := 30.0;
-  var LCX := Width / 2;
-  var LBtnY := Height * 0.60;
-  var LJoinCap := '참가';
-  var LGiveCap := '포기';
-  if FNegIsSell then
-  begin
-    LJoinCap := '광팔기';
-    LGiveCap := '안팔기';
-  end;
-
-  FBtnJoin := DrawStdButton(RectF(LCX - LBtnW - LGap / 2, LBtnY, LCX - LGap / 2, LBtnY + LBtnH), LJoinCap, dbkPrimary);
-  FBtnGiveUp := DrawStdButton(RectF(LCX + LGap / 2, LBtnY, LCX + LGap / 2 + LBtnW, LBtnY + LBtnH), LGiveCap, dbkDanger);
+  var LCX := (LPanel.Left + LPanel.Right) / 2;
+  var LBtnY := LPanel.Bottom - LBtnH - 18;
+  FBtnJoin := DrawStdButton(RectF(LCX - LBtnW - LGap / 2, LBtnY, LCX - LGap / 2, LBtnY + LBtnH), '참가', dbkPrimary);
+  FBtnGiveUp := DrawStdButton(RectF(LCX + LGap / 2, LBtnY, LCX + LGap / 2 + LBtnW, LBtnY + LBtnH), '포기', dbkDanger);
 end;
 
 procedure TGostopBoard.DrawGameOver;

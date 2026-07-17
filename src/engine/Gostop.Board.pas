@@ -126,6 +126,7 @@ type
     FSpectator: Boolean;                         // 관전 모드(사람 없음, 전원 AI)
     FRowPos: array [0 .. 3] of TSeatPos;         // 시트 행 → 물리 위치(내 시트 = 아래)
     FSeatSkill: array [TSeatPos] of Integer;     // 자리별 AI 난이도
+    FSeatLuckRoll: array [TSeatPos] of Integer;  // 이번 판 운 굴림(0=미굴림, 5~99)
     FGame: TGameState;
     FEngine: TTurnEngine;
     FAiObjects: TObjectList<TAiPlayer>;
@@ -318,6 +319,9 @@ type
     procedure ComputeRowPos;
     function  PickUnusedAvatar: Integer;
     function  AvatarName(const AIndex: Integer): string;
+    function  AvatarStat(const AIndex: Integer; const AStat: Integer): Integer;
+    function  DerivedSkill(const AAvatarIndex: Integer): Integer;
+    procedure RollSeatLuck;
     function  SeatDisplayName(const APos: TSeatPos): string;
     function  SkillLabel(const ASkill: Integer): string;
     procedure SetVolumeFromX(const AX: Single);
@@ -385,6 +389,31 @@ const
     '초단콜렉터', '고도리헌터', '쌍피장인', '뻑전문가', '화투도사',
     '쪽쪽이', '싹쓸이요정', '피박금지', '고고고', '국진할멈',
     '스톱은없다', '자뻑여왕', '점백의달인', '판쓸이할매', '옆집고수'
+  );
+
+  // 캐릭터 능력치(각 행 합계 100): [수읽기, 침착, 배짱, 욕심, 운]
+  // 수읽기+침착 → AI 스킬(×1.25), 배짱 → GoBias, 욕심 → Greed, 운 → 판별 운 굴림 기반
+  AVATAR_STATS: array [0 .. 19, 0 .. 4] of Integer = (
+    (10, 15, 10, 25, 40),   // 피주워요
+    (10, 10, 40, 30, 10),   // 못먹어도고
+    (25, 25, 15, 25, 10),   // 광팔이
+    (25, 20, 30, 15, 10),   // 흔들신사
+    (35, 30, 15, 15, 5),    // 동네타짜
+    (20, 25, 10, 35, 10),   // 초단콜렉터
+    (25, 15, 25, 30, 5),    // 고도리헌터
+    (25, 30, 15, 20, 10),   // 쌍피장인
+    (10, 5, 25, 20, 40),    // 뻑전문가
+    (40, 25, 15, 10, 10),   // 화투도사
+    (10, 15, 20, 25, 30),   // 쪽쪽이
+    (15, 10, 30, 30, 15),   // 싹쓸이요정
+    (20, 30, 10, 10, 30),   // 피박금지
+    (10, 10, 40, 25, 15),   // 고고고
+    (30, 25, 10, 15, 20),   // 국진할멈
+    (15, 15, 40, 25, 5),    // 스톱은없다
+    (20, 15, 30, 25, 10),   // 자뻑여왕
+    (40, 30, 10, 15, 5),    // 점백의달인
+    (30, 20, 25, 20, 5),    // 판쓸이할매
+    (35, 35, 10, 10, 10)    // 옆집고수
   );
 
 // 군용담요 텍스처용 결정론적 섬유 잡음(-32..31). 좌표 해시 기반(Random 미사용).
@@ -859,6 +888,9 @@ begin
     AssignAvatars;
   end;
 
+  // 판별 운 굴림(캐릭터 운 스탯 기반, 새 판마다) — 딜 보정과 패널 표시에 사용
+  RollSeatLuck;
+
   // 새 매치는 '밤일낮장'으로 선을 뽑는다. '다음게임'(이어가기)은 승자가 선이므로 바로 진행.
   if ANewMatch then
   begin
@@ -891,6 +923,8 @@ begin
 
       var LTable := TDealer.Deal(LDeck, LConfig);
       try
+        // 운 반영은 딜이 아니라 뒤집기 흐름(FEngine.PlayerLuck)에서 — 손패 재배정은
+        // 검증 결과 승률 예측력이 없어(46%) 채택하지 않음
         FSeatMap := nil;   // 2/3인은 좌석맵 미사용
         var LNames: TArray<string>;
         SetLength(LNames, FPlayerCount);   // 이름은 아래에서 물리 위치 기준으로 부여
@@ -1607,6 +1641,8 @@ begin
     LDeck.Free;
   end;
 
+  // 운 반영은 뒤집기 흐름(FEngine.PlayerLuck, StartPlay에서 설정)에서 처리
+
   // 딜 애니메이션(4자리 각 7장 + 바닥) 후 협상 진행
   BeginDealAnimation(FTable4.Floor.ToArray, [7, 7, 7, 7],
     procedure
@@ -1696,6 +1732,9 @@ begin
     else
     begin
       var LAi := TAiPlayer.Create(FSeatSkill[PhysicalPos(I)], UInt64(987654321 + I * 1013904223));
+      // 캐릭터 성향 주입: 배짱·욕심(스탯 5~40 → 20~90)
+      LAi.GoBias := EnsureRange(AvatarStat(FSeatAvatar[PhysicalPos(I)], 2) * 2 + 10, 0, 100);
+      LAi.Greed := EnsureRange(AvatarStat(FSeatAvatar[PhysicalPos(I)], 3) * 2 + 10, 0, 100);
       FAiObjects.Add(LAi);
       FAgents[I] := LAi;
     end;
@@ -1724,6 +1763,16 @@ begin
 
   FEngine := TTurnEngine.Create(FGame, LRules);
   FEngine.BonusDrawEnabled := True;   // 보너스패를 내면 더미를 펼쳐 가져올 패를 고른다(사람·AI 모두 연출)
+
+  // 이번 판 운 주입(게임 인덱스 순): 뒤집기 때 운이 높으면 유리한 카드가 나올 확률↑
+  var LLuck: TArray<Integer>;
+  SetLength(LLuck, FGame.PlayerCount);
+  for var I := 0 to FGame.PlayerCount - 1 do
+  begin
+    LLuck[I] := FSeatLuckRoll[PhysicalPos(I)];
+  end;
+
+  FEngine.PlayerLuck := LLuck;
   FEngine.OnEvent := procedure(AEvt: TPlayEvent)
     begin
       FTurnEvents.Add(AEvt);
@@ -3127,6 +3176,35 @@ begin
   end;
 end;
 
+// 캐릭터 능력치 조회(0=수읽기, 1=침착, 2=배짱, 3=욕심, 4=운). 범위 밖 아바타는 평균 20
+function TGostopBoard.AvatarStat(const AIndex: Integer; const AStat: Integer): Integer;
+begin
+  if (AIndex >= 0) and (AIndex <= High(AVATAR_STATS)) and (AStat >= 0) and (AStat <= 4) then
+  begin
+    Result := AVATAR_STATS[AIndex, AStat];
+  end
+  else
+  begin
+    Result := 20;
+  end;
+end;
+
+// 캐릭터 고유 AI 스킬 = (수읽기 + 침착) × 1.25 (0~100)
+function TGostopBoard.DerivedSkill(const AAvatarIndex: Integer): Integer;
+begin
+  Result := EnsureRange(Round((AvatarStat(AAvatarIndex, 0) + AvatarStat(AAvatarIndex, 1)) * 1.25), 0, 100);
+end;
+
+// 판별 운 굴림: 캐릭터 운 스탯 ×2 ± 15 (5~99). 새 판마다 호출
+procedure TGostopBoard.RollSeatLuck;
+begin
+  for var LP := spTop to spRight do
+  begin
+    var LStat := AvatarStat(FSeatAvatar[LP], 4);
+    FSeatLuckRoll[LP] := EnsureRange(LStat * 2 + Random(31) - 15, 5, 99);
+  end;
+end;
+
 // 자리의 표시 이름: 아래=나(닉네임, 관전이 아닐 때), 그 외/관전=아바타 이름(폴백: 자리 라벨)
 function TGostopBoard.SeatDisplayName(const APos: TSeatPos): string;
 begin
@@ -3164,6 +3242,12 @@ end;
 
 function TGostopBoard.SkillLabel(const ASkill: Integer): string;
 begin
+  if ASkill < 0 then
+  begin
+    Result := '고유';
+    Exit;
+  end;
+
   if ASkill <= 30 then
   begin
     Result := '초급';
@@ -3225,7 +3309,7 @@ begin
   for var R := 0 to 3 do
   begin
     FSetupAvatar[R] := -1;
-    FSetupSkill[R] := FCfgAiSkill;
+    FSetupSkill[R] := -1;   // 기본: 캐릭터 고유 능력치
     FSlotDisp[R] := -1;
     FSlotRemain[R] := 0;
   end;
@@ -3407,7 +3491,15 @@ begin
     else
     begin
       FSeatAvatar[LPos] := FSetupAvatar[R];
-      FSeatSkill[LPos] := FSetupSkill[R];
+      // 고유(-1)면 캐릭터 능력치(수읽기+침착)에서 스킬 유도
+      if FSetupSkill[R] < 0 then
+      begin
+        FSeatSkill[LPos] := DerivedSkill(FSetupAvatar[R]);
+      end
+      else
+      begin
+        FSeatSkill[LPos] := FSetupSkill[R];
+      end;
     end;
   end;
 
@@ -3699,6 +3791,15 @@ begin
   Canvas.Font.Size := 12;
   Canvas.FillText(RectF(LAv.Right + 8, LBox.Top + 29, LBox.Right - 6, LBox.Top + 48),
     Format('%d승 %d패', [FWins[APos], FLosses[APos]]), False, 1, [], TTextAlign.Leading, TTextAlign.Center);
+
+  // 이번 판 운(굴림) 별점(1~5) — 전적 행 우측
+  if FSeatLuckRoll[APos] > 0 then
+  begin
+    Canvas.Fill.Color := $C0FFD54A;
+    Canvas.Font.Size := 10;
+    Canvas.FillText(RectF(LAv.Right + 8, LBox.Top + 29, LBox.Right - 8, LBox.Top + 48),
+      StringOfChar('★', (FSeatLuckRoll[APos] + 19) div 20), False, 1, [], TTextAlign.Trailing, TTextAlign.Center);
+  end;
 
   // 구분선
   Canvas.Stroke.Color := $30FFFFFF;
@@ -5043,7 +5144,12 @@ begin
         if (R <> FSetupHumanRow) and FSetupSkRects[R].Contains(LPoint) then
         begin
           TGostopAudio.Instance.Play('ui_click');
+          // 고유(-1) → 초급 → 중급 → 고급 → 최상 → 고유 순환
           case FSetupSkill[R] of
+            -1:
+              begin
+                FSetupSkill[R] := 30;
+              end;
             30:
               begin
                 FSetupSkill[R] := 50;
@@ -5058,7 +5164,7 @@ begin
               end;
           else
             begin
-              FSetupSkill[R] := 30;
+              FSetupSkill[R] := -1;
             end;
           end;
 

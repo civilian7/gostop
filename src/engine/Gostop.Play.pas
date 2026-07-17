@@ -178,6 +178,7 @@ type
     FOnEvent: TProc<TPlayEvent>;
     FFlipChoiceEnabled: Boolean;
     FBonusDrawEnabled: Boolean;
+    FPlayerLuck: TArray<Integer>;   // 플레이어별 이번 판 운(0~100). 비어 있으면 보정 없음
     FPendingBonus: TArray<THwatuCard>;   // 이번 턴에 내려놓은 보너스패(뻑이면 뻑 무더기에 함께 묻힘)
     FFlipCard: THwatuCard;
     FFlipOpt0: THwatuCard;
@@ -189,6 +190,7 @@ type
     procedure AddEvent(const AKind: TPlayEventKind; const APlayerIndex: Integer; const AMonth: Integer; const AText: string);
     procedure StealPiFromOthers(const AWinnerIndex: Integer);
     function StealOnePi(const AWinnerIndex: Integer; const AVictimIndex: Integer): Boolean;
+    function FlipBenefit(const ACard: THwatuCard): Integer;
     procedure ResolveBbeokCapture(const AMonth: Integer);
     procedure ResolveThreePileSteal(const AMonth: Integer);
     function FlipStockAndResolve(const APlayer: TPlayer): Boolean;
@@ -304,6 +306,12 @@ type
     ///   False=더미 맨 위에서 자동 보충). UI 게임에서 켠다. 기본 False.
     /// </summary>
     property BonusDrawEnabled: Boolean read FBonusDrawEnabled write FBonusDrawEnabled;
+    /// <summary>
+    ///   플레이어별 이번 판 운(0~100, 게임 인덱스 순). 설정하면 더미 뒤집기 때 운이 높을수록
+    ///   유리한 카드가, 낮을수록 불리한 카드가 나올 확률이 커진다(맨 위 2장 은밀 교환).
+    ///   비어 있으면(기본) 보정 없음 — 시뮬레이션·검증기는 순수 확률로 돈다.
+    /// </summary>
+    property PlayerLuck: TArray<Integer> read FPlayerLuck write FPlayerLuck;
     /// <summary>진행 중인 게임 상태(읽기용).</summary>
     property State: TGameState read FState;
     /// <summary>
@@ -693,8 +701,59 @@ begin
   end;
 end;
 
+// 뒤집었을 때의 이득 점수: 바닥 매칭(즉시 먹기)이 크고, 매칭 상대가 좋을수록 가산. 보너스도 이득
+function TTurnEngine.FlipBenefit(const ACard: THwatuCard): Integer;
+begin
+  if ACard.Kind = hkBonus then
+  begin
+    Exit(6);
+  end;
+
+  Result := 0;
+  for var LCard in FState.Floor do
+  begin
+    if LCard.Month = ACard.Month then
+    begin
+      var LGain := 5 + CaptureRank(LCard) div 10;
+      if LGain > Result then
+      begin
+        Result := LGain;
+      end;
+    end;
+  end;
+end;
+
 function TTurnEngine.DrawNonBonus(const APlayer: TPlayer; out ACard: THwatuCard): Boolean;
 begin
+  // 운 보정: 이번 판 운이 높으면 더미 위 2장 중 유리한 쪽이, 낮으면 불리한 쪽이 올라오도록
+  // 은밀히 교환한다(뒷면이라 관측 불가). 운 50은 무보정, 배열이 비면 순수 확률.
+  if (FState.Stock.Count >= 2) and (FState.Current >= 0) and (FState.Current < Length(FPlayerLuck)) then
+  begin
+    var LBias := FPlayerLuck[FState.Current] - 50;
+    if (LBias <> 0) and (Random(100) < Abs(LBias)) then
+    begin
+      var LTopIdx := FState.Stock.Count - 1;
+      var LTopBen := FlipBenefit(FState.Stock[LTopIdx]);
+      var LSecBen := FlipBenefit(FState.Stock[LTopIdx - 1]);
+      var LWantSwap: Boolean;
+      if LBias > 0 then
+      begin
+        LWantSwap := LSecBen > LTopBen;   // 행운: 더 좋은 쪽을 위로
+      end
+      else
+      begin
+        LWantSwap := LSecBen < LTopBen;   // 불운: 더 나쁜 쪽을 위로
+      end;
+
+      if LWantSwap then
+      begin
+        var LTmp := FState.Stock[LTopIdx];
+        FState.Stock[LTopIdx] := FState.Stock[LTopIdx - 1];
+        FState.Stock[LTopIdx - 1] := LTmp;
+      end;
+    end;
+  end;
+
   // 더미 맨 위부터 뒤집되, 보너스패(조커)는 즉시 획득하고 한 장 더 뒤집는다.
   while FState.Stock.Count > 0 do
   begin

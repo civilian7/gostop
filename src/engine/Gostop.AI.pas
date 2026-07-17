@@ -42,6 +42,8 @@ type
     function _Release: Integer; stdcall;
   private
     FSkill: Integer;
+    FGoBias: Integer;   // 배짱(0~100, 기본 50): 고/스톱 판단을 고 쪽으로 기울임
+    FGreed: Integer;    // 욕심(0~100, 기본 50): 높으면 득점 우선, 낮으면 방어(견제) 우선
     FSeed: UInt64;
     function NextRandom(const ABound: Integer): Integer;
     function NextFloat: Double;
@@ -77,6 +79,10 @@ type
 
     /// <summary>능력치(0~100).</summary>
     property Skill: Integer read FSkill write FSkill;
+    /// <summary>배짱(0~100, 기본 50). 높을수록 고를 외치는 성향.</summary>
+    property GoBias: Integer read FGoBias write FGoBias;
+    /// <summary>욕심(0~100, 기본 50). 높을수록 득점 우선, 낮을수록 방어(상대 견제) 우선.</summary>
+    property Greed: Integer read FGreed write FGreed;
   end;
 
 implementation
@@ -98,6 +104,8 @@ constructor TAiPlayer.Create(const ASkill: Integer; const ASeed: UInt64);
 begin
   inherited Create;
   FSkill := EnsureRange(ASkill, 0, 100);
+  FGoBias := 50;
+  FGreed := 50;
   FSeed := ASeed;
   if FSeed = 0 then
   begin
@@ -281,7 +289,8 @@ begin
   end;
 
   AFloorChoice := 0;
-  var LDefWeight := SkillFactor * (AThreat / 10.0);
+  // 욕심이 높을수록 방어(견제) 가중을 줄이고 득점을 우선한다
+  var LDefWeight := SkillFactor * (AThreat / 10.0) * ((100 - FGreed) / 50.0);
 
   if LMatchCount = 0 then
   begin
@@ -647,10 +656,10 @@ begin
 
   if LSims = 0 then
   begin
-    // 저능력: 단순 휴리스틱 + 무작위
+    // 저능력: 단순 휴리스틱 + 무작위(배짱이 높으면 고 쪽으로 기울임)
     var LGrowth := LState.CurrentPlayer.Hand.Count;
     var LThreat := OpponentThreat(LState, LSelf) * SkillFactor;
-    var LWantGo := (LGrowth >= 2) and (LThreat < LScore + 2) and (LScore < 7);
+    var LWantGo := (LGrowth >= 2) and (LThreat < LScore + 2 + (FGoBias - 50) / 12.5) and (LScore < 7);
     var LQuality := 0.4 + 0.6 * SkillFactor;
     var LDecideGo: Boolean;
     if NextFloat <= LQuality then
@@ -695,7 +704,8 @@ begin
     end;
   end;
 
-  if (LGoSum / LSims) > LStopValue then
+  // 배짱 보정: 높으면 고 기대값을 후하게 본다(±2점 범위)
+  if (LGoSum / LSims) + (FGoBias - 50) / 25.0 > LStopValue then
   begin
     AEngine.DeclareGo;
   end

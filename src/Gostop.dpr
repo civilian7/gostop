@@ -15,6 +15,7 @@ uses
   Gostop.Board.Layout in 'engine\Gostop.Board.Layout.pas',
   Gostop.Canvas.Helper in 'engine\Gostop.Canvas.Helper.pas',
   Gostop.FourPlayer in 'engine\Gostop.FourPlayer.pas',
+  Gostop.Shodang in 'engine\Gostop.Shodang.pas',
   Gostop.Assets in 'engine\Gostop.Assets.pas',
   Gostop.Audio in 'engine\Gostop.Audio.pas',
   Gostop.CardImages in 'engine\Gostop.CardImages.pas',

@@ -142,6 +142,7 @@ type
     FMoney: array [TSeatPos] of Integer;
     FWins: array [TSeatPos] of Integer;
     FLosses: array [TSeatPos] of Integer;
+    FGaveUpLast: array [TSeatPos] of Boolean;    // 연사: 직전 게임 포기 여부(4인, 좌석별)
     FBtnJoin: TRectF;
     FBtnGiveUp: TRectF;
     FBtnNext: TRectF;
@@ -920,6 +921,7 @@ begin
       FMoney[LP] := FConfig.SeedMoney;
       FWins[LP] := 0;
       FLosses[LP] := 0;
+      FGaveUpLast[LP] := False;   // 연사 추적 초기화
     end;
   end;
 
@@ -1805,6 +1807,17 @@ begin
         Exit;
       end;
 
+      // 연사: 사람이 비-말번(P2/P3)인데 직전 게임에 포기했으면 이번엔 포기 불가 → 강제 참가
+      if FGaveUpLast[spBottom] then
+      begin
+        FEffectText := '연사! — 연속 포기 불가, 참가합니다';
+        FEffectTimer.Enabled := False;
+        FEffectTimer.Enabled := True;
+        var LP4Sell := TFourPlayer.GwangCount(FTable4.Hand(3), CfgScore) > 0;
+        ResolveNegotiation(False, False, LP4Sell);   // 강제 참가
+        Exit;
+      end;
+
       // 사람이 P2/P3면 참가·포기만 결정
       FNegIsSell := False;
       FNegotiating := True;
@@ -1821,6 +1834,10 @@ procedure TGostopBoard.ResolveNegotiation(const AP2Give, AP3Give, AP4Sell: Boole
 begin
   FNegotiating := False;
   FNegAnimTimer.Enabled := False;   // 광 패 흔들림 정지
+
+  // 연사: 사람(하단)이 이번 게임에 포기했는지 기록(다음 게임 강제참가 판정)
+  FGaveUpLast[spBottom] :=
+    ((FHumanLogical = 1) and AP2Give) or ((FHumanLogical = 2) and AP3Give);
 
   var LRound := TFourPlayer.Resolve(FTable4, AP2Give, AP3Give, AP4Sell, GWANG_UNIT_PRICE, CfgScore);
   FSeatMap := LRound.PlaySeats;

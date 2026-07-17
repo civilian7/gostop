@@ -1795,23 +1795,19 @@ begin
       // 선 기준 사람의 논리 좌석(아래 자리 = 물리 spBottom)
       FHumanLogical := (Ord(spBottom) - Ord(FNextStartPos) + 4) mod 4;
 
-      // 관전(전원 AI)이거나 사람이 선(논리0)이면 결정할 것이 없음 → 자동 진행
-      // (AI 모두 참가, P4는 광값이 있을 때만 판매 — 0원 판매 방지)
-      if FSpectator or (FHumanLogical = 0) then
+      // 결정할 것이 없으면 자동 진행:
+      //  - 관전(전원 AI) / 사람이 선(논리0) / 사람이 말번 P4(논리3)
+      //  - 말번은 광팔기를 안 할 이유가 없으므로 광값 있으면 자동 판매(다이얼로그 없음)
+      if FSpectator or (FHumanLogical = 0) or (FHumanLogical = 3) then
       begin
         var LP4Sell := TFourPlayer.GwangCount(FTable4.Hand(3), CfgScore) > 0;
         ResolveNegotiation(False, False, LP4Sell);
         Exit;
       end;
 
-      // 사람이 P2/P3면 참가·포기, P4면 광팔기 결정
-      FNegIsSell := FHumanLogical = 3;
+      // 사람이 P2/P3면 참가·포기만 결정
+      FNegIsSell := False;
       FNegotiating := True;
-      if FNegIsSell then
-      begin
-        FNegAnimPhase := 0;
-        FNegAnimTimer.Enabled := True;   // 광 패 흔들림 시작
-      end;
 
       Repaint;
       if Assigned(FOnStateChanged) then
@@ -2168,7 +2164,8 @@ begin
       LLines.Add(Trim(Format('%s 승%s', [SeatLabel(LWinnerSeat), StakesSuffix])));
       for var S := 0 to 3 do
       begin
-        if S <> LWinnerSeat then
+        // 승자 제외 + 게임에 참가하지 않은(빠진/관전) 좌석은 정산에 표시하지 않음
+        if (S <> LWinnerSeat) and (S <> FSitOutSeat) then
         begin
           LLines.Add(Trim(Format('%s   %d원  %s', [SeatLabel(S), FNet4[S] * FConfig.MoneyPerPoint * FStakes, LSeatFlag[S]])));
         end;
@@ -2481,18 +2478,19 @@ begin
     end;
   end;
 
-  var LGap := LW * 0.4;      // 그룹 사이 간격
+  // 그룹 사이 간격은 카드폭보다 커야 실제 빈 공간이 생긴다(스텝+간격 > 카드폭)
+  var LGap := LW * 1.15;     // 그룹 사이 간격
   var LStep := LW * 0.3;     // 그룹 내 겹침
   var LAvail := ARight - AX;
   if LN > 1 then
   begin
-    // 폭 초과 시 간격→겹침 순으로 축소
+    // 폭 초과 시 간격→겹침 순으로 축소(간격은 최소 0.8×카드폭 유지해 구분 보존)
     if LW + (LN - 1) * LStep + LBounds * LGap > LAvail then
     begin
       var LForSteps := LAvail - LW - LBounds * LGap;
       if LForSteps < (LN - 1) * 2 then
       begin
-        LGap := LW * 0.15;
+        LGap := LW * 0.8;
         LForSteps := LAvail - LW - LBounds * LGap;
       end;
 
@@ -2552,8 +2550,8 @@ begin
     end;
   end;
 
-  // 회전 시 세로로 쌓이는 시각 높이는 카드 폭(LW)
-  var LGap := LW * 0.45;
+  // 회전 시 세로로 쌓이는 시각 높이는 카드 폭(LW). 그룹 간격은 카드폭보다 크게(빈 공간)
+  var LGap := LW * 1.15;   // 그룹 사이 간격
   var LStep := LW * 0.3;
   var LAvail := ABottomY - ATopY;
   if LN > 1 then
@@ -2563,7 +2561,7 @@ begin
       var LForSteps := LAvail - LW - LBounds * LGap;
       if LForSteps < (LN - 1) * 2 then
       begin
-        LGap := LW * 0.18;
+        LGap := LW * 0.8;
         LForSteps := LAvail - LW - LBounds * LGap;
       end;
 

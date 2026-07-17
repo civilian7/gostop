@@ -342,7 +342,6 @@ type
     procedure GenerateAvatars;
     procedure LoadAvatarPool;
     function  LoadStateAvatar(const AFile: string): TBitmap;
-    procedure ApplyCircularMask(const ABmp: TBitmap);
     function  ResultAvatarBitmap(const AAvatarIdx: Integer; const AIsWinner: Boolean): TBitmap;
     procedure AssignAvatars;
     procedure SetHumanAvatar(const AIndex: Integer);
@@ -3000,8 +2999,8 @@ begin
   end;
 end;
 
-// 지정한 파일을 로드해 원형 마스크(안티에일리어싱 경계)를 입힌다. 실패/미존재면 nil.
-// 소스 파일 자체는 사각형·투명배경으로 두고, 원형 표현은 여기(앱)에서 처리한다.
+// 지정한 파일을 로드한다. 실패/미존재면 nil.
+// 소스 파일이 이미 사각형·투명배경이므로 별도 가공 없이 그대로 사용(평상시 아바타와 동일 스타일).
 function TGostopBoard.LoadStateAvatar(const AFile: string): TBitmap;
 begin
   Result := nil;
@@ -3012,52 +3011,8 @@ begin
 
   try
     Result := TBitmap.CreateFromFile(AFile);
-    ApplyCircularMask(Result);
   except
     FreeAndNil(Result);
-  end;
-end;
-
-// 비트맵에 중앙 내접원 마스크를 적용(경계 1.5px는 부드럽게 감쇠)
-procedure TGostopBoard.ApplyCircularMask(const ABmp: TBitmap);
-begin
-  if not Assigned(ABmp) then
-  begin
-    Exit;
-  end;
-
-  var LData: TBitmapData;
-  if not ABmp.Map(TMapAccess.ReadWrite, LData) then
-  begin
-    Exit;
-  end;
-
-  try
-    var LCx := ABmp.Width / 2;
-    var LCy := ABmp.Height / 2;
-    var LR := Min(LCx, LCy);
-    for var Y := 0 to ABmp.Height - 1 do
-    begin
-      for var X := 0 to ABmp.Width - 1 do
-      begin
-        var LDx := X + 0.5 - LCx;
-        var LDy := Y + 0.5 - LCy;
-        var LDist := Sqrt(LDx * LDx + LDy * LDy);
-        if LDist > LR then
-        begin
-          LData.SetPixel(X, Y, TAlphaColors.Null);
-        end
-        else
-        if LDist > LR - 1.5 then
-        begin
-          var LRec := TAlphaColorRec(LData.GetPixel(X, Y));
-          LRec.A := Round(LRec.A * EnsureRange((LR - LDist) / 1.5, 0, 1));
-          LData.SetPixel(X, Y, TAlphaColor(LRec));
-        end;
-      end;
-    end;
-  finally
-    ABmp.Unmap(LData);
   end;
 end;
 
@@ -3207,21 +3162,17 @@ begin
 
     if (I = FSeatAvatar[spBottom]) or (I = FHumanAvatarIdx) then
     begin
-      // 현재 내 아바타: 금색 링
-      Canvas.Stroke.Color := $FFFFD54A;
-      Canvas.Stroke.Thickness := 3;
-      Canvas.DrawEllipse(LR, 1);
+      // 현재 내 아바타: 금색 테두리
+      Canvas.StrokeRound(LR, 8, $FFFFD54A, 3);
     end
     else
     begin
-      // 다른 자리가 사용 중이면 회색 링(선택하면 그 자리는 자동 교체)
+      // 다른 자리가 사용 중이면 회색 테두리(선택하면 그 자리는 자동 교체)
       for var LP := spTop to spRight do
       begin
         if (LP <> spBottom) and (FSeatAvatar[LP] = I) then
         begin
-          Canvas.Stroke.Color := $80B0B0B0;
-          Canvas.Stroke.Thickness := 2;
-          Canvas.DrawEllipse(LR, 1);
+          Canvas.StrokeRound(LR, 8, $80B0B0B0, 2);
           Break;
         end;
       end;
@@ -4068,9 +4019,7 @@ begin
       Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), LAv, 1, False);
     end;
 
-    Canvas.Stroke.Color := $80FFFFFF;
-    Canvas.Stroke.Thickness := 1;
-    Canvas.DrawEllipse(LAv, 1);
+    Canvas.StrokeRound(LAv, 6, $80FFFFFF, 1);
 
     // 이름(아바타 오른쪽 ~ 난이도 버튼 왼쪽, 세로 중앙)
     Canvas.Fill.Color := TAlphaColors.White;
@@ -4263,8 +4212,7 @@ begin
     Canvas.DrawBitmap(FAvatars[APos], RectF(0, 0, FAvatars[APos].Width, FAvatars[APos].Height), LAv, 1, False);
   end;
 
-  Canvas.Stroke.Color := $80FFFFFF;
-  Canvas.DrawEllipse(LAv, 1);
+  Canvas.StrokeRound(LAv, 8, $80FFFFFF, 1);
 
   if APos = spBottom then
   begin

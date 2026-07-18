@@ -474,6 +474,7 @@ const
   // PANEL_W/PANEL_H는 Gostop.Board.Layout 유닛에 있음(uses로 참조)
   AI_SKILL_LABELS: array [0 .. 3] of string = ('병아리', '선수', '타짜', '신의손');
   AI_SKILL_VALUES: array [0 .. 3] of Integer = (30, 50, 70, 90);
+  GAME_MODE_LABELS: array [2 .. 4] of string = ('맞고', '삼파전', '난장판');   // 2/3/4인 모드 별칭
 
 // 군용담요 텍스처용 결정론적 섬유 잡음(-32..31). 좌표 해시 기반(Random 미사용).
 function FeltNoise(const AX, AY: Integer): Integer;
@@ -3912,7 +3913,7 @@ begin
 
     if I = 0 then
     begin
-      // 인원수: 2/3/4를 한 번에 보여주는 3분할 선택 버튼
+      // 인원수: 2/3/4를 재미난 별칭(맞고/삼파전/난장판)으로 한 번에 보여주는 3분할 선택 버튼
       var LSegGap := 6.0;
       var LSegW := (LValueArea.Width - LSegGap * 2) / 3;
       for var LSeg := 0 to 2 do
@@ -3925,13 +3926,13 @@ begin
         begin
           Canvas.FillRound(LSegRect, 8, $FF2E7D32);
           Canvas.StrokeRound(LSegRect, 8, $FFFFD54A, 1.5);
-          DrawLabel(LSegRect, Format('%d인', [LSegCount]), TAlphaColors.White, 15);
+          DrawLabel(LSegRect, GAME_MODE_LABELS[LSegCount], TAlphaColors.White, 13);
         end
         else
         begin
           Canvas.FillRound(LSegRect, 8, $FF2F4436);
           Canvas.StrokeRound(LSegRect, 8, $60FFFFFF, 1);
-          DrawLabel(LSegRect, Format('%d인', [LSegCount]), $FFCBD6C8, 15);
+          DrawLabel(LSegRect, GAME_MODE_LABELS[LSegCount], $FFCBD6C8, 13);
         end;
       end;
 
@@ -4520,7 +4521,7 @@ begin
 
   // 제목(48) + 행들 + 안내 + 버튼2행 + 하단여백
   var LPanelH := 48 + FSetupCount * LRowH + LHintH + 8 + LBtnH + LRowGap2 + LBtnH + 22;
-  var LPanel := DrawStdDialog(Format('대전 설정 — %d인전', [FSetupCount]), 500.0, LPanelH);
+  var LPanel := DrawStdDialog(Format('대전 설정 — %s (%d인)', [GAME_MODE_LABELS[FSetupCount], FSetupCount]), 500.0, LPanelH);
   var LCx := (LPanel.Left + LPanel.Right) / 2;
 
   for var R := 0 to FSetupCount - 1 do

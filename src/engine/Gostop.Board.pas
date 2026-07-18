@@ -347,7 +347,6 @@ type
     function CanCaptureCard(const ACard: THwatuCard): Boolean;
     function PhysicalPos(const AGameIndex: Integer): TSeatPos;
     function SeatLabel(const APhysicalSeat: Integer): string;
-    function RoleLabel(const ALogicalSeat: Integer): string;
     function LogicalSeatOf(const APos: TSeatPos): Integer;
     function CardSize: TSizeF;
     procedure DrawFront(const R: TRectF; const AAssetId: string);
@@ -1002,29 +1001,6 @@ function TGostopBoard.SeatLabel(const APhysicalSeat: Integer): string;
 begin
   // 논리 좌석(0=선) → 물리 위치의 표시 이름(나=닉네임, AI=아바타 닉네임)
   Result := SeatDisplayName(TSeatPos((Ord(FNextStartPos) + APhysicalSeat) mod 4));
-end;
-
-// 선 기준 역할 라벨(고정 위치가 아니라 그 게임의 선 기준). 0=선(P1), 1=P2, 2=P3, 3=P4
-function TGostopBoard.RoleLabel(const ALogicalSeat: Integer): string;
-begin
-  case ALogicalSeat mod 4 of
-    0:
-      begin
-        Result := 'P1(선)';
-      end;
-    1:
-      begin
-        Result := 'P2';
-      end;
-    2:
-      begin
-        Result := 'P3';
-      end;
-  else
-    begin
-      Result := 'P4';
-    end;
-  end;
 end;
 
 // 물리 위치의 선 기준 논리 좌석(0=선). 4인 역할 판정용
@@ -2103,11 +2079,10 @@ begin
   StartPlay;
 end;
 
-// 광 판매 발표 오버레이: 판 광 패 + "P2·P3 → 판매자: 광값" 이동 표시
+// 광 판매 발표 오버레이: 판 광 패 + "지불자들 → 판매자: 광값" 이동 표시(닉네임 사용)
 procedure TGostopBoard.DrawGwangSale;
 begin
-  // 선 기준 역할(P4=판매자) + 아바타 이름
-  var LSeller := Format('%s(%s)', [RoleLabel(FGwang.SellerSeat), SeatLabel(FGwang.SellerSeat)]);
+  var LSeller := SeatLabel(FGwang.SellerSeat);
 
   // 표준 다이얼로그(딤 + 중앙 패널 + 제목)
   var LPanel := DrawStdDialog(Format('%s 광 팔기!', [LSeller]), Max(Width * 0.5, 460.0), 260.0);
@@ -2133,7 +2108,7 @@ begin
     end;
   end;
 
-  // 광값 이동 표시(P2·P3 → 판매자)
+  // 광값 이동 표시(지불자들 → 판매자)
   var LYinfo := LPanel.Bottom - 66;
   DrawLabel(RectF(LPanel.Left, LYinfo, LPanel.Right, LYinfo + 28),
     Format('광값 %d × %d원', [FGwang.GwangCount, GWANG_UNIT_PRICE * FConfig.MoneyPerPoint]),
@@ -2147,7 +2122,7 @@ begin
       LPayers := LPayers + ' · ';
     end;
 
-    LPayers := LPayers + RoleLabel(FGwang.PayerSeats[LP]);
+    LPayers := LPayers + SeatLabel(FGwang.PayerSeats[LP]);
   end;
 
   DrawLabel(RectF(LPanel.Left, LYinfo + 30, LPanel.Right, LYinfo + 58),
@@ -5081,7 +5056,8 @@ begin
       end;
 
       DrawLabel(RectF(0, Height * 0.12 + CS.Height + 6, Width, Height * 0.12 + CS.Height + 34),
-        Format('P2·P3에게서 각 %s원', [FormatFloat('#,##0', LGCount * GWANG_UNIT_PRICE * FConfig.MoneyPerPoint)]),
+        Format('%s·%s에게서 각 %s원', [SeatLabel(1), SeatLabel(2),
+          FormatFloat('#,##0', LGCount * GWANG_UNIT_PRICE * FConfig.MoneyPerPoint)]),
         TAlphaColors.White, 16);
     end;
 

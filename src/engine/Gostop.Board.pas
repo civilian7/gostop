@@ -3770,7 +3770,6 @@ begin
       var LBmp := FAvatarPool[K mod FAvatarPool.Count];
       var LAvR := RectF(LStartX + K * LStep, LAvY, LStartX + K * LStep + LAvSize, LAvY + LAvSize);
       Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), LAvR, 1, False);
-      Canvas.StrokeRound(LAvR, 6, $FF2E3A2E, 2);   // 겹침 경계 구분용 배경색 테두리
     end;
   end;
 

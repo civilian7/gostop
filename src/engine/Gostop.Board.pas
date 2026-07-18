@@ -112,9 +112,9 @@ type
     FConfig: TGameConfig;        // 게임 룰·플레이어 설정(피박/광박/고박/보너스/금액/시드/난이도/닉네임)
     FNickEdit: TEdit;            // 닉네임 입력용(설정창에서만 표시, IME 지원)
     FSettingsOpen: Boolean;      // 설정창 표시 중
-    FCfgRects: array [0 .. 10] of TRectF;  // 설정 행 값 영역(0=인원수, 1~5=토글, 9=닉네임, 10=아바타)
-    FCfgCountRects: array [0 .. 2] of TRectF;  // 인원수 3분할 선택(2/3/4인) 클릭 영역
-    FCfgSkillRects: array [0 .. 3] of TRectF;  // AI 난이도 4분할 선택(하수/중수/고수/최고수) 클릭 영역
+    FCfgRects: array [0 .. 8] of TRectF;   // 설정 행 값 영역(0~4=토글, 5~6=값버튼, 7=닉네임, 8=아바타)
+    FCfgCountRects: array [0 .. 2] of TRectF;  // 상단 인원수 카드(맞고/삼파전/광팔어유) 클릭 영역
+    FCfgSkillRects: array [0 .. 3] of TRectF;  // 상단 AI 난이도 카드(병아리/선수/타짜/신의손) 클릭 영역
     FBtnCfgCancel: TRectF;      // 설정창 '취소'(타이틀로 복귀)
     FBtnCfgNext: TRectF;        // 설정창 '다음'(대전 설정 다이얼로그로 진행)
 
@@ -382,6 +382,9 @@ type
     procedure DrawTitleMenu;
     procedure DrawSettings;
     procedure DrawCfgToggle(const ARect: TRectF; const AOn: Boolean);
+    procedure DrawCardShell(const ARect: TRectF; const ASelected: Boolean);
+    procedure DrawAvatarCard(const ARect: TRectF; const AAvatarIdx: Integer; const ACaption: string; const ASelected: Boolean);
+    procedure DrawAvatarStackCard(const ARect: TRectF; const ACount: Integer; const ACaption: string; const ASelected: Boolean);
     procedure CycleCfg(const AIndex: Integer);
     function  CfgScore: TScoreOptions;
     function  CfgRules: TRuleSet;
@@ -474,7 +477,8 @@ const
   // PANEL_W/PANEL_H는 Gostop.Board.Layout 유닛에 있음(uses로 참조)
   AI_SKILL_LABELS: array [0 .. 3] of string = ('병아리', '선수', '타짜', '신의손');
   AI_SKILL_VALUES: array [0 .. 3] of Integer = (30, 50, 70, 90);
-  GAME_MODE_LABELS: array [2 .. 4] of string = ('맞고', '삼파전', '난장판');   // 2/3/4인 모드 별칭
+  GAME_MODE_LABELS: array [2 .. 4] of string = ('맞고', '삼파전', '광팔어유');   // 2/3/4인 모드 별칭
+  AI_SKILL_AVATAR: array [0 .. 3] of Integer = (3, 7, 11, 15);   // 난이도 카드에 표시할 아바타 풀 인덱스(인원수 카드의 0~2와 안 겹치게)
 
 // 군용담요 텍스처용 결정론적 섬유 잡음(-32..31). 좌표 해시 기반(Random 미사용).
 function FeltNoise(const AX, AY: Integer): Integer;
@@ -3860,13 +3864,98 @@ begin
   Canvas.FillCircle(RectF(LKnobX, LTrack.Top + 3, LKnobX + LKnobD, LTrack.Top + 3 + LKnobD), TAlphaColors.White);
 end;
 
+// 선택형 카드 버튼의 배경·테두리(선택 시 금색 강조, 아님 기본 패널색)
+procedure TGostopBoard.DrawCardShell(const ARect: TRectF; const ASelected: Boolean);
+begin
+  if ASelected then
+  begin
+    Canvas.FillRound(ARect, 10, $FF2E7D32);
+    Canvas.StrokeRound(ARect, 10, $FFFFD54A, 2.5);
+  end
+  else
+  begin
+    Canvas.FillRound(ARect, 10, $FF2F4436);
+    Canvas.StrokeRound(ARect, 10, $50FFFFFF, 1);
+  end;
+end;
+
+// 아바타 1장 + 캡션이 있는 선택형 카드(AI 난이도 등 '단일 인물'을 나타낼 때)
+procedure TGostopBoard.DrawAvatarCard(const ARect: TRectF; const AAvatarIdx: Integer; const ACaption: string; const ASelected: Boolean);
+const
+  CAPTION_H = 24.0;
+begin
+  DrawCardShell(ARect, ASelected);
+  LoadAvatarPool;
+
+  var LAvSize := Min(ARect.Width - 16, ARect.Height - CAPTION_H - 14);
+  var LCx := (ARect.Left + ARect.Right) / 2;
+  var LAvR := RectF(LCx - LAvSize / 2, ARect.Top + 8, LCx + LAvSize / 2, ARect.Top + 8 + LAvSize);
+  if Assigned(FAvatarPool) and (AAvatarIdx >= 0) and (AAvatarIdx < FAvatarPool.Count) then
+  begin
+    var LBmp := FAvatarPool[AAvatarIdx];
+    Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), LAvR, 1, False);
+  end;
+
+  Canvas.StrokeRound(LAvR, 6, $60FFFFFF, 1);
+
+  var LCapColor := $FFCBD6C8;
+  if ASelected then
+  begin
+    LCapColor := TAlphaColors.White;
+  end;
+
+  DrawLabel(RectF(ARect.Left, LAvR.Bottom + 2, ARect.Right, ARect.Bottom - 4), ACaption, LCapColor, 13);
+end;
+
+// 아바타 N장을 겹쳐 표시 + 캡션이 있는 선택형 카드(인원수처럼 '몇 명'을 나타낼 때)
+procedure TGostopBoard.DrawAvatarStackCard(const ARect: TRectF; const ACount: Integer; const ACaption: string; const ASelected: Boolean);
+const
+  CAPTION_H = 24.0;
+begin
+  DrawCardShell(ARect, ASelected);
+  LoadAvatarPool;
+
+  var LAvSize := ARect.Height - CAPTION_H - 14;
+  var LStep := LAvSize * 0.6;
+  var LTotalW := LAvSize + LStep * (ACount - 1);
+  if LTotalW > ARect.Width - 12 then
+  begin
+    // 폭이 부족하면 겹침 간격을 좁혀서라도 맞춘다
+    LStep := (ARect.Width - 12 - LAvSize) / Max(1, ACount - 1);
+    LTotalW := LAvSize + LStep * (ACount - 1);
+  end;
+
+  var LStartX := (ARect.Left + ARect.Right) / 2 - LTotalW / 2;
+  var LAvY := ARect.Top + 8;
+  if Assigned(FAvatarPool) and (FAvatarPool.Count > 0) then
+  begin
+    for var K := 0 to ACount - 1 do
+    begin
+      var LBmp := FAvatarPool[K mod FAvatarPool.Count];
+      var LAvR := RectF(LStartX + K * LStep, LAvY, LStartX + K * LStep + LAvSize, LAvY + LAvSize);
+      Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), LAvR, 1, False);
+      Canvas.StrokeRound(LAvR, 6, $FF2E3A2E, 2);   // 겹침 경계 구분용 배경색 테두리
+    end;
+  end;
+
+  var LCapColor := $FFCBD6C8;
+  if ASelected then
+  begin
+    LCapColor := TAlphaColors.White;
+  end;
+
+  DrawLabel(RectF(ARect.Left, LAvY + LAvSize + 2, ARect.Right, ARect.Bottom - 4), ACaption, LCapColor, 13);
+end;
+
 procedure TGostopBoard.DrawSettings;
 const
-  ROW_COUNT = 11;
+  ROW_COUNT = 9;   // 0~4=켬/끔 토글, 5~6=값 버튼, 7=닉네임, 8=아바타
+  CARD_ROW_H = 106.0;
+  CARD_GAP = 12.0;
 begin
   var LRowH := 42.0;
-  var LPanelW := 460.0;
-  var LPanelH := 56 + ROW_COUNT * LRowH + 66;
+  var LPanelW := 480.0;
+  var LPanelH := 56 + 2 * CARD_ROW_H + CARD_GAP * 3 + ROW_COUNT * LRowH + 66;
   var LPanel := RectF(Width / 2 - LPanelW / 2, Height / 2 - LPanelH / 2,
     Width / 2 + LPanelW / 2, Height / 2 + LPanelH / 2);
 
@@ -3874,112 +3963,85 @@ begin
   Canvas.StrokeRound(LPanel, 14, $FFFFD54A, 2);
   DrawLabel(RectF(LPanel.Left, LPanel.Top + 12, LPanel.Right, LPanel.Top + 46), '새 게임', TAlphaColors.Gold, 22);
 
-  // 행: 라벨(왼쪽) + 값(오른쪽). 0=인원수(3분할 선택), 1~5=켬/끔 토글, 6~8=값 버튼, 9=닉네임, 10=아바타
+  // 상단 카드 영역: 라벨 없이 화투 카드 삽화로 인원수(3장)·AI 난이도(4장)를 한 번에 보여줌.
+  // 열 개수는 다르지만(3장/4장) 두 줄 모두 같은 전체 폭에 맞춰 카드 폭만 달라진다.
+  var LCardAreaL := LPanel.Left + 20;
+  var LCardAreaR := LPanel.Right - 20;
+  var LCardAreaW := LCardAreaR - LCardAreaL;
+  var LCardY := LPanel.Top + 56;
+
+  var LSeg3Gap := CARD_GAP;
+  var LSeg3W := (LCardAreaW - LSeg3Gap * 2) / 3;
+  for var LSeg := 0 to 2 do
+  begin
+    var LSegCount := LSeg + 2;
+    var LSegRect := RectF(LCardAreaL + LSeg * (LSeg3W + LSeg3Gap), LCardY,
+      LCardAreaL + LSeg * (LSeg3W + LSeg3Gap) + LSeg3W, LCardY + CARD_ROW_H);
+    FCfgCountRects[LSeg] := LSegRect;
+    DrawAvatarStackCard(LSegRect, LSegCount, GAME_MODE_LABELS[LSegCount], LSegCount = FSetupCount);
+  end;
+
+  LCardY := LCardY + CARD_ROW_H + CARD_GAP;
+  var LSeg4Gap := CARD_GAP * 0.75;
+  var LSeg4W := (LCardAreaW - LSeg4Gap * 3) / 4;
+  for var LSeg := 0 to 3 do
+  begin
+    var LSegRect := RectF(LCardAreaL + LSeg * (LSeg4W + LSeg4Gap), LCardY,
+      LCardAreaL + LSeg * (LSeg4W + LSeg4Gap) + LSeg4W, LCardY + CARD_ROW_H);
+    FCfgSkillRects[LSeg] := LSegRect;
+    DrawAvatarCard(LSegRect, AI_SKILL_AVATAR[LSeg], AI_SKILL_LABELS[LSeg], AI_SKILL_VALUES[LSeg] = FConfig.AiSkill);
+  end;
+
+  var LRowsTop := LCardY + CARD_ROW_H + CARD_GAP;
+
+  // 행: 라벨(왼쪽) + 값(오른쪽). 0~4=켬/끔 토글, 5~6=값 버튼, 7=닉네임, 8=아바타
   var LLabels: array [0 .. ROW_COUNT - 1] of string;
-  LLabels[0] := '인원수';
-  LLabels[1] := '피박';
-  LLabels[2] := '광박';
-  LLabels[3] := '멍박';
-  LLabels[4] := '고박 (×2)';
-  LLabels[5] := '보너스패';
-  LLabels[6] := '점당 금액';
-  LLabels[7] := '시드머니';
-  LLabels[8] := 'AI 난이도';
-  LLabels[9] := '닉네임';
-  LLabels[10] := '아바타';
+  LLabels[0] := '피박';
+  LLabels[1] := '광박';
+  LLabels[2] := '멍박';
+  LLabels[3] := '고박 (×2)';
+  LLabels[4] := '보너스패';
+  LLabels[5] := '점당 금액';
+  LLabels[6] := '시드머니';
+  LLabels[7] := '닉네임';
+  LLabels[8] := '아바타';
 
-  var LToggleOn: array [1 .. 5] of Boolean;
-  LToggleOn[1] := FConfig.Pibak;
-  LToggleOn[2] := FConfig.Gwangbak;
-  LToggleOn[3] := FConfig.Meongbak;
-  LToggleOn[4] := FConfig.Gobak;
-  LToggleOn[5] := FConfig.Bonus;
+  var LToggleOn: array [0 .. 4] of Boolean;
+  LToggleOn[0] := FConfig.Pibak;
+  LToggleOn[1] := FConfig.Gwangbak;
+  LToggleOn[2] := FConfig.Meongbak;
+  LToggleOn[3] := FConfig.Gobak;
+  LToggleOn[4] := FConfig.Bonus;
 
-  var LValues: array [6 .. 10] of string;
-  LValues[6] := Format('%s원', [FormatFloat('#,##0', FConfig.MoneyPerPoint)]);
-  LValues[7] := Format('%s원', [FormatFloat('#,##0', FConfig.SeedMoney)]);
-  LValues[9] := FConfig.Nickname;
-  LValues[10] := '변경';
+  var LValues: array [5 .. 8] of string;
+  LValues[5] := Format('%s원', [FormatFloat('#,##0', FConfig.MoneyPerPoint)]);
+  LValues[6] := Format('%s원', [FormatFloat('#,##0', FConfig.SeedMoney)]);
+  LValues[7] := FConfig.Nickname;
+  LValues[8] := '변경';
 
   for var I := 0 to ROW_COUNT - 1 do
   begin
-    var LY := LPanel.Top + 56 + I * LRowH;
+    var LY := LRowsTop + I * LRowH;
     Canvas.Fill.Color := $FFE8EEE4;
     Canvas.Font.Size := 16;
     Canvas.FillText(RectF(LPanel.Left + 28, LY, LPanel.Left + 220, LY + LRowH - 8), LLabels[I],
       False, 1, [], TTextAlign.Leading, TTextAlign.Center);
 
     var LValueArea := RectF(LPanel.Right - 178, LY + 3, LPanel.Right - 28, LY + LRowH - 8);
+    FCfgRects[I] := LValueArea;
 
-    if I = 0 then
-    begin
-      // 인원수: 2/3/4를 재미난 별칭(맞고/삼파전/난장판)으로 한 번에 보여주는 3분할 선택 버튼
-      var LSegGap := 6.0;
-      var LSegW := (LValueArea.Width - LSegGap * 2) / 3;
-      for var LSeg := 0 to 2 do
-      begin
-        var LSegCount := LSeg + 2;
-        var LSegRect := RectF(LValueArea.Left + LSeg * (LSegW + LSegGap), LValueArea.Top,
-          LValueArea.Left + LSeg * (LSegW + LSegGap) + LSegW, LValueArea.Bottom);
-        FCfgCountRects[LSeg] := LSegRect;
-        if LSegCount = FSetupCount then
-        begin
-          Canvas.FillRound(LSegRect, 8, $FF2E7D32);
-          Canvas.StrokeRound(LSegRect, 8, $FFFFD54A, 1.5);
-          DrawLabel(LSegRect, GAME_MODE_LABELS[LSegCount], TAlphaColors.White, 13);
-        end
-        else
-        begin
-          Canvas.FillRound(LSegRect, 8, $FF2F4436);
-          Canvas.StrokeRound(LSegRect, 8, $60FFFFFF, 1);
-          DrawLabel(LSegRect, GAME_MODE_LABELS[LSegCount], $FFCBD6C8, 13);
-        end;
-      end;
-
-      FCfgRects[I] := LValueArea;
-    end
-    else
-    if I in [1 .. 5] then
+    if I in [0 .. 4] then
     begin
       // 켬/끔 설정: 슬라이드 토글 스위치(오른쪽 정렬)
-      FCfgRects[I] := LValueArea;
       DrawCfgToggle(LValueArea, LToggleOn[I]);
     end
     else
-    if I = 8 then
     begin
-      // AI 난이도: 하수/중수/고수/최고수를 한 번에 보여주는 4분할 선택 버튼
-      var LSegGap := 4.0;
-      var LSegW := (LValueArea.Width - LSegGap * 3) / 4;
-      for var LSeg := 0 to 3 do
-      begin
-        var LSegRect := RectF(LValueArea.Left + LSeg * (LSegW + LSegGap), LValueArea.Top,
-          LValueArea.Left + LSeg * (LSegW + LSegGap) + LSegW, LValueArea.Bottom);
-        FCfgSkillRects[LSeg] := LSegRect;
-        if AI_SKILL_VALUES[LSeg] = FConfig.AiSkill then
-        begin
-          Canvas.FillRound(LSegRect, 8, $FF2E7D32);
-          Canvas.StrokeRound(LSegRect, 8, $FFFFD54A, 1.5);
-          DrawLabel(LSegRect, AI_SKILL_LABELS[LSeg], TAlphaColors.White, 12);
-        end
-        else
-        begin
-          Canvas.FillRound(LSegRect, 8, $FF2F4436);
-          Canvas.StrokeRound(LSegRect, 8, $60FFFFFF, 1);
-          DrawLabel(LSegRect, AI_SKILL_LABELS[LSeg], $FFCBD6C8, 12);
-        end;
-      end;
-
-      FCfgRects[I] := LValueArea;
-    end
-    else
-    begin
-      FCfgRects[I] := LValueArea;
-      Canvas.FillRound(FCfgRects[I], 8, $FF2F4436);
+      Canvas.FillRound(LValueArea, 8, $FF2F4436);
       Canvas.Stroke.Color := $60FFFFFF;
       Canvas.Stroke.Thickness := 1;
-      Canvas.DrawRect(FCfgRects[I], 8, 8, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-      DrawLabel(FCfgRects[I], LValues[I], $FFFFE082, 15);
+      Canvas.DrawRect(LValueArea, 8, 8, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+      DrawLabel(LValueArea, LValues[I], $FFFFE082, 15);
     end;
   end;
 
@@ -3988,8 +4050,8 @@ begin
   if Assigned(FAvatarPool) and (FHumanAvatarIdx >= 0) and (FHumanAvatarIdx < FAvatarPool.Count) then
   begin
     var LBmp := FAvatarPool[FHumanAvatarIdx];
-    var LSide := FCfgRects[10].Height - 4;
-    var LTh := RectF(FCfgRects[10].Left + 6, FCfgRects[10].Top + 2, FCfgRects[10].Left + 6 + LSide, FCfgRects[10].Top + 2 + LSide);
+    var LSide := FCfgRects[8].Height - 4;
+    var LTh := RectF(FCfgRects[8].Left + 6, FCfgRects[8].Top + 2, FCfgRects[8].Left + 6 + LSide, FCfgRects[8].Top + 2 + LSide);
     Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), LTh, 1, False);
   end;
 
@@ -6648,20 +6710,20 @@ begin
         end;
       end;
 
-      for var I := 1 to High(FCfgRects) do
+      for var I := 0 to High(FCfgRects) do
       begin
-        if (I <> 8) and FCfgRects[I].Contains(LPoint) then
+        if FCfgRects[I].Contains(LPoint) then
         begin
           TGostopAudio.Instance.Play('ui_click');
-          if I <= 8 then
+          if I <= 6 then
           begin
-            CycleCfg(I - 1);
+            CycleCfg(I);
           end
           else
-          if I = 9 then
+          if I = 7 then
           begin
             // 닉네임: 행 위에 입력창 표시
-            BeginNickEdit(FCfgRects[9]);
+            BeginNickEdit(FCfgRects[7]);
           end
           else
           begin

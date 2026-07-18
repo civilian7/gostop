@@ -61,6 +61,8 @@ type
     class function CheerImageOf(const AIndex: Integer): string; static;
     /// <summary>슬픔(패배) 아바타 이미지의 <c>assets\avatars</c> 기준 상대 경로. 범위 밖이면 빈 문자열.</summary>
     class function SadImageOf(const AIndex: Integer): string; static;
+    /// <summary>화남(패배·박 당함) 아바타 이미지의 <c>assets\avatars</c> 기준 상대 경로. 범위 밖이면 빈 문자열.</summary>
+    class function AngryImageOf(const AIndex: Integer): string; static;
   end;
 
 implementation
@@ -90,6 +92,7 @@ type
     ImageNormal: string;
     ImageCheer: string;
     ImageSad: string;
+    ImageAngry: string;
   end;
 
 var
@@ -163,6 +166,7 @@ begin
           LEntry.ImageNormal := LImagesObj.GetValue<string>('normal', '');
           LEntry.ImageCheer := LImagesObj.GetValue<string>('cheer', '');
           LEntry.ImageSad := LImagesObj.GetValue<string>('sad', '');
+          LEntry.ImageAngry := LImagesObj.GetValue<string>('angry', '');
         end;
 
         if (LIdx >= 0) and (LIdx < Length(GEntries)) then
@@ -364,6 +368,19 @@ begin
   if (AIndex >= 0) and (AIndex < Length(GEntries)) then
   begin
     Result := GEntries[AIndex].ImageSad;
+  end
+  else
+  begin
+    Result := '';
+  end;
+end;
+
+class function TGostopCharacters.AngryImageOf(const AIndex: Integer): string;
+begin
+  EnsureLoaded;
+  if (AIndex >= 0) and (AIndex < Length(GEntries)) then
+  begin
+    Result := GEntries[AIndex].ImageAngry;
   end
   else
   begin

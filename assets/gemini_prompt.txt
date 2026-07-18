@@ -1,0 +1,15 @@
+1. 일반 (Normal/Neutral) 표정 시트
+
+A detailed digital illustration for a 4x5 character sheet grid, set against a clean white studio background. The style is clean and precise. Each of the twenty cells depicts a unique character, with characters in each row progressing in age and differing in gender and attire (e.g., Row 1: young man in a 'COLLEGE' hoodie; Row 3: woman in a traditional patterned Hanbok). The characters are looking directly at the camera with a clear, open, 'NORMAL' neutral facial expression and a soft, confident smile. All characters have the same pose: giving a thumbs-up with one hand while holding a fanned set of detailed Hwatu cards (featuring intricate floral and character designs) in the other.
+
+2. 슬픔 (Sad/Crying) 표정 시트
+
+A detailed digital illustration for a 4x5 character sheet grid, replicating the layout, characters, clothing, and hand-gestures of image_0.png, set against a clean white background. The style remains detailed and clean. Every one of the twenty characters now possesses a deeply 'SAD' expression. All characters are crying, with visible tears streaming down their faces, puffy eyes, and sorrowful, distressed expressions. Despite the extreme sadness, they maintain the identical thumbs-up gesture and continue to hold the same fanned sets of Hwatu cards as seen in image_0.png. The grid composition and all details like clothing, including the 'COLLEGE' hoodie and the Hanbok, are preserved.
+
+3. 기쁨 (Joy/Smiling) 표정 시트
+
+A detailed digital illustration for a 4x5 character sheet grid, featuring the exact same set of twenty distinct characters, organized in the identical 4x5 grid layout as seen in image_0.png. The pose and clothing are preserved, including the thumbs-up hand gestures and the specific Hwatu card sets held. The crucial change is that every character now has a broad, genuine, and cheerful 'JOYFUL' or 'SMILING' expression. The facial muscles are crinkled around the eyes, creating a happy smile with teeth showing, where appropriate for the characters. The entire grid is a composition of widespread happiness and beaming faces, maintaining the clean white background and high-quality art style.
+
+4. 화남 (Angry/Scowling) 표정 시트
+
+A detailed digital illustration for a 4x5 character sheet grid, replicating the layout, characters, clothing, and hand-gestures of image_0.png, set against a clean white background. The style remains detailed and clean. Every one of the twenty characters now possesses a deeply 'SAD' expression. All characters are crying, with visible tears streaming down their faces, puffy eyes, and sorrowful, distressed expressions. Despite the extreme sadness, they maintain the identical thumbs-up gesture and continue to hold the same fanned sets of Hwatu cards as seen in image_0.png. The grid composition and all details like clothing, including the 'COLLEGE' hoodie and the Hanbok, are preserved.

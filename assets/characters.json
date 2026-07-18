@@ -23,7 +23,8 @@
     "images": {
       "normal": "avatar_01.png",
       "cheer": "states/avatar_01_cheer.png",
-      "sad": "states/avatar_01_sad.png"
+      "sad": "states/avatar_01_sad.png",
+      "angry": "states/avatar_01_angry.png"
     }
   },
   {
@@ -50,7 +51,8 @@
     "images": {
       "normal": "avatar_02.png",
       "cheer": "states/avatar_02_cheer.png",
-      "sad": "states/avatar_02_sad.png"
+      "sad": "states/avatar_02_sad.png",
+      "angry": "states/avatar_02_angry.png"
     }
   },
   {
@@ -77,7 +79,8 @@
     "images": {
       "normal": "avatar_03.png",
       "cheer": "states/avatar_03_cheer.png",
-      "sad": "states/avatar_03_sad.png"
+      "sad": "states/avatar_03_sad.png",
+      "angry": "states/avatar_03_angry.png"
     }
   },
   {
@@ -104,7 +107,8 @@
     "images": {
       "normal": "avatar_04.png",
       "cheer": "states/avatar_04_cheer.png",
-      "sad": "states/avatar_04_sad.png"
+      "sad": "states/avatar_04_sad.png",
+      "angry": "states/avatar_04_angry.png"
     }
   },
   {
@@ -131,7 +135,8 @@
     "images": {
       "normal": "avatar_05.png",
       "cheer": "states/avatar_05_cheer.png",
-      "sad": "states/avatar_05_sad.png"
+      "sad": "states/avatar_05_sad.png",
+      "angry": "states/avatar_05_angry.png"
     }
   },
   {
@@ -158,7 +163,8 @@
     "images": {
       "normal": "avatar_06.png",
       "cheer": "states/avatar_06_cheer.png",
-      "sad": "states/avatar_06_sad.png"
+      "sad": "states/avatar_06_sad.png",
+      "angry": "states/avatar_06_angry.png"
     }
   },
   {
@@ -185,7 +191,8 @@
     "images": {
       "normal": "avatar_07.png",
       "cheer": "states/avatar_07_cheer.png",
-      "sad": "states/avatar_07_sad.png"
+      "sad": "states/avatar_07_sad.png",
+      "angry": "states/avatar_07_angry.png"
     }
   },
   {
@@ -212,7 +219,8 @@
     "images": {
       "normal": "avatar_08.png",
       "cheer": "states/avatar_08_cheer.png",
-      "sad": "states/avatar_08_sad.png"
+      "sad": "states/avatar_08_sad.png",
+      "angry": "states/avatar_08_angry.png"
     }
   },
   {
@@ -239,7 +247,8 @@
     "images": {
       "normal": "avatar_09.png",
       "cheer": "states/avatar_09_cheer.png",
-      "sad": "states/avatar_09_sad.png"
+      "sad": "states/avatar_09_sad.png",
+      "angry": "states/avatar_09_angry.png"
     }
   },
   {
@@ -266,7 +275,8 @@
     "images": {
       "normal": "avatar_10.png",
       "cheer": "states/avatar_10_cheer.png",
-      "sad": "states/avatar_10_sad.png"
+      "sad": "states/avatar_10_sad.png",
+      "angry": "states/avatar_10_angry.png"
     }
   },
   {
@@ -293,7 +303,8 @@
     "images": {
       "normal": "avatar_11.png",
       "cheer": "states/avatar_11_cheer.png",
-      "sad": "states/avatar_11_sad.png"
+      "sad": "states/avatar_11_sad.png",
+      "angry": "states/avatar_11_angry.png"
     }
   },
   {
@@ -320,7 +331,8 @@
     "images": {
       "normal": "avatar_12.png",
       "cheer": "states/avatar_12_cheer.png",
-      "sad": "states/avatar_12_sad.png"
+      "sad": "states/avatar_12_sad.png",
+      "angry": "states/avatar_12_angry.png"
     }
   },
   {
@@ -347,7 +359,8 @@
     "images": {
       "normal": "avatar_13.png",
       "cheer": "states/avatar_13_cheer.png",
-      "sad": "states/avatar_13_sad.png"
+      "sad": "states/avatar_13_sad.png",
+      "angry": "states/avatar_13_angry.png"
     }
   },
   {
@@ -374,7 +387,8 @@
     "images": {
       "normal": "avatar_14.png",
       "cheer": "states/avatar_14_cheer.png",
-      "sad": "states/avatar_14_sad.png"
+      "sad": "states/avatar_14_sad.png",
+      "angry": "states/avatar_14_angry.png"
     }
   },
   {
@@ -401,7 +415,8 @@
     "images": {
       "normal": "avatar_15.png",
       "cheer": "states/avatar_15_cheer.png",
-      "sad": "states/avatar_15_sad.png"
+      "sad": "states/avatar_15_sad.png",
+      "angry": "states/avatar_15_angry.png"
     }
   },
   {
@@ -428,7 +443,8 @@
     "images": {
       "normal": "avatar_16.png",
       "cheer": "states/avatar_16_cheer.png",
-      "sad": "states/avatar_16_sad.png"
+      "sad": "states/avatar_16_sad.png",
+      "angry": "states/avatar_16_angry.png"
     }
   },
   {
@@ -455,7 +471,8 @@
     "images": {
       "normal": "avatar_17.png",
       "cheer": "states/avatar_17_cheer.png",
-      "sad": "states/avatar_17_sad.png"
+      "sad": "states/avatar_17_sad.png",
+      "angry": "states/avatar_17_angry.png"
     }
   },
   {
@@ -482,7 +499,8 @@
     "images": {
       "normal": "avatar_18.png",
       "cheer": "states/avatar_18_cheer.png",
-      "sad": "states/avatar_18_sad.png"
+      "sad": "states/avatar_18_sad.png",
+      "angry": "states/avatar_18_angry.png"
     }
   },
   {
@@ -509,7 +527,8 @@
     "images": {
       "normal": "avatar_19.png",
       "cheer": "states/avatar_19_cheer.png",
-      "sad": "states/avatar_19_sad.png"
+      "sad": "states/avatar_19_sad.png",
+      "angry": "states/avatar_19_angry.png"
     }
   },
   {
@@ -536,7 +555,8 @@
     "images": {
       "normal": "avatar_20.png",
       "cheer": "states/avatar_20_cheer.png",
-      "sad": "states/avatar_20_sad.png"
+      "sad": "states/avatar_20_sad.png",
+      "angry": "states/avatar_20_angry.png"
     }
   }
 ]

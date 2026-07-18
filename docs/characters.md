@@ -17,7 +17,7 @@
 
 | 요소 | 내용 | 현재 구현 |
 |------|------|-----------|
-| **아바타** | 원형 128×128 PNG, 상태별 3장(`assets/avatars/avatar_NN.png` 평상시, `avatars/states/avatar_NN_{cheer,sad}.png` 환호·슬픔) | ✅ 풀 로드·표시(정산창 승자=환호/패자=슬픔) |
+| **아바타** | 사각·투명배경 128×128 PNG, 상태별 4장(`assets/avatars/avatar_NN.png` 평상시, `avatars/states/avatar_NN_{cheer,sad,angry}.png` 환호·슬픔·화남) | ✅ 풀 로드·표시(정산창 승자=환호/박 당한 패자=화남/그 외 패자=슬픔) |
 | **닉네임** | `characters.json`의 `name` | ✅ 패널·결과·이벤트 표시 |
 | **페르소나** | `characters.json`의 `ageJob`/`personality`/`playstyle`(본 문서 §4가 원본) | ✅ JSON 저장(코드 조회 함수 있음, 화면 표시는 미구현) |
 | **AI 성향** | 난이도(스킬)·고 성향·공격/방어 가중 | ⚠️ 난이도만(대전 설정 수동) |
@@ -26,13 +26,14 @@
 ### 게임 내 흐름 (현재)
 1. **대전 설정 다이얼로그**: 슬롯머신 연출로 AI 시트에 캐릭터 랜덤 배정(한 게임 내 중복 금지). 사람은 시트 선택 또는 관전.
 2. 배정된 캐릭터의 **아바타+닉네임**이 패널·선 뽑기·결과창·이벤트 텍스트 전반에 표시.
-3. 게임 종료 정산창: 승자는 환호(cheer) 아바타, 패자는 슬픔(sad) 아바타로 표시.
+3. 게임 종료 정산창: 승자는 환호(cheer), 박(피박/광박/고박/멍박/쇼당독박)을 당한 패자는
+   화남(angry), 그냥 진 패자는 슬픔(sad) 아바타로 표시.
 4. AI 난이도는 시트별 수동 지정(초급30/중급50/고급70/최상90).
 
 ### 코드 연동 지점
 - `assets\characters.json`: 20인 정본 데이터(이름·능력치·페르소나·대사·이미지 경로). **단일 진실 공급원.**
 - `src\engine\Gostop.Characters.pas`: JSON을 지연 로드해 조회 함수 제공(`NameOf`/`StatOf`/`AgeJobOf`/`PersonalityOf`/`PlaystyleOf`/`QuoteOf`/`CheerImageOf`/`SadImageOf` 등).
-- `src\engine\Gostop.Board.pas`: `LoadAvatarPool`/`FSeatAvatar`(아바타 3풀: 평상시·환호·슬픔), `FSeatSkill`(난이도), `SeatDisplayName`(표시명), `BuildFinalSummary`/`DrawGameOver`(정산창 승자·패자 아바타).
+- `src\engine\Gostop.Board.pas`: `LoadAvatarPool`/`FSeatAvatar`(아바타 4풀: 평상시·환호·슬픔·화남), `FSeatSkill`(난이도), `SeatDisplayName`(표시명), `BuildFinalSummary`/`DrawGameOver`/`ResultAvatarBitmap`(정산창 승자·패자 아바타, 박 여부로 화남/슬픔 결정).
 - 아바타 파일 순서(`avatar_NN.png` 정렬) = JSON `index` 순서 = 본 문서 캐릭터 번호. **셋의 순서를 항상 일치시킬 것.**
 
 ---
@@ -42,8 +43,8 @@
 1. **이미지**: 1:1(1024²) 상반신·투명배경으로 생성(§4의 프롬프트) → `assets/avatars/raw/avatar_NN.png`.
 2. **크롭·배경제거**: 얼굴 중심 정사각 128×128 + rembg로 배경 제거(원 마스크 없이 사각형
    그대로 저장 — 원형 표현이 필요하면 앱 쪽에서 처리) → `assets/avatars/avatar_NN.png`(평상시),
-   `assets/avatars/states/avatar_NN_{cheer,sad}.png`(환호·슬픔, 같은 크롭 규칙). 절차·스크립트는
-   [[avatar-image-pipeline.md]] 참조.
+   `assets/avatars/states/avatar_NN_{cheer,sad,angry}.png`(환호·슬픔·화남, 같은 크롭 규칙).
+   절차·스크립트는 [[avatar-image-pipeline.md]] 참조.
 3. **정본 데이터**: `assets/characters.json`에 항목 추가/수정(이름·능력치·`ageJob`/`personality`/`playstyle`/
    `quotes`/`images`). `Gostop.Characters.pas`는 코드 수정 없이 자동 반영(지연 로드).
 4. **페르소나·대사**: 본 문서 §4에 카드 추가(JSON 작성의 원본 자료로 사용).

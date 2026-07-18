@@ -86,6 +86,7 @@ type
     FAvatarPool: TObjectList<TBitmap>;          // 파일 아바타 풀(assets\avatars, 지연 로드)
     FAvatarCheerPool: TObjectList<TBitmap>;     // 환호(승리) 상태 풀. FAvatarPool과 인덱스 정렬(없으면 nil)
     FAvatarSadPool: TObjectList<TBitmap>;       // 슬픔(패배) 상태 풀. FAvatarPool과 인덱스 정렬(없으면 nil)
+    FAvatarAngryPool: TObjectList<TBitmap>;     // 화남(패배·박 당함) 상태 풀. FAvatarPool과 인덱스 정렬(없으면 nil)
     FSeatAvatar: array [TSeatPos] of Integer;   // 자리별 배정(풀 인덱스, -1=미배정)
     FHumanAvatarIdx: Integer;                   // 사람이 고른 아바타(-1=랜덤). 매치 간 유지
     FAvatarPicking: Boolean;                    // 아바타 선택 오버레이 표시 중
@@ -351,7 +352,7 @@ type
     procedure GenerateAvatars;
     procedure LoadAvatarPool;
     function  LoadStateAvatar(const AFile: string): TBitmap;
-    function  ResultAvatarBitmap(const AAvatarIdx: Integer; const AIsWinner: Boolean): TBitmap;
+    function  ResultAvatarBitmap(const AAvatarIdx: Integer; const AIsWinner, AIsPenalized: Boolean): TBitmap;
     procedure AssignAvatars;
     procedure SetHumanAvatar(const AIndex: Integer);
     procedure DrawAvatarPicker;
@@ -803,6 +804,7 @@ begin
   FreeAndNil(FAvatarPool);
   FreeAndNil(FAvatarCheerPool);
   FreeAndNil(FAvatarSadPool);
+  FreeAndNil(FAvatarAngryPool);
   FreeAndNil(FFeltTile);
   FreeAndNil(FImages);
   FreeAndNil(FFloorIndexMap);
@@ -3057,7 +3059,7 @@ begin
   end;
 end;
 
-// assets\avatars 의 avatar_*.png 를 풀로 로드(지연, 1회). 환호·슬픔 상태 풀도 같은 인덱스로 나란히 로드
+// assets\avatars 의 avatar_*.png 를 풀로 로드(지연, 1회). 환호·슬픔·화남 상태 풀도 같은 인덱스로 나란히 로드
 // (assets\characters.json에 등록된 파일이 있으면 로드, 없으면 nil — 그리면 텍스트만 폴백).
 procedure TGostopBoard.LoadAvatarPool;
 begin
@@ -3069,6 +3071,7 @@ begin
   FAvatarPool := TObjectList<TBitmap>.Create(True);
   FAvatarCheerPool := TObjectList<TBitmap>.Create(True);
   FAvatarSadPool := TObjectList<TBitmap>.Create(True);
+  FAvatarAngryPool := TObjectList<TBitmap>.Create(True);
   var LDir := THwatuAssets.AvatarDir;
   if (LDir = '') or (not TDirectory.Exists(LDir)) then
   begin
@@ -3090,6 +3093,7 @@ begin
     var LIdx := FAvatarPool.Count - 1;
     FAvatarCheerPool.Add(LoadStateAvatar(TPath.Combine(LDir, TGostopCharacters.CheerImageOf(LIdx))));
     FAvatarSadPool.Add(LoadStateAvatar(TPath.Combine(LDir, TGostopCharacters.SadImageOf(LIdx))));
+    FAvatarAngryPool.Add(LoadStateAvatar(TPath.Combine(LDir, TGostopCharacters.AngryImageOf(LIdx))));
   end;
 end;
 
@@ -4745,7 +4749,9 @@ begin
 end;
 
 // 정산 줄에 표시할 아바타 비트맵. 승자=환호, 패자=슬픔(없으면 평상시로 폴백). 인덱스 없으면 nil
-function TGostopBoard.ResultAvatarBitmap(const AAvatarIdx: Integer; const AIsWinner: Boolean): TBitmap;
+// 정산 줄 아바타: 승자=환호, 박(피박/광박/고박/멍박/쇼당독박) 당한 패자=화남, 그 외 패자=슬픔.
+// 상태 이미지가 없으면 화남→슬픔→평상시 순으로 폴백.
+function TGostopBoard.ResultAvatarBitmap(const AAvatarIdx: Integer; const AIsWinner, AIsPenalized: Boolean): TBitmap;
 begin
   Result := nil;
   if AAvatarIdx < 0 then
@@ -4763,7 +4769,12 @@ begin
   end
   else
   begin
-    if Assigned(FAvatarSadPool) and (AAvatarIdx < FAvatarSadPool.Count) then
+    if AIsPenalized and Assigned(FAvatarAngryPool) and (AAvatarIdx < FAvatarAngryPool.Count) then
+    begin
+      Result := FAvatarAngryPool[AAvatarIdx];
+    end;
+
+    if (not Assigned(Result)) and Assigned(FAvatarSadPool) and (AAvatarIdx < FAvatarSadPool.Count) then
     begin
       Result := FAvatarSadPool[AAvatarIdx];
     end;
@@ -4811,7 +4822,7 @@ begin
       LAvSz := LWinAvSize;
     end;
 
-    var LBmp := ResultAvatarBitmap(LRow.AvatarIdx, LRow.IsWinner);
+    var LBmp := ResultAvatarBitmap(LRow.AvatarIdx, LRow.IsWinner, Length(LRow.Flags) > 0);
     var LTextLeft := LPanel.Left + 18;
     if Assigned(LBmp) then
     begin

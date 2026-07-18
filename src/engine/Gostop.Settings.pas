@@ -29,6 +29,7 @@ type
     SeedMoney: Integer;      // 시드머니
     AiSkill: Integer;        // 사람 자리 기본 AI 난이도(30/50/70/90)
     Nickname: string;        // 내 닉네임
+    KillCount: Integer;      // 오링 카운트(내가 상대를 파산시킨 누적 횟수, 매치 리셋과 무관하게 영구 유지)
 
     /// <summary>기본값으로 초기화합니다.</summary>
     procedure Reset;
@@ -60,6 +61,7 @@ begin
   SeedMoney := 30000;
   AiSkill := 70;
   Nickname := '나';
+  KillCount := 0;
 end;
 
 procedure TGameConfig.Validate;
@@ -79,6 +81,11 @@ begin
   if Nickname = '' then
   begin
     Nickname := '나';
+  end;
+
+  if KillCount < 0 then
+  begin
+    KillCount := 0;
   end;
 end;
 
@@ -127,6 +134,7 @@ begin
   SeedMoney := AIni.ReadInteger('Rules', 'SeedMoney', SeedMoney);
   AiSkill := AIni.ReadInteger('Rules', 'AiSkill', AiSkill);
   Nickname := AIni.ReadString('Player', 'Nickname', Nickname);
+  KillCount := AIni.ReadInteger('Player', 'KillCount', KillCount);
 end;
 
 procedure TGameConfig.SaveTo(const AIni: TIniFile);
@@ -140,6 +148,7 @@ begin
   AIni.WriteInteger('Rules', 'SeedMoney', SeedMoney);
   AIni.WriteInteger('Rules', 'AiSkill', AiSkill);
   AIni.WriteString('Player', 'Nickname', Nickname);
+  AIni.WriteInteger('Player', 'KillCount', KillCount);
 end;
 {$ENDREGION}
 

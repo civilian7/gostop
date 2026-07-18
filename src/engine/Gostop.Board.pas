@@ -198,6 +198,13 @@ type
     FGwangCards: TArray<THwatuCard>;   // 판매자가 판 광 패
     FGwangTimer: TTimer;               // 발표 후 자동 진행
 
+    // 오링(파산) 좌석 신규 플레이어 교체 연출(최대 동시 2명, 화면 밖에서 등장→빈자리로)
+    FReplacingSeats: TArray<TSeatPos>;   // 이번에 교체 중인 물리 좌석(1~2명)
+    FReplaceNewAvatar: TArray<Integer>;  // FReplacingSeats와 인덱스 대응하는 신규 아바타
+    FReplaceProgress: Single;            // 등장 애니 진행률(0~1)
+    FReplaceTimer: TTimer;
+    FReplacePendingStartPos: TSeatPos;   // 애니 완료 후 이어갈 NewGame의 선 위치
+
     // 선 뽑기(밤일낮장) — 새 매치 시작 시 각자 카드 1장을 뒤집어 선 결정
     FGiriPhase: Boolean;                           // 기리(딜 전 말번 커팅) 진행 중
     FGiriDeck: TDeck;                              // 기리 대기 중인 셔플 덱(딜 직전)
@@ -293,6 +300,12 @@ type
     procedure DrawGwangSale;
     procedure GwangTimerTick(Sender: TObject);
     procedure FinishGwangSale;
+    function  ActivePhysicalSeats: TArray<TSeatPos>;
+    function  PickReplacementAvatar(const AExtraExclude: Integer): Integer;
+    function  SeatAvatarRect(const APos: TSeatPos): TRectF;
+    procedure BeginSeatReplacement(const AStartPos: TSeatPos);
+    procedure ReplaceTimerTick(Sender: TObject);
+    procedure DrawSeatReplacement;
     procedure NegAnimTick(Sender: TObject);
     procedure ProceedAfterSeon;
     procedure BeginSeonPick;
@@ -783,6 +796,10 @@ begin
   FGwangTimer.Interval := 2600;   // 광 판매 발표 표시 시간
   FGwangTimer.Enabled := False;
   FGwangTimer.OnTimer := GwangTimerTick;
+  FReplaceTimer := TTimer.Create(Self);
+  FReplaceTimer.Interval := 16;   // ~60fps
+  FReplaceTimer.Enabled := False;
+  FReplaceTimer.OnTimer := ReplaceTimerTick;
   FNegAnimTimer := TTimer.Create(Self);
   FNegAnimTimer.Interval := 33;   // ~30fps 흔들림
   FNegAnimTimer.Enabled := False;
@@ -892,6 +909,12 @@ begin
   end;
 
   FGwangShow := False;
+  if Assigned(FReplaceTimer) then
+  begin
+    FReplaceTimer.Enabled := False;
+  end;
+
+  FReplacingSeats := nil;
   FHoverHand := -1;
   FHoverBonus := -1;
   FAgents := nil;
@@ -2428,6 +2451,16 @@ end;
 
 procedure TGostopBoard.BuildFinalSummary;
 begin
+  // 오링 카운트 집계용: 이번 정산 전에 이미 파산 상태였던 상대 좌석(중복 집계 방지)
+  var LWasBroke: set of TSeatPos := [];
+  for var LPos in ActivePhysicalSeats do
+  begin
+    if (LPos <> spBottom) and (FMoney[LPos] <= 0) then
+    begin
+      Include(LWasBroke, LPos);
+    end;
+  end;
+
   var LSettle := FEngine.FinalSettlement;
 
   // 쇼당 독박: 수락자(밀어줄 대상)가 이겼으면 거절자가 전액(호출자 몫까지)을 독박,
@@ -2469,6 +2502,25 @@ begin
     for var I := 0 to FGame.PlayerCount - 1 do
     begin
       FMoney[PhysicalPos(I)] := FMoney[PhysicalPos(I)] + LSettle[I].Net * FConfig.MoneyPerPoint * FStakes;
+    end;
+  end;
+
+  // 오링 카운트: 이번 정산으로 새로 파산한 상대 수만큼 내 게임 이력에 누적(이미 파산 상태였던 좌석은 제외)
+  if not FSpectator then
+  begin
+    var LNewlyBroke := 0;
+    for var LPos in ActivePhysicalSeats do
+    begin
+      if (LPos <> spBottom) and (FMoney[LPos] <= 0) and (not (LPos in LWasBroke)) then
+      begin
+        Inc(LNewlyBroke);
+      end;
+    end;
+
+    if LNewlyBroke > 0 then
+    begin
+      FConfig.KillCount := FConfig.KillCount + LNewlyBroke;
+      SaveSettings;
     end;
   end;
 
@@ -4061,6 +4113,179 @@ begin
   end;
 end;
 
+// 현재 인원수 기준 실제로 쓰이는 물리 좌석 목록(항상 위·아래, 3인+좌, 4인+우)
+function TGostopBoard.ActivePhysicalSeats: TArray<TSeatPos>;
+begin
+  Result := [spTop, spBottom];
+  if FPlayerCount >= 3 then
+  begin
+    Result := Result + [spLeft];
+  end;
+
+  if FPlayerCount >= 4 then
+  begin
+    Result := Result + [spRight];
+  end;
+end;
+
+// 오링 교체용 신규 아바타 하나를 고른다(사람·현재 착석 중인 모든 아바타 + 이번에 같이 교체되는 다른 좌석 회피)
+function TGostopBoard.PickReplacementAvatar(const AExtraExclude: Integer): Integer;
+begin
+  LoadAvatarPool;
+  if FAvatarPool.Count = 0 then
+  begin
+    Exit(-1);
+  end;
+
+  Result := Random(FAvatarPool.Count);
+  var LGuard := 0;
+  while LGuard < FAvatarPool.Count do
+  begin
+    var LUsed := (Result = FHumanAvatarIdx) or (Result = AExtraExclude);
+    for var LP := spTop to spRight do
+    begin
+      if FSeatAvatar[LP] = Result then
+      begin
+        LUsed := True;
+      end;
+    end;
+
+    if not LUsed then
+    begin
+      Exit;
+    end;
+
+    Result := (Result + 1) mod FAvatarPool.Count;
+    Inc(LGuard);
+  end;
+end;
+
+// 좌석 패널 안에서 아바타가 그려지는 정확한 사각형(패널 렌더·등장 애니 공용 — 도착 지점 일치 보장)
+function TGostopBoard.SeatAvatarRect(const APos: TSeatPos): TRectF;
+const
+  AV_SIZE = 60.0;
+begin
+  var LBox := PlayerPanelRect(APos);
+  var LCxB := (LBox.Left + LBox.Right) / 2;
+  Result := RectF(LCxB - AV_SIZE / 2, LBox.Top + 8, LCxB + AV_SIZE / 2, LBox.Top + 8 + AV_SIZE);
+end;
+
+// 오링(파산)된 상대 자리를 새 캐릭터로 교체(최대 동시 2명). 없으면 즉시 다음 판 진행.
+procedure TGostopBoard.BeginSeatReplacement(const AStartPos: TSeatPos);
+begin
+  var LBroke: TArray<TSeatPos> := nil;
+  for var LPos in ActivePhysicalSeats do
+  begin
+    if (LPos <> spBottom) and (FMoney[LPos] <= 0) then
+    begin
+      LBroke := LBroke + [LPos];
+      if Length(LBroke) >= 2 then
+      begin
+        Break;   // 동시 교체는 최대 2명(나머지는 다음 기회에)
+      end;
+    end;
+  end;
+
+  FReplacePendingStartPos := AStartPos;
+  if Length(LBroke) = 0 then
+  begin
+    NewGame(FPlayerCount, FAiSkill, AStartPos, False);
+    Exit;
+  end;
+
+  FReplacingSeats := LBroke;
+  SetLength(FReplaceNewAvatar, Length(LBroke));
+  var LExtra := -1;
+  for var I := 0 to High(LBroke) do
+  begin
+    FReplaceNewAvatar[I] := PickReplacementAvatar(LExtra);
+    LExtra := FReplaceNewAvatar[I];
+    FSeatAvatar[LBroke[I]] := -1;   // 등장 전까지 자리 비움(패널에 이전 아바타 안 보이게)
+  end;
+
+  FReplaceProgress := 0;
+  TGostopAudio.Instance.Play('sfx_negotiate');
+  FReplaceTimer.Enabled := True;
+  Repaint;
+end;
+
+// 등장 애니 진행 → 완료되면 신규 캐릭터 확정(아바타·시드머니·난이도·전적 리셋) 후 다음 판 진행
+procedure TGostopBoard.ReplaceTimerTick(Sender: TObject);
+begin
+  if Length(FReplacingSeats) = 0 then
+  begin
+    FReplaceTimer.Enabled := False;
+    Exit;
+  end;
+
+  FReplaceProgress := FReplaceProgress + 0.025 * FGameSpeed;
+  if FReplaceProgress < 1 then
+  begin
+    Repaint;
+    Exit;
+  end;
+
+  FReplaceTimer.Enabled := False;
+  for var I := 0 to High(FReplacingSeats) do
+  begin
+    var LPos := FReplacingSeats[I];
+    FSeatAvatar[LPos] := FReplaceNewAvatar[I];
+    FSeatSkill[LPos] := DerivedSkill(FReplaceNewAvatar[I]);
+    FMoney[LPos] := FConfig.SeedMoney;
+    FWins[LPos] := 0;
+    FLosses[LPos] := 0;
+    FGaveUpLast[LPos] := False;
+  end;
+
+  FReplacingSeats := nil;
+  FReplaceNewAvatar := nil;
+  NewGame(FPlayerCount, FAiSkill, FReplacePendingStartPos, False);
+end;
+
+// 새 도전자 등장 연출: 화면 밖(1명=오른쪽, 2명=좌우)에서 자기 자리로 아바타가 이동해 온다
+procedure TGostopBoard.DrawSeatReplacement;
+begin
+  if Length(FReplacingSeats) = 0 then
+  begin
+    Exit;
+  end;
+
+  Canvas.FillRound(LocalRect, 0, $60000000);
+  DrawLabel(RectF(0, Height * 0.10, Width, Height * 0.10 + 40), '새로운 도전자 등장!', TAlphaColors.Gold, 26);
+
+  var LT := EnsureRange(FReplaceProgress, 0, 1);
+  LT := 1 - Power(1 - LT, 3);   // ease-out
+
+  for var I := 0 to High(FReplacingSeats) do
+  begin
+    var LPos := FReplacingSeats[I];
+    var LTarget := SeatAvatarRect(LPos);
+
+    var LFromRight := True;
+    if (Length(FReplacingSeats) = 2) and (I = 0) then
+    begin
+      LFromRight := False;   // 2명 중 첫 번째는 왼쪽에서 등장
+    end;
+
+    var LStartCx := Width + LTarget.Width;
+    if not LFromRight then
+    begin
+      LStartCx := -LTarget.Width;
+    end;
+
+    var LCx := LStartCx + (((LTarget.Left + LTarget.Right) / 2) - LStartCx) * LT;
+    var LCy := (LTarget.Top + LTarget.Bottom) / 2;
+    var LR := RectF(LCx - LTarget.Width / 2, LCy - LTarget.Height / 2, LCx + LTarget.Width / 2, LCy + LTarget.Height / 2);
+
+    if Assigned(FAvatarPool) and (FReplaceNewAvatar[I] >= 0) and (FReplaceNewAvatar[I] < FAvatarPool.Count) then
+    begin
+      Canvas.DrawBitmap(FAvatarPool[FReplaceNewAvatar[I]], RectF(0, 0, FAvatarPool[FReplaceNewAvatar[I]].Width,
+        FAvatarPool[FReplaceNewAvatar[I]].Height), LR, 1, False);
+      Canvas.StrokeRound(LR, 8, $FFFFD54A, 2);
+    end;
+  end;
+end;
+
 // 대전 설정 열기: 기본 시트(마지막 행=나), AI 행 슬롯머신 스핀 시작
 procedure TGostopBoard.OpenMatchSetup(const ACount: Integer);
 begin
@@ -4408,6 +4633,11 @@ begin
   Canvas.FillText(RectF(0, Height * 0.40, Width, Height * 0.40 + 72), '고스톱',
     False, 1, [], TTextAlign.Center, TTextAlign.Center);
   DrawLabel(RectF(0, Height * 0.40 + 74, Width, Height * 0.40 + 100), '- 밤일낮장 · 정통 맞고 -', $FFD8E0D0, 15);
+  if FConfig.KillCount > 0 then
+  begin
+    DrawLabel(RectF(0, Height * 0.40 + 98, Width, Height * 0.40 + 120),
+      Format('상대 오링 %d회', [FConfig.KillCount]), $FFFFD54A, 13);
+  end;
 
   // 메뉴 버튼 3개: 이어하기 · 새게임 · 끝내기
   var LBW := 170.0;
@@ -4518,9 +4748,7 @@ begin
   end;
 
   // 세로형 통일: 아바타 위(가로 중앙) → 정보 아래
-  var LAvSize := 60.0;
-  var LCxB := (LBox.Left + LBox.Right) / 2;
-  var LAv := RectF(LCxB - LAvSize / 2, LBox.Top + 8, LCxB + LAvSize / 2, LBox.Top + 8 + LAvSize);
+  var LAv := SeatAvatarRect(APos);
   var LInfo := RectF(LBox.Left + 8, LAv.Bottom + 6, LBox.Right - 8, LBox.Bottom - 4);
 
   // 아바타 그리기 — 피 뺏긴 직후 3초는 화남 표정(FAngrySeats, 없으면 평상시로 폴백)
@@ -5200,11 +5428,20 @@ begin
     LY := LY + LRowH;
   end;
 
-  // 버튼 2개: 새게임(이전 승자가 선으로 계속) / 중지(매치 종료)
+  // 버튼: 내가 파산했으면 타이틀로 복귀만, 아니면 새게임(이어가기)/중지 2개
   var LBtnW := 140.0;
   var LGap := 16.0;
-  FBtnNext := DrawStdButton(RectF(LCX - LBtnW - LGap / 2, LY + 12, LCX - LGap / 2, LY + 12 + LBtnH), '새게임', dbkPrimary);
-  FBtnQuit := DrawStdButton(RectF(LCX + LGap / 2, LY + 12, LCX + LGap / 2 + LBtnW, LY + 12 + LBtnH), '중지', dbkDanger);
+  var LHumanBroke := (not FSpectator) and (FHumanIndex >= 0) and (FMoney[spBottom] <= 0);
+  if LHumanBroke then
+  begin
+    FBtnNext := TRectF.Empty;
+    FBtnQuit := DrawStdButton(RectF(LCX - LBtnW / 2, LY + 12, LCX + LBtnW / 2, LY + 12 + LBtnH), '타이틀로', dbkDanger);
+  end
+  else
+  begin
+    FBtnNext := DrawStdButton(RectF(LCX - LBtnW - LGap / 2, LY + 12, LCX - LGap / 2, LY + 12 + LBtnH), '새게임', dbkPrimary);
+    FBtnQuit := DrawStdButton(RectF(LCX + LGap / 2, LY + 12, LCX + LGap / 2 + LBtnW, LY + 12 + LBtnH), '중지', dbkDanger);
+  end;
 end;
 
 procedure TGostopBoard.DrawGoStopPrompt;
@@ -5597,7 +5834,7 @@ begin
   end
   else
   begin
-    if FGame.Phase = gpFinished then
+    if (FGame.Phase = gpFinished) and (Length(FReplacingSeats) = 0) then
     begin
       DrawGameOver;
     end;
@@ -5624,6 +5861,12 @@ begin
   if FAvatarPicking then
   begin
     DrawAvatarPicker;
+  end;
+
+  // 오링 좌석 신규 캐릭터 등장 연출(모든 것 위에 표시)
+  if Length(FReplacingSeats) > 0 then
+  begin
+    DrawSeatReplacement;
   end;
 end;
 
@@ -6337,8 +6580,8 @@ begin
     Exit;
   end;
 
-  // 애니메이션 진행 중엔 그 외 입력 무시(턴 애니·딜 애니)
-  if Assigned(FDisplay) or FDealing then
+  // 애니메이션 진행 중엔 그 외 입력 무시(턴 애니·딜 애니·오링 좌석 교체 애니)
+  if Assigned(FDisplay) or FDealing or (Length(FReplacingSeats) > 0) then
   begin
     Exit;
   end;
@@ -6641,7 +6884,8 @@ begin
         LStartPos := PhysicalPos(FGame.Winner);
       end;
 
-      NewGame(FPlayerCount, FAiSkill, LStartPos, False);   // 매치 이어가기(머니·전적 유지)
+      // 매치 이어가기(머니·전적 유지). 오링된 상대가 있으면 새 도전자 등장 연출 후 진행
+      BeginSeatReplacement(LStartPos);
     end
     else
     if FBtnQuit.Contains(LPoint) then

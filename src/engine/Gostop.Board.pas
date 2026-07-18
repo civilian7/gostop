@@ -112,7 +112,8 @@ type
     FConfig: TGameConfig;        // 게임 룰·플레이어 설정(피박/광박/고박/보너스/금액/시드/난이도/닉네임)
     FNickEdit: TEdit;            // 닉네임 입력용(설정창에서만 표시, IME 지원)
     FSettingsOpen: Boolean;      // 설정창 표시 중
-    FCfgRects: array [0 .. 10] of TRectF;  // 설정 행 값 버튼(0=인원수, 9=닉네임, 10=아바타)
+    FCfgRects: array [0 .. 10] of TRectF;  // 설정 행 값 영역(0=인원수, 1~5=토글, 9=닉네임, 10=아바타)
+    FCfgCountRects: array [0 .. 2] of TRectF;  // 인원수 3분할 선택(2/3/4인) 클릭 영역
     FBtnCfgCancel: TRectF;      // 설정창 '취소'(타이틀로 복귀)
     FBtnCfgNext: TRectF;        // 설정창 '다음'(대전 설정 다이얼로그로 진행)
 
@@ -366,6 +367,7 @@ type
     procedure DrawControlBar;
     procedure DrawTitleMenu;
     procedure DrawSettings;
+    procedure DrawCfgToggle(const ARect: TRectF; const AOn: Boolean);
     procedure CycleCfg(const AIndex: Integer);
     function  CfgScore: TScoreOptions;
     function  CfgRules: TRuleSet;
@@ -3772,6 +3774,36 @@ begin
 end;
 
 // 게임 룰·플레이어 설정창(게임 시작 전 타이틀에서만)
+// 켬/끔 설정을 나타내는 슬라이드 토글 스위치(값 영역 오른쪽 정렬로 그림)
+procedure TGostopBoard.DrawCfgToggle(const ARect: TRectF; const AOn: Boolean);
+const
+  TRACK_W = 50.0;
+  TRACK_H = 26.0;
+begin
+  var LCy := (ARect.Top + ARect.Bottom) / 2;
+  var LTrack := RectF(ARect.Right - TRACK_W, LCy - TRACK_H / 2, ARect.Right, LCy + TRACK_H / 2);
+
+  if AOn then
+  begin
+    Canvas.FillRound(LTrack, TRACK_H / 2, $FF2E7D32);
+  end
+  else
+  begin
+    Canvas.FillRound(LTrack, TRACK_H / 2, $FF44504A);
+  end;
+
+  Canvas.StrokeRound(LTrack, TRACK_H / 2, $50FFFFFF, 1);
+
+  var LKnobD := TRACK_H - 6;
+  var LKnobX := LTrack.Left + 3;
+  if AOn then
+  begin
+    LKnobX := LTrack.Right - 3 - LKnobD;
+  end;
+
+  Canvas.FillCircle(RectF(LKnobX, LTrack.Top + 3, LKnobX + LKnobD, LTrack.Top + 3 + LKnobD), TAlphaColors.White);
+end;
+
 procedure TGostopBoard.DrawSettings;
 const
   ROW_COUNT = 11;
@@ -3786,7 +3818,7 @@ begin
   Canvas.StrokeRound(LPanel, 14, $FFFFD54A, 2);
   DrawLabel(RectF(LPanel.Left, LPanel.Top + 12, LPanel.Right, LPanel.Top + 46), '새 게임', TAlphaColors.Gold, 22);
 
-  // 행: 라벨(왼쪽) + 값 버튼(오른쪽). 0=인원수, 1~8=룰/경제, 9=닉네임, 10=아바타
+  // 행: 라벨(왼쪽) + 값(오른쪽). 0=인원수(3분할 선택), 1~5=켬/끔 토글, 6~8=값 버튼, 9=닉네임, 10=아바타
   var LLabels: array [0 .. ROW_COUNT - 1] of string;
   LLabels[0] := '인원수';
   LLabels[1] := '피박';
@@ -3800,54 +3832,14 @@ begin
   LLabels[9] := '닉네임';
   LLabels[10] := '아바타';
 
-  var LValues: array [0 .. ROW_COUNT - 1] of string;
-  LValues[0] := Format('%d인', [FSetupCount]);
+  var LToggleOn: array [1 .. 5] of Boolean;
+  LToggleOn[1] := FConfig.Pibak;
+  LToggleOn[2] := FConfig.Gwangbak;
+  LToggleOn[3] := FConfig.Meongbak;
+  LToggleOn[4] := FConfig.Gobak;
+  LToggleOn[5] := FConfig.Bonus;
 
-  if FConfig.Pibak then
-  begin
-    LValues[1] := '켬';
-  end
-  else
-  begin
-    LValues[1] := '끔';
-  end;
-
-  if FConfig.Gwangbak then
-  begin
-    LValues[2] := '켬';
-  end
-  else
-  begin
-    LValues[2] := '끔';
-  end;
-
-  if FConfig.Meongbak then
-  begin
-    LValues[3] := '켬';
-  end
-  else
-  begin
-    LValues[3] := '끔';
-  end;
-
-  if FConfig.Gobak then
-  begin
-    LValues[4] := '켬';
-  end
-  else
-  begin
-    LValues[4] := '끔';
-  end;
-
-  if FConfig.Bonus then
-  begin
-    LValues[5] := '3장 포함';
-  end
-  else
-  begin
-    LValues[5] := '없음(48장)';
-  end;
-
+  var LValues: array [6 .. 10] of string;
   LValues[6] := Format('%s원', [FormatFloat('#,##0', FConfig.MoneyPerPoint)]);
   LValues[7] := Format('%s원', [FormatFloat('#,##0', FConfig.SeedMoney)]);
   LValues[9] := FConfig.Nickname;
@@ -3879,12 +3871,51 @@ begin
     Canvas.FillText(RectF(LPanel.Left + 28, LY, LPanel.Left + 220, LY + LRowH - 8), LLabels[I],
       False, 1, [], TTextAlign.Leading, TTextAlign.Center);
 
-    FCfgRects[I] := RectF(LPanel.Right - 178, LY + 3, LPanel.Right - 28, LY + LRowH - 8);
-    Canvas.FillRound(FCfgRects[I], 8, $FF2F4436);
-    Canvas.Stroke.Color := $60FFFFFF;
-    Canvas.Stroke.Thickness := 1;
-    Canvas.DrawRect(FCfgRects[I], 8, 8, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-    DrawLabel(FCfgRects[I], LValues[I], $FFFFE082, 15);
+    var LValueArea := RectF(LPanel.Right - 178, LY + 3, LPanel.Right - 28, LY + LRowH - 8);
+
+    if I = 0 then
+    begin
+      // 인원수: 2/3/4를 한 번에 보여주는 3분할 선택 버튼
+      var LSegGap := 6.0;
+      var LSegW := (LValueArea.Width - LSegGap * 2) / 3;
+      for var LSeg := 0 to 2 do
+      begin
+        var LSegCount := LSeg + 2;
+        var LSegRect := RectF(LValueArea.Left + LSeg * (LSegW + LSegGap), LValueArea.Top,
+          LValueArea.Left + LSeg * (LSegW + LSegGap) + LSegW, LValueArea.Bottom);
+        FCfgCountRects[LSeg] := LSegRect;
+        if LSegCount = FSetupCount then
+        begin
+          Canvas.FillRound(LSegRect, 8, $FF2E7D32);
+          Canvas.StrokeRound(LSegRect, 8, $FFFFD54A, 1.5);
+          DrawLabel(LSegRect, Format('%d인', [LSegCount]), TAlphaColors.White, 15);
+        end
+        else
+        begin
+          Canvas.FillRound(LSegRect, 8, $FF2F4436);
+          Canvas.StrokeRound(LSegRect, 8, $60FFFFFF, 1);
+          DrawLabel(LSegRect, Format('%d인', [LSegCount]), $FFCBD6C8, 15);
+        end;
+      end;
+
+      FCfgRects[I] := LValueArea;
+    end
+    else
+    if I in [1 .. 5] then
+    begin
+      // 켬/끔 설정: 슬라이드 토글 스위치(오른쪽 정렬)
+      FCfgRects[I] := LValueArea;
+      DrawCfgToggle(LValueArea, LToggleOn[I]);
+    end
+    else
+    begin
+      FCfgRects[I] := LValueArea;
+      Canvas.FillRound(FCfgRects[I], 8, $FF2F4436);
+      Canvas.Stroke.Color := $60FFFFFF;
+      Canvas.Stroke.Thickness := 1;
+      Canvas.DrawRect(FCfgRects[I], 8, 8, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+      DrawLabel(FCfgRects[I], LValues[I], $FFFFE082, 15);
+    end;
   end;
 
   // 아바타 행: 현재 아바타 썸네일을 값 버튼 안에 표시
@@ -6336,30 +6367,23 @@ begin
         Exit;
       end;
 
-      for var I := 0 to High(FCfgRects) do
+      // 인원수: 2/3/4 중 클릭한 칸으로 즉시 선택(3분할 버튼)
+      for var LSeg := 0 to 2 do
+      begin
+        if FCfgCountRects[LSeg].Contains(LPoint) then
+        begin
+          TGostopAudio.Instance.Play('ui_click');
+          FSetupCount := LSeg + 2;
+          Repaint;
+          Exit;
+        end;
+      end;
+
+      for var I := 1 to High(FCfgRects) do
       begin
         if FCfgRects[I].Contains(LPoint) then
         begin
           TGostopAudio.Instance.Play('ui_click');
-          if I = 0 then
-          begin
-            // 인원수: 2 → 3 → 4 → 2 순환
-            case FSetupCount of
-              2:
-                begin
-                  FSetupCount := 3;
-                end;
-              3:
-                begin
-                  FSetupCount := 4;
-                end;
-            else
-              begin
-                FSetupCount := 2;
-              end;
-            end;
-          end
-          else
           if I <= 8 then
           begin
             CycleCfg(I - 1);

@@ -24,6 +24,8 @@ type
     Amount: Integer;
     /// <summary>박 뱃지들(피박/광박/고박/멍박/쇼당독박 등).</summary>
     Flags: TArray<string>;
+    /// <summary>승자 줄에만 채워지는 점수 내역 뱃지들(광 3·열끗 1·띠 3·피 3 형태).</summary>
+    ScoreParts: TArray<string>;
     /// <summary>아바타 없는 안내문(나가리·쓰리뻑 등).</summary>
     Text: string;
   end;
@@ -118,6 +120,31 @@ begin
   if AResult.Meongbak then
   begin
     Result := Result + ['멍박'];
+  end;
+end;
+
+// 승자 결과 줄에 표시할 점수 내역 뱃지(광 3·열끗 1·띠 3·피 3 — 0장인 종류는 생략)
+function ScorePartsOf(const ABreakdown: TScoreBreakdown): TArray<string>;
+begin
+  Result := nil;
+  if ABreakdown.BrightCount > 0 then
+  begin
+    Result := Result + [Format('광 %d', [ABreakdown.BrightCount])];
+  end;
+
+  if ABreakdown.AnimalCount > 0 then
+  begin
+    Result := Result + [Format('열끗 %d', [ABreakdown.AnimalCount])];
+  end;
+
+  if ABreakdown.RibbonCount > 0 then
+  begin
+    Result := Result + [Format('띠 %d', [ABreakdown.RibbonCount])];
+  end;
+
+  if ABreakdown.JunkValue > 0 then
+  begin
+    Result := Result + [Format('피 %d', [ABreakdown.JunkValue])];
   end;
 end;
 
@@ -278,6 +305,7 @@ begin
       LWinRow.HasAmount := True;
       LWinRow.Amount := LNet4[LWinnerSeat] * AInput.MoneyPerPoint * AInput.Stakes;
       LWinRow.Flags := nil;
+      LWinRow.ScoreParts := ScorePartsOf(AEngine.ScoreOf(AGame.Winner));
       LRows.Add(LWinRow);
 
       for var S := 0 to 3 do
@@ -303,6 +331,7 @@ begin
       LWinRow.HasAmount := True;
       LWinRow.Amount := LSettle[AGame.Winner].Net * AInput.MoneyPerPoint * AInput.Stakes;
       LWinRow.Flags := nil;
+      LWinRow.ScoreParts := ScorePartsOf(AEngine.ScoreOf(AGame.Winner));
       LRows.Add(LWinRow);
 
       for var I := 0 to AGame.PlayerCount - 1 do

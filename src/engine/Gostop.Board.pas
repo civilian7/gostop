@@ -5349,7 +5349,23 @@ begin
     LCountdownH := 56.0;   // 자동 진행 카운트다운 표시 영역
   end;
 
-  var LPanelH := LTopPad + LN * LRowH + 18 + LCountdownH + LBtnH + 18;
+  // 승자 줄은 점수 내역 뱃지(광 3·열끗 1·띠 3·피 3)가 있으면 한 줄 더 필요해 그만큼 늘림
+  const SCORE_ROW_EXTRA_H = 32.0;
+  var LRowHeights: TArray<Single>;
+  SetLength(LRowHeights, LN);
+  var LRowsTotalH := 0.0;
+  for var I := 0 to LN - 1 do
+  begin
+    LRowHeights[I] := LRowH;
+    if FResultRows[I].IsWinner and (Length(FResultRows[I].ScoreParts) > 0) then
+    begin
+      LRowHeights[I] := LRowH + SCORE_ROW_EXTRA_H;
+    end;
+
+    LRowsTotalH := LRowsTotalH + LRowHeights[I];
+  end;
+
+  var LPanelH := LTopPad + LRowsTotalH + 18 + LCountdownH + LBtnH + 18;
   var LPanel := DrawStdDialog(FResultTitle, 480.0, LPanelH);
   var LCX := (LPanel.Left + LPanel.Right) / 2;
   var LAmountR0 := LPanel.Right - 18 - LAmountColW;
@@ -5425,7 +5441,25 @@ begin
       DrawLabel(RectF(LTextLeft, LY, LPanel.Right - 18, LY + LRowH), LRow.Text, LTextColor, LFontSize);
     end;
 
-    LY := LY + LRowH;
+    // 승자 점수 내역(광 3·열끗 1·띠 3·피 3) — 박 뱃지와 같은 둥근 뱃지 스타일, 아바타 아래 별도 줄
+    if LRow.IsWinner and (Length(LRow.ScoreParts) > 0) then
+    begin
+      var LScoreBadgeH := 24.0;
+      var LScoreBadgeY := LY + LRowH + (SCORE_ROW_EXTRA_H - LScoreBadgeH) / 2;
+      var LScoreBadgeX := LPanel.Left + 18;
+      Canvas.Font.Size := 13;
+      for var LPart in LRow.ScoreParts do
+      begin
+        var LScoreBadgeW := Canvas.TextWidth(LPart) + 20;
+        var LScoreBadgeR := RectF(LScoreBadgeX, LScoreBadgeY, LScoreBadgeX + LScoreBadgeW, LScoreBadgeY + LScoreBadgeH);
+        Canvas.FillRound(LScoreBadgeR, LScoreBadgeH / 2, $FF2E5F4E);
+        Canvas.StrokeRound(LScoreBadgeR, LScoreBadgeH / 2, $FF5FA98A, 1);
+        DrawLabel(LScoreBadgeR, LPart, TAlphaColors.White, 13);
+        LScoreBadgeX := LScoreBadgeR.Right + 6;
+      end;
+    end;
+
+    LY := LY + LRowHeights[I];
   end;
 
   // 자동 진행 카운트다운(가운데, 숫자가 크게 나타났다가 작아지는 애니메이션 — 매초 반복)

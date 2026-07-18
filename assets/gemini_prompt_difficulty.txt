@@ -1,0 +1,46 @@
+AI 난이도 카드용 캐릭터 시트 (병아리 / 선수 / 타짜 / 신의손)
+
+기존 20인 캐릭터 로스터(assets/gemini_prompt.txt)와는 별개의, 새게임 설정 화면의
+"AI 난이도" 카드 4장 전용 신규 캐릭터. 2x2 격자 1장으로 생성한다.
+
+---
+
+A detailed digital illustration for a 2x2 character sheet grid, in the same clean,
+precise digital illustration style as an existing Korean Hwatu (flower card) game
+character roster (soft cel-shaded, semi-realistic proportions), set against a clean
+white studio background. Each of the four cells depicts a completely new, original
+character representing an escalating tier of go-stop (Korean card game) skill level.
+All four characters share the identical pose across every cell: giving a thumbs-up
+with one hand while holding a fanned set of detailed Hwatu cards (intricate floral
+and character designs) in the other, looking directly at the camera.
+
+Cell 1, top-left ('병아리' = Rookie/Chick, weakest tier): A very young, nervous-looking
+novice player, school-age or early 20s, plain everyday clothes (hoodie or t-shirt),
+fidgety posture, wide uncertain eyes, a slightly clumsy embarrassed smile. A tiny
+yellow chick mascot sits on their shoulder.
+
+Cell 2, top-right ('선수' = Player/Pro, mid tier): A confident, casually sharp club
+regular in their late 20s-30s, sunglasses pushed up on the head or a slick jacket,
+relaxed knowing smile, easy composed posture.
+
+Cell 3, bottom-left ('타짜' = Card Shark, strong tier): A stylish, intense card
+sharp in their 40s, sharp dark suit or a modernized hanbok-fusion outfit, narrow
+focused eyes, faint confident smirk, subtle dramatic noir-style shadow/vignette —
+evoking the classic Korean "Tazza" legendary gambler archetype. No cigarette or
+alcohol imagery.
+
+Cell 4, bottom-right ('신의손' = Hand of God, top tier): A legendary, almost
+mythical ageless master, ornate traditional hanbok with gold trim, a faint golden
+glow or soft particle sparkle around the hands, serene all-knowing expression,
+calm godlike confidence.
+
+All four characters keep the identical thumbs-up + fanned-Hwatu-cards pose and the
+same clean white background, differing only in age, attire, expression, and aura to
+visually convey the four skill tiers.
+
+---
+
+사용법(기존 파이프라인, docs/avatar-image-pipeline.md 참고):
+1. 위 프롬프트로 2x2(또는 1x4) 시트 이미지를 생성해
+   assets/avatars/raw/sheet_difficulty.png 로 저장.
+2. 파일을 준비해 알려주면 이어서 크롭·배경제거(rembg)·앱 연결까지 처리한다.

@@ -237,6 +237,15 @@ type
     FDealT: Single;                 // 현재 카드 비행 진행(0~1)
     FDealOnDone: TProc;             // 완료 후 진행(플레이 시작/협상)
 
+    // 셔플 연출(딜 직전) — 바닥에 뒷면 카드가 랜덤 배치로 깜빡이며 반복돼 "섞는" 느낌을 줌
+    FShuffling: Boolean;
+    FShuffleTimer: TTimer;
+    FShuffleElapsed: Single;         // 전체 경과 시간(초)
+    FShuffleFlicker: Single;         // 다음 재배치까지 남은 시간(초)
+    FShufflePts: TArray<TPointF>;    // 카드별 랜덤 위치
+    FShuffleAngles: TArray<Single>;  // 카드별 랜덤 각도
+    FShuffleOnDone: TProc;           // 완료 후 진행(실제 딜 애니메이션 시작)
+
     // 단계 애니메이션(놓기→뒤집기→먹기)
     FDisplay: TGameState;            // 애니 중 표시용 상태(진행 중일 때만, 아니면 nil)
     FAnimTimer: TTimer;
@@ -317,6 +326,10 @@ type
     procedure SeonFinish;
     procedure SeonTimerTick(Sender: TObject);
     procedure DrawSeonPick;
+    procedure RandomizeShuffleLayout;
+    procedure BeginShuffleEffect(const AOnDone: TProc);
+    procedure ShuffleTimerTick(Sender: TObject);
+    procedure DrawShuffle;
     procedure BeginDealAnimation(const AFloor: TArray<THwatuCard>; const ACounts: TArray<Integer>; const AOnDone: TProc);
     function  DealDeckPoint: TPointF;
     procedure DealTick(Sender: TObject);
@@ -797,6 +810,10 @@ begin
   FDealTimer.Interval := 16;   // ~60fps
   FDealTimer.Enabled := False;
   FDealTimer.OnTimer := DealTick;
+  FShuffleTimer := TTimer.Create(Self);
+  FShuffleTimer.Interval := 16;   // ~60fps
+  FShuffleTimer.Enabled := False;
+  FShuffleTimer.OnTimer := ShuffleTimerTick;
   FBonusRects := TList<TRectF>.Create;
   FPickTimer := TTimer.Create(Self);
   FPickTimer.Interval := 16;   // ~60fps
@@ -912,6 +929,15 @@ begin
   FDealing := False;
   FDealFlies := nil;
   FDealOnDone := nil;
+  if Assigned(FShuffleTimer) then
+  begin
+    FShuffleTimer.Enabled := False;
+  end;
+
+  FShuffling := False;
+  FShufflePts := nil;
+  FShuffleAngles := nil;
+  FShuffleOnDone := nil;
   if Assigned(FPickTimer) then
   begin
     FPickTimer.Enabled := False;
@@ -1182,6 +1208,8 @@ begin
     LDeck.ShuffleSecure;
     RequestGiri(LDeck,
       procedure
+      var
+        LCounts: TArray<Integer>;   // 클로저(딜 완료 콜백)가 캡처하므로 var 블록 선언(인라인 캡처 금지)
       begin
         var LConfig := TDealConfig.ForPlayers(2);
         if FPlayerCount = 3 then
@@ -1207,17 +1235,21 @@ begin
           FGame.Player(I).Name := SeatDisplayName(PhysicalPos(I));
         end;
 
-        var LCounts: TArray<Integer>;
         SetLength(LCounts, 4);
         for var I := 0 to FPlayerCount - 1 do
         begin
           LCounts[Ord(PhysicalPos(I))] := FGame.Player(I).Hand.Count;
         end;
 
-        BeginDealAnimation(FGame.Floor.ToArray, LCounts,
+        // 딜 전에 바닥이 잠시 뒤섞이는 연출을 먼저 보여준 뒤 실제 딜 애니메이션 시작
+        BeginShuffleEffect(
           procedure
           begin
-            StartPlay;
+            BeginDealAnimation(FGame.Floor.ToArray, LCounts,
+              procedure
+              begin
+                StartPlay;
+              end);
           end);
       end);
   end;
@@ -1552,6 +1584,89 @@ begin
   end;
 end;
 
+const
+  SHUFFLE_DURATION_SECONDS = 1.1;   // 셔플 연출 총 길이(초)
+  SHUFFLE_FLICKER_SECONDS = 0.14;   // 재배치 주기(초)
+  SHUFFLE_CARD_COUNT = 12;          // 흩어져 보일 카드 장수
+
+// 셔플 카드들의 위치·각도를 중앙(바닥) 영역 안에서 새로 무작위 배치
+procedure TGostopBoard.RandomizeShuffleLayout;
+begin
+  var LCen := CenterRegion;
+  var CS := CardSize;
+  var LMarginX := CS.Width * 0.6 / 2;
+  var LMarginY := CS.Height * 0.6 / 2;
+  SetLength(FShufflePts, SHUFFLE_CARD_COUNT);
+  SetLength(FShuffleAngles, SHUFFLE_CARD_COUNT);
+  for var I := 0 to SHUFFLE_CARD_COUNT - 1 do
+  begin
+    var LX := LCen.Left + LMarginX + Random * (LCen.Width - LMarginX * 2);
+    var LY := LCen.Top + LMarginY + Random * (LCen.Height - LMarginY * 2);
+    FShufflePts[I] := PointF(LX, LY);
+    FShuffleAngles[I] := Random * 50 - 25;   // -25~+25도, 흐트러진 느낌
+  end;
+end;
+
+// 딜 애니메이션 시작 전, 바닥에 뒷면 카드가 랜덤 배치로 깜빡이며 반복돼 "섞는" 연출을 준다
+procedure TGostopBoard.BeginShuffleEffect(const AOnDone: TProc);
+begin
+  FShuffleElapsed := 0;
+  FShuffleFlicker := 0;
+  RandomizeShuffleLayout;
+  FShuffleOnDone := AOnDone;
+  FShuffling := True;
+  FStatus := '패를 섞는 중...';
+  TGostopAudio.Instance.Play('card_deal');
+  FShuffleTimer.Enabled := True;
+  Repaint;
+end;
+
+procedure TGostopBoard.ShuffleTimerTick(Sender: TObject);
+begin
+  if not FShuffling then
+  begin
+    FShuffleTimer.Enabled := False;
+    Exit;
+  end;
+
+  var LDt := (FShuffleTimer.Interval / 1000) * FGameSpeed;
+  FShuffleElapsed := FShuffleElapsed + LDt;
+  FShuffleFlicker := FShuffleFlicker + LDt;
+  if FShuffleFlicker >= SHUFFLE_FLICKER_SECONDS then
+  begin
+    FShuffleFlicker := 0;
+    RandomizeShuffleLayout;
+    TGostopAudio.Instance.Play('card_flip');
+  end;
+
+  if FShuffleElapsed >= SHUFFLE_DURATION_SECONDS then
+  begin
+    FShuffling := False;
+    FShuffleTimer.Enabled := False;
+    var LDone := FShuffleOnDone;
+    FShuffleOnDone := nil;
+    if Assigned(LDone) then
+    begin
+      LDone();
+    end;
+
+    Exit;
+  end;
+
+  Repaint;
+end;
+
+procedure TGostopBoard.DrawShuffle;
+begin
+  DrawPanels;
+
+  var CS := CardSize;
+  for var I := 0 to High(FShufflePts) do
+  begin
+    DrawCardRotated(FShufflePts[I].X, FShufflePts[I].Y, CS.Width * 0.6, CS.Height * 0.6, FShuffleAngles[I], '', True);
+  end;
+end;
+
 // 덱(무더기) 위치 — 중앙 영역 우측(라이브 보드의 더미 위치와 이어지는 느낌)
 function TGostopBoard.DealDeckPoint: TPointF;
 begin
@@ -1570,7 +1685,10 @@ var
     Result.IsFloor := False;
     Result.Pos := APos;
     var LAvatar := SeatAvatarRect(APos);
-    Result.Target := PointF((LAvatar.Left + LAvatar.Right) / 2, (LAvatar.Top + LAvatar.Bottom) / 2);
+    // 매 장마다 살짝 랜덤하게 흐트러뜨려 아바타 위에 카드가 어지럽게 쌓이는 느낌을 줌
+    var LJitterX := (Random - 0.5) * LAvatar.Width * 0.5;
+    var LJitterY := (Random - 0.5) * LAvatar.Height * 0.5;
+    Result.Target := PointF((LAvatar.Left + LAvatar.Right) / 2 + LJitterX, (LAvatar.Top + LAvatar.Bottom) / 2 + LJitterY);
     case APos of
       spTop:
         begin
@@ -1593,6 +1711,8 @@ var
         Result.Angle := 270;
       end;
     end;
+
+    Result.Angle := Result.Angle + (Random - 0.5) * 50;   // -25~+25도, 흐트러진 각도
   end;
 
   // 바닥 AIndex번째(총 ATotal장) 착지 정보 — 중앙에 2행 그리드
@@ -1935,44 +2055,49 @@ end;
 procedure TGostopBoard.StartNegotiationDeal;
 begin
   // 딜 애니메이션(4자리 각 7장 + 바닥) 후 협상 진행
-  BeginDealAnimation(FTable4.Floor.ToArray, [7, 7, 7, 7],
+  // 딜 전에 바닥이 잠시 뒤섞이는 연출을 먼저 보여준 뒤 실제 딜 애니메이션 시작
+  BeginShuffleEffect(
     procedure
     begin
-      TGostopAudio.Instance.Play('sfx_negotiate');
+      BeginDealAnimation(FTable4.Floor.ToArray, [7, 7, 7, 7],
+        procedure
+        begin
+          TGostopAudio.Instance.Play('sfx_negotiate');
 
-      // 선 기준 사람의 논리 좌석(아래 자리 = 물리 spBottom)
-      FHumanLogical := (Ord(spBottom) - Ord(FNextStartPos) + 4) mod 4;
+          // 선 기준 사람의 논리 좌석(아래 자리 = 물리 spBottom)
+          FHumanLogical := (Ord(spBottom) - Ord(FNextStartPos) + 4) mod 4;
 
-      // 결정할 것이 없으면 자동 진행:
-      //  - 관전(전원 AI) / 사람이 선(논리0) / 사람이 말번 P4(논리3)
-      //  - 말번은 광팔기를 안 할 이유가 없으므로 광값 있으면 자동 판매(다이얼로그 없음)
-      if FSpectator or (FHumanLogical = 0) or (FHumanLogical = 3) then
-      begin
-        var LP4Sell := TFourPlayer.GwangCount(FTable4.Hand(3), CfgScore) > 0;
-        ResolveNegotiation(False, False, LP4Sell);
-        Exit;
-      end;
+          // 결정할 것이 없으면 자동 진행:
+          //  - 관전(전원 AI) / 사람이 선(논리0) / 사람이 말번 P4(논리3)
+          //  - 말번은 광팔기를 안 할 이유가 없으므로 광값 있으면 자동 판매(다이얼로그 없음)
+          if FSpectator or (FHumanLogical = 0) or (FHumanLogical = 3) then
+          begin
+            var LP4Sell := TFourPlayer.GwangCount(FTable4.Hand(3), CfgScore) > 0;
+            ResolveNegotiation(False, False, LP4Sell);
+            Exit;
+          end;
 
-      // 연사: 사람이 비-말번(P2/P3)인데 직전 게임에 포기했으면 이번엔 포기 불가 → 강제 참가
-      if FGaveUpLast[spBottom] then
-      begin
-        FEffectText := '연사! — 연속 포기 불가, 참가합니다';
-        FEffectTimer.Enabled := False;
-        FEffectTimer.Enabled := True;
-        var LP4Sell := TFourPlayer.GwangCount(FTable4.Hand(3), CfgScore) > 0;
-        ResolveNegotiation(False, False, LP4Sell);   // 강제 참가
-        Exit;
-      end;
+          // 연사: 사람이 비-말번(P2/P3)인데 직전 게임에 포기했으면 이번엔 포기 불가 → 강제 참가
+          if FGaveUpLast[spBottom] then
+          begin
+            FEffectText := '연사! — 연속 포기 불가, 참가합니다';
+            FEffectTimer.Enabled := False;
+            FEffectTimer.Enabled := True;
+            var LP4Sell := TFourPlayer.GwangCount(FTable4.Hand(3), CfgScore) > 0;
+            ResolveNegotiation(False, False, LP4Sell);   // 강제 참가
+            Exit;
+          end;
 
-      // 사람이 P2/P3면 참가·포기만 결정
-      FNegIsSell := False;
-      FNegotiating := True;
+          // 사람이 P2/P3면 참가·포기만 결정
+          FNegIsSell := False;
+          FNegotiating := True;
 
-      Repaint;
-      if Assigned(FOnStateChanged) then
-      begin
-        FOnStateChanged(Self);
-      end;
+          Repaint;
+          if Assigned(FOnStateChanged) then
+          begin
+            FOnStateChanged(Self);
+          end;
+        end);
     end);
 end;
 
@@ -2225,7 +2350,7 @@ function TGostopBoard.CanSaveGame: Boolean;
 begin
   Result := Assigned(FGame) and Assigned(FEngine)
     and (FGame.Phase in [gpPlaying, gpAwaitingGoStop, gpAwaitingBonusDraw])
-    and (not FGiriPhase) and (not FSeonPicking) and (not FDealing)
+    and (not FGiriPhase) and (not FSeonPicking) and (not FDealing) and (not FShuffling)
     and (not FNegotiating) and (not FGwangShow) and (not FAvatarPicking)
     and (not FShodangPending) and (not FChoosing) and (not FFlipChoosing);
 end;
@@ -2609,7 +2734,7 @@ end;
 
 procedure TGostopBoard.HumanGo;
 begin
-  if Assigned(FDisplay) or FDealing then
+  if Assigned(FDisplay) or FDealing or FShuffling then
   begin
     Exit;
   end;
@@ -2625,7 +2750,7 @@ end;
 
 procedure TGostopBoard.HumanStop;
 begin
-  if Assigned(FDisplay) or FDealing then
+  if Assigned(FDisplay) or FDealing or FShuffling then
   begin
     Exit;
   end;
@@ -5390,7 +5515,7 @@ end;
 // 현재 마우스 위치가 이 영역 위에 있는가(호버 판정 공용). 애니메이션 중엔 입력을 안 받으므로 호버도 끔
 function TGostopBoard.IsHot(const ARect: TRectF): Boolean;
 begin
-  Result := (not Assigned(FDisplay)) and (not FDealing) and (Length(FReplacingSeats) = 0) and ARect.Contains(FMousePos);
+  Result := (not Assigned(FDisplay)) and (not FDealing) and (not FShuffling) and (Length(FReplacingSeats) = 0) and ARect.Contains(FMousePos);
 end;
 
 // 이 영역을 누른 채 마우스 버튼이 눌려 있는가(눌림 효과 공용)
@@ -5698,6 +5823,13 @@ begin
   if FSeonPicking then
   begin
     DrawSeonPick;
+    Exit;
+  end;
+
+  // 셔플 연출 단계(딜 직전)
+  if FShuffling then
+  begin
+    DrawShuffle;
     Exit;
   end;
 
@@ -6521,7 +6653,7 @@ begin
   end;
 
   // 애니메이션 진행 중엔 그 외 입력 무시(턴 애니·딜 애니·오링 좌석 교체 애니)
-  if Assigned(FDisplay) or FDealing or (Length(FReplacingSeats) > 0) then
+  if Assigned(FDisplay) or FDealing or FShuffling or (Length(FReplacingSeats) > 0) then
   begin
     Exit;
   end;

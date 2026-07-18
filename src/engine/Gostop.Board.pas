@@ -35,7 +35,8 @@ uses
   Gostop.FourPlayer,
   Gostop.CardImages,
   Gostop.Audio,
-  Gostop.Assets;
+  Gostop.Assets,
+  Gostop.SaveGame;
 {$ENDREGION}
 
 type
@@ -106,6 +107,7 @@ type
     FBtnMenu4: TRectF;
     FBtnMenuExit: TRectF;
     FBtnMenuCfg: TRectF;       // 타이틀 '설정' 버튼
+    FBtnMenuContinue: TRectF;  // 타이틀 '이어서 하기' 버튼(저장 파일 있을 때만 표시)
     FCreditRect: TRectF;       // 우하단 제작자 크레딧(클릭=GitHub)
     FOnExitRequest: TNotifyEvent;
 
@@ -282,6 +284,10 @@ type
     procedure GenerateFeltTile;
     procedure AfterAction;
     procedure StartPlay;
+    procedure SetupAgentsAndEngine(const AFreshDeal: Boolean);
+    function  CanSaveGame: Boolean;
+    procedure SaveCurrentGame;
+    function  LoadSavedGame: Boolean;
     procedure StartNegotiation;
     procedure StartNegotiationDeal;
     procedure ResolveNegotiation(const AP2Give, AP3Give, AP4Sell: Boolean);
@@ -897,6 +903,9 @@ begin
   FreeAndNil(FEngine);
   FreeAndNil(FGame);
   FreeAndNil(FTable4);
+
+  // 타이틀 복귀·새 게임 시작 등 진행 중 게임이 사라지는 모든 경로에서 저장 파일도 함께 정리
+  TGostopSaveGame.Delete;
 end;
 
 procedure TGostopBoard.GenerateFeltTile;
@@ -2091,6 +2100,13 @@ end;
 
 procedure TGostopBoard.StartPlay;
 begin
+  SetupAgentsAndEngine(True);
+end;
+
+// 에이전트(사람/AI)·엔진 구성 — 새 딜(AFreshDeal=True)과 저장 게임 재개(False) 공용.
+// 재개 시에는 FGame이 이미 완전히 채워진 상태로 들어오므로 선 지정·바닥 보너스 처리·딜 효과음은 건너뛴다.
+procedure TGostopBoard.SetupAgentsAndEngine(const AFreshDeal: Boolean);
+begin
   // 사람의 게임 인덱스(아래 자리) 찾기 — 관전 모드는 사람 없음(-1, 전원 AI)
   FHumanIndex := -1;
   if not FSpectator then
@@ -2124,13 +2140,16 @@ begin
     end;
   end;
 
-  // 선(먼저 두는 자리): 지정 위치에 해당하는 게임 인덱스부터 시작
-  for var I := 0 to FGame.PlayerCount - 1 do
+  if AFreshDeal then
   begin
-    if PhysicalPos(I) = FNextStartPos then
+    // 선(먼저 두는 자리): 지정 위치에 해당하는 게임 인덱스부터 시작
+    for var I := 0 to FGame.PlayerCount - 1 do
     begin
-      FGame.Current := I;
-      Break;
+      if PhysicalPos(I) = FNextStartPos then
+      begin
+        FGame.Current := I;
+        Break;
+      end;
     end;
   end;
 
@@ -2161,11 +2180,213 @@ begin
     begin
       FTurnEvents.Add(AEvt);
     end;
-  FEngine.ApplyFloorBonus;   // 바닥에 깔린 보너스패는 선이 획득하고 더미에서 보충
-  FEngine.ApplyHandChongtong;
-  FAwaitingGoStop := False;
-  TGostopAudio.Instance.Play('card_deal');
+
+  if AFreshDeal then
+  begin
+    FEngine.ApplyFloorBonus;   // 바닥에 깔린 보너스패는 선이 획득하고 더미에서 보충
+    FEngine.ApplyHandChongtong;
+    FAwaitingGoStop := False;
+    TGostopAudio.Instance.Play('card_deal');
+  end
+  else
+  begin
+    FAwaitingGoStop := FGame.Phase = gpAwaitingGoStop;
+  end;
+
   AfterAction;
+end;
+
+// 지금 상태를 안전하게 저장해도 되는지: 엔진 내부에 직렬화되지 않는 임시 상태(뒤집기 선택 대기 등)가
+// 없고, 딜·기리·협상·쇼당 대기 등 화면 연출이 끼어 있지 않은 "안정 상태"인지 확인한다.
+function TGostopBoard.CanSaveGame: Boolean;
+begin
+  Result := Assigned(FGame) and Assigned(FEngine)
+    and (FGame.Phase in [gpPlaying, gpAwaitingGoStop, gpAwaitingBonusDraw])
+    and (not FGiriPhase) and (not FSeonPicking) and (not FDealing)
+    and (not FNegotiating) and (not FGwangShow) and (not FAvatarPicking)
+    and (not FShodangPending) and (not FChoosing) and (not FFlipChoosing);
+end;
+
+// 현재 매치+게임 상태를 파일로 저장한다(AfterAction에서 안전할 때마다 자동 호출).
+procedure TGostopBoard.SaveCurrentGame;
+begin
+  var LData: TSaveData;
+  LData.PlayerCount := FPlayerCount;
+  LData.Spectator := FSpectator;
+  LData.NextStartPos := Ord(FNextStartPos);
+  LData.Stakes := FStakes;
+  LData.SitOutSeat := FSitOutSeat;
+  LData.SeatMap := Copy(FSeatMap);
+
+  SetLength(LData.RowPos, 4);
+  for var S := 0 to 3 do
+  begin
+    LData.RowPos[S] := Ord(FRowPos[S]);
+  end;
+
+  for var S := 0 to 3 do
+  begin
+    var LPos := TSeatPos(S);
+    LData.Seats[S].Avatar := FSeatAvatar[LPos];
+    LData.Seats[S].Skill := FSeatSkill[LPos];
+    LData.Seats[S].Money := FMoney[LPos];
+    LData.Seats[S].Wins := FWins[LPos];
+    LData.Seats[S].Losses := FLosses[LPos];
+    LData.Seats[S].GaveUpLast := FGaveUpLast[LPos];
+  end;
+
+  LData.Current := FGame.Current;
+  LData.Phase := Ord(FGame.Phase);
+  LData.Winner := FGame.Winner;
+  LData.PlayCount := FGame.PlayCount;
+  LData.ThreeBbeok := FGame.ThreeBbeok;
+
+  LData.BbeokCreator := nil;
+  for var LPair in FGame.BbeokCreator do
+  begin
+    var LEntry: TSaveBbeok;
+    LEntry.Month := LPair.Key;
+    LEntry.Creator := LPair.Value;
+    LData.BbeokCreator := LData.BbeokCreator + [LEntry];
+  end;
+
+  SetLength(LData.Players, FGame.PlayerCount);
+  for var I := 0 to FGame.PlayerCount - 1 do
+  begin
+    var LP := FGame.Player(I);
+    LData.Players[I].NameStr := LP.Name;
+    LData.Players[I].GoCount := LP.GoCount;
+    LData.Players[I].LastGoScore := LP.LastGoScore;
+    LData.Players[I].ShakeCount := LP.ShakeCount;
+    LData.Players[I].CardDebt := LP.CardDebt;
+    LData.Players[I].PendingShakeMonth := LP.PendingShakeMonth;
+    LData.Players[I].BbeokCount := LP.BbeokCount;
+
+    SetLength(LData.Players[I].Hand, LP.Hand.Count);
+    for var J := 0 to LP.Hand.Count - 1 do
+    begin
+      LData.Players[I].Hand[J] := CardToSave(LP.Hand[J]);
+    end;
+
+    SetLength(LData.Players[I].Captured, LP.Captured.Count);
+    for var J := 0 to LP.Captured.Count - 1 do
+    begin
+      LData.Players[I].Captured[J] := CardToSave(LP.Captured[J]);
+    end;
+  end;
+
+  SetLength(LData.Floor, FGame.Floor.Count);
+  for var J := 0 to FGame.Floor.Count - 1 do
+  begin
+    LData.Floor[J] := CardToSave(FGame.Floor[J]);
+  end;
+
+  SetLength(LData.Stock, FGame.Stock.Count);
+  for var J := 0 to FGame.Stock.Count - 1 do
+  begin
+    LData.Stock[J] := CardToSave(FGame.Stock[J]);
+  end;
+
+  LData.ShodangActive := FShodangActive;
+  LData.ShodangCaller := FShodangCaller;
+  LData.ShodangAccepter := FShodangAccepter;
+  LData.ShodangDecliner := FShodangDecliner;
+
+  TGostopSaveGame.Save(LData);
+end;
+
+// 저장 파일을 읽어 매치·게임 상태를 통째로 복원하고 플레이를 재개한다. 실패 시 False(상태 변경 없음).
+function TGostopBoard.LoadSavedGame: Boolean;
+begin
+  var LData: TSaveData;
+  Result := TGostopSaveGame.TryLoad(LData);
+  if not Result then
+  begin
+    Exit;
+  end;
+
+  ClearGame;
+
+  FPlayerCount := LData.PlayerCount;
+  FSpectator := LData.Spectator;
+  FNextStartPos := TSeatPos(EnsureRange(LData.NextStartPos, 0, 3));
+  FStakes := Max(1, LData.Stakes);
+  FSitOutSeat := LData.SitOutSeat;
+  FSeatMap := Copy(LData.SeatMap);
+
+  for var S := 0 to Min(3, High(LData.RowPos)) do
+  begin
+    FRowPos[S] := TSeatPos(EnsureRange(LData.RowPos[S], 0, 3));
+  end;
+
+  for var S := 0 to 3 do
+  begin
+    var LPos := TSeatPos(S);
+    FSeatAvatar[LPos] := LData.Seats[S].Avatar;
+    FSeatSkill[LPos] := LData.Seats[S].Skill;
+    FMoney[LPos] := LData.Seats[S].Money;
+    FWins[LPos] := LData.Seats[S].Wins;
+    FLosses[LPos] := LData.Seats[S].Losses;
+    FGaveUpLast[LPos] := LData.Seats[S].GaveUpLast;
+  end;
+
+  var LNames: TArray<string>;
+  SetLength(LNames, Length(LData.Players));
+  for var I := 0 to High(LData.Players) do
+  begin
+    LNames[I] := LData.Players[I].NameStr;
+  end;
+
+  FGame := TGameState.Create(LNames);
+  FGame.Current := LData.Current;
+  FGame.Phase := TGamePhase(EnsureRange(LData.Phase, 0, Ord(gpFinished)));
+  FGame.Winner := LData.Winner;
+  FGame.PlayCount := LData.PlayCount;
+  FGame.ThreeBbeok := LData.ThreeBbeok;
+
+  for var LB in LData.BbeokCreator do
+  begin
+    FGame.BbeokCreator.AddOrSetValue(LB.Month, LB.Creator);
+  end;
+
+  for var I := 0 to High(LData.Players) do
+  begin
+    var LP := FGame.Player(I);
+    LP.GoCount := LData.Players[I].GoCount;
+    LP.LastGoScore := LData.Players[I].LastGoScore;
+    LP.ShakeCount := LData.Players[I].ShakeCount;
+    LP.CardDebt := LData.Players[I].CardDebt;
+    LP.PendingShakeMonth := LData.Players[I].PendingShakeMonth;
+    LP.BbeokCount := LData.Players[I].BbeokCount;
+
+    for var LC in LData.Players[I].Hand do
+    begin
+      LP.Hand.Add(CardFromSave(LC));
+    end;
+
+    for var LC in LData.Players[I].Captured do
+    begin
+      LP.Captured.Add(CardFromSave(LC));
+    end;
+  end;
+
+  for var LC in LData.Floor do
+  begin
+    FGame.Floor.Add(CardFromSave(LC));
+  end;
+
+  for var LC in LData.Stock do
+  begin
+    FGame.Stock.Add(CardFromSave(LC));
+  end;
+
+  FShodangActive := LData.ShodangActive;
+  FShodangCaller := LData.ShodangCaller;
+  FShodangAccepter := LData.ShodangAccepter;
+  FShodangDecliner := LData.ShodangDecliner;
+
+  SetupAgentsAndEngine(False);
+  Result := True;
 end;
 
 function TGostopBoard.FlagLabels(const AResult: TPlayerResult): TArray<string>;
@@ -2419,6 +2640,8 @@ begin
   if FGame.Phase = gpFinished then
   begin
     FAiTimer.Enabled := False;
+    // 게임이 끝난 채로 앱이 닫혀도 다음 실행이 끝난 판을 이어서 하기로 열지 않도록 즉시 정리
+    TGostopSaveGame.Delete;
     BuildFinalSummary;
     if FGame.Winner < 0 then
     begin
@@ -2456,6 +2679,11 @@ begin
   begin
     FStatus := Format('%s 차례...', [FGame.CurrentPlayer.Name]);
     FAiTimer.Enabled := True;
+  end;
+
+  if CanSaveGame then
+  begin
+    SaveCurrentGame;
   end;
 
   Repaint;
@@ -4150,6 +4378,25 @@ begin
   var LBH := 54.0;
   var LGap := 24.0;
   var LBY := Height * 0.62;
+
+  // 이어서 하기(저장 파일이 있을 때만 표시) — 대전 버튼 줄 바로 위에 강조색으로
+  if TGostopSaveGame.Exists then
+  begin
+    var LContW := 220.0;
+    var LContH := 46.0;
+    FBtnMenuContinue := RectF(LMidX - LContW / 2, LBY - LContH - 18, LMidX + LContW / 2, LBY - 18);
+    Canvas.Stroke.Kind := TBrushKind.Solid;
+    Canvas.Stroke.Color := $FFFFD54A;
+    Canvas.Stroke.Thickness := 2;
+    Canvas.FillRound(FBtnMenuContinue, 10, $FFB8860B);
+    Canvas.DrawRect(FBtnMenuContinue, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+    DrawLabel(FBtnMenuContinue, '이어서 하기', TAlphaColors.White, 19);
+  end
+  else
+  begin
+    FBtnMenuContinue := RectF(0, 0, 0, 0);
+  end;
+
   FBtnMenu2 := RectF(LMidX - LBW * 1.5 - LGap, LBY, LMidX - LBW * 0.5 - LGap, LBY + LBH);
   FBtnMenu3 := RectF(LMidX - LBW * 0.5, LBY, LMidX + LBW * 0.5, LBY + LBH);
   FBtnMenu4 := RectF(LMidX + LBW * 0.5 + LGap, LBY, LMidX + LBW * 1.5 + LGap, LBY + LBH);
@@ -6240,6 +6487,16 @@ begin
       Exit;
     end;
 
+    if FBtnMenuContinue.Contains(LPoint) and TGostopSaveGame.Exists then
+    begin
+      TGostopAudio.Instance.Play('ui_click');
+      if not LoadSavedGame then
+      begin
+        FStatus := '저장된 게임을 불러오지 못했습니다';
+        Repaint;
+      end;
+    end
+    else
     if FBtnMenu2.Contains(LPoint) then
     begin
       TGostopAudio.Instance.Play('ui_click');

@@ -19,6 +19,7 @@ uses
   Gostop.Assets in 'engine\Gostop.Assets.pas',
   Gostop.Audio in 'engine\Gostop.Audio.pas',
   Gostop.CardImages in 'engine\Gostop.CardImages.pas',
+  Gostop.SaveGame in 'engine\Gostop.SaveGame.pas',
   Gostop.Board in 'engine\Gostop.Board.pas',
   Main in 'Main.pas' {frmMain};
 

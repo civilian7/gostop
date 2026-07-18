@@ -95,6 +95,10 @@ type
     FAvatarRects: TList<TRectF>;                // 선택 오버레이 아바타 rect
     FMyAvatarRect: TRectF;                      // 내 패널 아바타 rect(클릭 → 선택 열기)
 
+    // 버튼 공용 호버/눌림 상태(모든 버튼이 참조 — 실시간 마우스 위치·좌클릭 유지 여부)
+    FMousePos: TPointF;
+    FMouseDown: Boolean;
+
     // 하단 컨트롤 바(볼륨·음소거·게임속도) + 타이틀 메뉴 — 유튜브식 호버 표시
     FGameSpeed: Single;        // 애니·AI 대기 속도 배율(0.5~2.0)
     FBarVisible: Boolean;      // 하단 호버 시에만 컨트롤 바 표시
@@ -436,7 +440,11 @@ type
     procedure HumanRespondShodang(const AAccept: Boolean);
     procedure DrawShodangPrompt;
     function  DrawStdDialog(const ATitle: string; const AWidth, AHeight: Single): TRectF;
-    function  DrawStdButton(const ARect: TRectF; const ACaption: string; const AKind: TDlgBtnKind): TRectF;
+    function  AdjustColor(const AColor: TAlphaColor; const ADelta: Integer): TAlphaColor;
+    function  IsHot(const ARect: TRectF): Boolean;
+    function  IsPressed(const ARect: TRectF): Boolean;
+    function  DrawStdButton(const ARect: TRectF; const ACaption: string; const AKind: TDlgBtnKind;
+      const AEnabled: Boolean = True; const AFontSize: Single = 17): TRectF;
   protected
     procedure Paint; override;
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Single); override;
@@ -3853,16 +3861,26 @@ begin
   var LCy := (ARect.Top + ARect.Bottom) / 2;
   var LTrack := RectF(ARect.Right - TRACK_W, LCy - TRACK_H / 2, ARect.Right, LCy + TRACK_H / 2);
 
+  var LTrackColor: TAlphaColor := $FF44504A;
   if AOn then
   begin
-    Canvas.FillRound(LTrack, TRACK_H / 2, $FF2E7D32);
-  end
-  else
-  begin
-    Canvas.FillRound(LTrack, TRACK_H / 2, $FF44504A);
+    LTrackColor := $FF2E7D32;
   end;
 
-  Canvas.StrokeRound(LTrack, TRACK_H / 2, $50FFFFFF, 1);
+  var LBorder: TAlphaColor := $50FFFFFF;
+  if IsPressed(ARect) then
+  begin
+    LTrackColor := AdjustColor(LTrackColor, -24);
+  end
+  else
+  if IsHot(ARect) then
+  begin
+    LTrackColor := AdjustColor(LTrackColor, 22);
+    LBorder := $90FFD54A;
+  end;
+
+  Canvas.FillRound(LTrack, TRACK_H / 2, LTrackColor);
+  Canvas.StrokeRound(LTrack, TRACK_H / 2, LBorder, 1);
 
   var LKnobD := TRACK_H - 6;
   var LKnobX := LTrack.Left + 3;
@@ -3877,42 +3895,72 @@ end;
 // 선택형 카드 버튼의 배경·테두리(선택 시 금색 강조, 아님 기본 패널색)
 procedure TGostopBoard.DrawCardShell(const ARect: TRectF; const ASelected: Boolean);
 begin
+  var LHover := IsHot(ARect);
+  var LPressed := IsPressed(ARect);
   if ASelected then
   begin
-    Canvas.FillRound(ARect, 10, $FF2E7D32);
+    var LColor: TAlphaColor := $FF2E7D32;
+    if LPressed then
+    begin
+      LColor := AdjustColor(LColor, -30);
+    end
+    else
+    if LHover then
+    begin
+      LColor := AdjustColor(LColor, 20);
+    end;
+
+    Canvas.FillRound(ARect, 10, LColor);
     Canvas.StrokeRound(ARect, 10, $FFFFD54A, 2.5);
   end
   else
   begin
-    Canvas.FillRound(ARect, 10, $FF2F4436);
-    Canvas.StrokeRound(ARect, 10, $50FFFFFF, 1);
+    var LColor: TAlphaColor := $FF2F4436;
+    var LBorder: TAlphaColor := $50FFFFFF;
+    if LPressed then
+    begin
+      LColor := AdjustColor(LColor, -14);
+    end
+    else
+    if LHover then
+    begin
+      LColor := AdjustColor(LColor, 18);
+      LBorder := $90FFD54A;
+    end;
+
+    Canvas.FillRound(ARect, 10, LColor);
+    Canvas.StrokeRound(ARect, 10, LBorder, 1);
   end;
 end;
 
-// 아바타 1장 + 캡션이 있는 선택형 카드(AI 난이도 등 '단일 인물'을 나타낼 때)
+// 아바타 1장이 박스 전체를 채우고 명칭은 하단에 오버레이로 얹는 선택형 카드(AI 난이도 등)
 procedure TGostopBoard.DrawAvatarCard(const ARect: TRectF; const ABitmap: TBitmap; const ACaption: string; const ASelected: Boolean);
 const
-  CAPTION_H = 24.0;
+  INSET = 3.0;
+  LABEL_H = 26.0;
 begin
   DrawCardShell(ARect, ASelected);
 
-  var LAvSize := Min(ARect.Width - 16, ARect.Height - CAPTION_H - 14);
-  var LCx := (ARect.Left + ARect.Right) / 2;
-  var LAvR := RectF(LCx - LAvSize / 2, ARect.Top + 8, LCx + LAvSize / 2, ARect.Top + 8 + LAvSize);
+  var LImgR := RectF(ARect.Left + INSET, ARect.Top + INSET, ARect.Right - INSET, ARect.Bottom - INSET);
   if Assigned(ABitmap) then
   begin
-    Canvas.DrawBitmap(ABitmap, RectF(0, 0, ABitmap.Width, ABitmap.Height), LAvR, 1, False);
+    Canvas.DrawBitmap(ABitmap, RectF(0, 0, ABitmap.Width, ABitmap.Height), LImgR, 1, False);
   end;
 
-  Canvas.StrokeRound(LAvR, 6, $60FFFFFF, 1);
-
-  var LCapColor := $FFCBD6C8;
+  // 하단 반투명 스크림 + 명칭 오버레이(선택 시 금색 톤으로 강조)
+  var LLabelR := RectF(LImgR.Left, LImgR.Bottom - LABEL_H, LImgR.Right, LImgR.Bottom);
+  var LCapColor := TAlphaColors.White;
   if ASelected then
   begin
-    LCapColor := TAlphaColors.White;
+    Canvas.FillRound(LLabelR, 6, $B0B8860B);
+    LCapColor := TAlphaColors.Gold;
+  end
+  else
+  begin
+    Canvas.FillRound(LLabelR, 6, $A0182018);
   end;
 
-  DrawLabel(RectF(ARect.Left, LAvR.Bottom + 2, ARect.Right, ARect.Bottom - 4), ACaption, LCapColor, 13);
+  DrawLabel(LLabelR, ACaption, LCapColor, 14);
 end;
 
 // 아바타 N장을 겹쳐 표시 + 캡션이 있는 선택형 카드(인원수처럼 '몇 명'을 나타낼 때)
@@ -4052,10 +4100,21 @@ begin
     end
     else
     begin
-      Canvas.FillRound(LValueArea, 8, $FF2F4436);
-      Canvas.Stroke.Color := $60FFFFFF;
-      Canvas.Stroke.Thickness := 1;
-      Canvas.DrawRect(LValueArea, 8, 8, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+      var LBtnColor: TAlphaColor := $FF2F4436;
+      var LBtnBorder: TAlphaColor := $60FFFFFF;
+      if IsPressed(LValueArea) then
+      begin
+        LBtnColor := AdjustColor(LBtnColor, -14);
+      end
+      else
+      if IsHot(LValueArea) then
+      begin
+        LBtnColor := AdjustColor(LBtnColor, 18);
+        LBtnBorder := $90FFD54A;
+      end;
+
+      Canvas.FillRound(LValueArea, 8, LBtnColor);
+      Canvas.StrokeRound(LValueArea, 8, LBtnBorder, 1);
       DrawLabel(LValueArea, LValues[I], $FFFFE082, 15);
     end;
   end;
@@ -4071,13 +4130,8 @@ begin
   end;
 
   // 취소 · 다음(대전 설정으로 진행)
-  FBtnCfgCancel := RectF(Width / 2 - 150, LPanel.Bottom - 56, Width / 2 - 10, LPanel.Bottom - 16);
-  Canvas.FillRound(FBtnCfgCancel, 10, $FF37474F);
-  DrawLabel(FBtnCfgCancel, '취소', TAlphaColors.White, 17);
-
-  FBtnCfgNext := RectF(Width / 2 + 10, LPanel.Bottom - 56, Width / 2 + 150, LPanel.Bottom - 16);
-  Canvas.FillRound(FBtnCfgNext, 10, $FF2E7D32);
-  DrawLabel(FBtnCfgNext, '다음', TAlphaColors.White, 17);
+  FBtnCfgCancel := DrawStdButton(RectF(Width / 2 - 150, LPanel.Bottom - 56, Width / 2 - 10, LPanel.Bottom - 16), '취소', dbkNeutral);
+  FBtnCfgNext := DrawStdButton(RectF(Width / 2 + 10, LPanel.Bottom - 56, Width / 2 + 150, LPanel.Bottom - 16), '다음', dbkPrimary);
 end;
 
 // 아바타 인덱스 → 실명풍 이름(범위 밖이면 빈 문자열)
@@ -4607,11 +4661,21 @@ begin
     var LRow := RectF(LPanel.Left + LPad, LY, LPanel.Right - LPad, LY + LRowH - LRowGap);
     FSetupRowRects[R] := RectF(LRow.Left, LRow.Top, LRow.Right - LSkW - 12, LRow.Bottom);
 
-    // 행 배경 — 내 시트 행은 금테 강조
+    // 행 배경 — 내 시트 행은 금테 강조, 클릭 가능한(=내 시트 아닌) 행은 호버 시 밝게
     Canvas.Fill.Color := $FF20301F;
     if R = FSetupHumanRow then
     begin
       Canvas.Fill.Color := $FF2F4A2E;
+    end
+    else
+    if IsPressed(FSetupRowRects[R]) then
+    begin
+      Canvas.Fill.Color := AdjustColor($FF20301F, -12);
+    end
+    else
+    if IsHot(FSetupRowRects[R]) then
+    begin
+      Canvas.Fill.Color := AdjustColor($FF20301F, 22);
     end;
 
     Canvas.FillRect(LRow, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
@@ -4664,7 +4728,19 @@ begin
     begin
       var LSkY := LRow.Top + (LRow.Height - 34) / 2;
       FSetupSkRects[R] := RectF(LRow.Right - LSkW - 6, LSkY, LRow.Right - 6, LSkY + 34);
-      Canvas.FillRound(FSetupSkRects[R], 8, $FF37474F);
+
+      var LSkColor: TAlphaColor := $FF37474F;
+      if IsPressed(FSetupSkRects[R]) then
+      begin
+        LSkColor := AdjustColor(LSkColor, -24);
+      end
+      else
+      if IsHot(FSetupSkRects[R]) then
+      begin
+        LSkColor := AdjustColor(LSkColor, 26);
+      end;
+
+      Canvas.FillRound(FSetupSkRects[R], 8, LSkColor);
       DrawLabel(FSetupSkRects[R], SkillLabel(FSetupSkill[R]), $FFFFE082, 14);
     end
     else
@@ -4736,39 +4812,10 @@ begin
   var LBY := Height * 0.62;
   var LHasSave := TGostopSaveGame.Exists;
 
-  FBtnMenuContinue := RectF(LMidX - LBW * 1.5 - LGap, LBY, LMidX - LBW * 0.5 - LGap, LBY + LBH);
-  FBtnMenuNew := RectF(LMidX - LBW * 0.5, LBY, LMidX + LBW * 0.5, LBY + LBH);
-  FBtnMenuExit := RectF(LMidX + LBW * 0.5 + LGap, LBY, LMidX + LBW * 1.5 + LGap, LBY + LBH);
-
-  Canvas.Stroke.Kind := TBrushKind.Solid;
-
-  // 이어하기: 저장 데이터가 있을 때만 활성(금색 강조), 없으면 회색으로 비활성 표시
-  if LHasSave then
-  begin
-    Canvas.Stroke.Color := $FFFFD54A;
-    Canvas.Stroke.Thickness := 2;
-    Canvas.FillRound(FBtnMenuContinue, 10, $FFB8860B);
-    Canvas.DrawRect(FBtnMenuContinue, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-    DrawLabel(FBtnMenuContinue, '이어하기', TAlphaColors.White, 19);
-  end
-  else
-  begin
-    Canvas.Stroke.Color := $30FFFFFF;
-    Canvas.Stroke.Thickness := 1;
-    Canvas.FillRound(FBtnMenuContinue, 10, $60333A33);
-    Canvas.DrawRect(FBtnMenuContinue, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-    DrawLabel(FBtnMenuContinue, '이어하기', $806E786E, 19);
-  end;
-
-  Canvas.Stroke.Color := $FFFFD54A;
-  Canvas.Stroke.Thickness := 2;
-  Canvas.FillRound(FBtnMenuNew, 10, $FF2E7D32);
-  Canvas.DrawRect(FBtnMenuNew, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-  DrawLabel(FBtnMenuNew, '새게임', TAlphaColors.White, 19);
-
-  Canvas.FillRound(FBtnMenuExit, 10, $FF8E2430);
-  Canvas.DrawRect(FBtnMenuExit, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-  DrawLabel(FBtnMenuExit, '끝내기', TAlphaColors.White, 19);
+  FBtnMenuContinue := DrawStdButton(RectF(LMidX - LBW * 1.5 - LGap, LBY, LMidX - LBW * 0.5 - LGap, LBY + LBH),
+    '이어하기', dbkAccent, LHasSave, 19);
+  FBtnMenuNew := DrawStdButton(RectF(LMidX - LBW * 0.5, LBY, LMidX + LBW * 0.5, LBY + LBH), '새게임', dbkPrimary, True, 19);
+  FBtnMenuExit := DrawStdButton(RectF(LMidX + LBW * 0.5 + LGap, LBY, LMidX + LBW * 1.5 + LGap, LBY + LBH), '끝내기', dbkDanger, True, 19);
 end;
 
 // 참여 자리의 정보 패널 일괄 그리기(선 뽑기·딜·플레이 공용)
@@ -5561,9 +5608,42 @@ begin
   end;
 end;
 
-// 표준 다이얼로그 버튼: 종류별 색상 통일. rect 반환(클릭 판정용)
-function TGostopBoard.DrawStdButton(const ARect: TRectF; const ACaption: string; const AKind: TDlgBtnKind): TRectF;
+// AARRGGBB 색상의 RGB 채널을 ADelta만큼 밝게(양수)/어둡게(음수) 조정(호버·눌림 효과 공용)
+function TGostopBoard.AdjustColor(const AColor: TAlphaColor; const ADelta: Integer): TAlphaColor;
 begin
+  var LRec := TAlphaColorRec(AColor);
+  LRec.R := EnsureRange(LRec.R + ADelta, 0, 255);
+  LRec.G := EnsureRange(LRec.G + ADelta, 0, 255);
+  LRec.B := EnsureRange(LRec.B + ADelta, 0, 255);
+  Result := LRec.Color;
+end;
+
+// 현재 마우스 위치가 이 영역 위에 있는가(호버 판정 공용). 애니메이션 중엔 입력을 안 받으므로 호버도 끔
+function TGostopBoard.IsHot(const ARect: TRectF): Boolean;
+begin
+  Result := (not Assigned(FDisplay)) and (not FDealing) and (Length(FReplacingSeats) = 0) and ARect.Contains(FMousePos);
+end;
+
+// 이 영역을 누른 채 마우스 버튼이 눌려 있는가(눌림 효과 공용)
+function TGostopBoard.IsPressed(const ARect: TRectF): Boolean;
+begin
+  Result := FMouseDown and IsHot(ARect);
+end;
+
+// 표준 다이얼로그 버튼: 종류별 색상 통일 + 호버(밝게)·눌림(어둡게+눌림 느낌)·비활성(회색조) 효과. rect 반환(클릭 판정용)
+function TGostopBoard.DrawStdButton(const ARect: TRectF; const ACaption: string; const AKind: TDlgBtnKind;
+  const AEnabled: Boolean; const AFontSize: Single): TRectF;
+begin
+  Result := ARect;
+
+  if not AEnabled then
+  begin
+    Canvas.FillRound(ARect, 9, $60333A33);
+    Canvas.StrokeRound(ARect, 9, $30FFFFFF, 1);
+    DrawLabel(ARect, ACaption, $806E786E, AFontSize);
+    Exit;
+  end;
+
   var LColor := $FF37474F;   // dbkNeutral
   case AKind of
     dbkPrimary:
@@ -5580,10 +5660,21 @@ begin
       end;
   end;
 
-  Canvas.FillRound(ARect, 9, LColor);
-  Canvas.StrokeRound(ARect, 9, $50FFFFFF, 1);
-  DrawLabel(ARect, ACaption, TAlphaColors.White, 17);
-  Result := ARect;
+  var LFillR := ARect;
+  if IsPressed(ARect) then
+  begin
+    LColor := AdjustColor(LColor, -30);
+    LFillR := RectF(ARect.Left + 2, ARect.Top + 2, ARect.Right - 1, ARect.Bottom - 1);   // 눌림: 살짝 안쪽으로 눌린 느낌
+  end
+  else
+  if IsHot(ARect) then
+  begin
+    LColor := AdjustColor(LColor, 24);
+  end;
+
+  Canvas.FillRound(LFillR, 9, LColor);
+  Canvas.StrokeRound(LFillR, 9, $50FFFFFF, 1);
+  DrawLabel(LFillR, ACaption, TAlphaColors.White, AFontSize);
 end;
 
 // 사람이 지금 쇼당을 걸 수 있는가(3인·내 차례·손패로 두 상대 완성 위협)
@@ -5620,9 +5711,23 @@ begin
   var LW := 150.0;
   var LH := 46.0;
   FBtnShodang := RectF(Width / 2 - LW / 2, Height * 0.545, Width / 2 + LW / 2, Height * 0.545 + LH);
-  Canvas.FillRound(FBtnShodang, 10, $FFB8860B);
-  Canvas.StrokeRound(FBtnShodang, 10, TAlphaColors.White, 2);
-  DrawLabel(FBtnShodang, '쇼당!', TAlphaColors.White, 22);
+
+  var LColor: TAlphaColor := $FFB8860B;
+  var LFillR := FBtnShodang;
+  if IsPressed(FBtnShodang) then
+  begin
+    LColor := AdjustColor(LColor, -30);
+    LFillR := RectF(FBtnShodang.Left + 2, FBtnShodang.Top + 2, FBtnShodang.Right - 1, FBtnShodang.Bottom - 1);
+  end
+  else
+  if IsHot(FBtnShodang) then
+  begin
+    LColor := AdjustColor(LColor, 24);
+  end;
+
+  Canvas.FillRound(LFillR, 10, LColor);
+  Canvas.StrokeRound(LFillR, 10, TAlphaColors.White, 2);
+  DrawLabel(LFillR, '쇼당!', TAlphaColors.White, 22);
 end;
 
 // 두 상대의 게임 인덱스(ACaller 제외)
@@ -6588,6 +6693,8 @@ end;
 procedure TGostopBoard.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Single);
 begin
   inherited;
+  FMousePos := PointF(X, Y);
+  FMouseDown := True;
   var LPoint := PointF(X, Y);
 
   // 기리(말번 커팅): 카드 클릭=그 위치 컷 / 퉁=그대로
@@ -7207,6 +7314,8 @@ end;
 procedure TGostopBoard.MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Single);
 begin
   inherited;
+  FMousePos := PointF(X, Y);
+  FMouseDown := False;
   if FVolDragging or FSpdDragging then
   begin
     SaveSettings;   // 볼륨·배속 변경 확정 저장
@@ -7214,11 +7323,15 @@ begin
 
   FVolDragging := False;
   FSpdDragging := False;
+  Repaint;   // 눌림 효과 해제 반영
 end;
 
 procedure TGostopBoard.MouseMove(Shift: TShiftState; X, Y: Single);
 begin
   inherited;
+  FMousePos := PointF(X, Y);
+  Repaint;   // 버튼 호버 효과 실시간 반영
+
   // 슬라이더 드래그
   if FVolDragging then
   begin
@@ -7296,6 +7409,8 @@ end;
 procedure TGostopBoard.DoMouseLeave;
 begin
   inherited;
+  FMousePos := PointF(-1, -1);   // 화면 밖 좌표 → 모든 버튼 호버 해제
+  FMouseDown := False;
   FVolDragging := False;
   FSpdDragging := False;
   if FBarVisible then
@@ -7315,6 +7430,8 @@ begin
     FHoverBonus := -1;
     Repaint;
   end;
+
+  Repaint;   // 버튼 호버 해제 반영
 end;
 {$ENDREGION}
 

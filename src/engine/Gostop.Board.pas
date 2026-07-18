@@ -6115,7 +6115,16 @@ begin
     Exit;
   end;
 
-  var LRect := RectF(Width * 0.18, Height * 0.11, Width * 0.82, Height * 0.11 + 78);
+  // 바닥패 중앙에 텍스트 폭에 맞춰(고정폭 아님) 표시 — 예전엔 화면폭의 64%를 항상 차지하며
+  // P1(위) 자리 근처에 떠서, 짧은 문구("뻑!" 등)일 때 불필요하게 넓고 위치도 어색했음
+  var LCen := CenterRegion;
+  var LMidX := (LCen.Left + LCen.Right) / 2;
+  var LMidY := (LCen.Top + LCen.Bottom) / 2;
+
+  Canvas.Font.Size := 42;
+  var LRectW := Canvas.TextWidth(FEffectText) + 56;
+  var LRectH := 78.0;
+  var LRect := RectF(LMidX - LRectW / 2, LMidY - LRectH / 2, LMidX + LRectW / 2, LMidY + LRectH / 2);
   Canvas.FillRound(LRect, 16, $B0201008);
   Canvas.StrokeRound(LRect, 16, $FFFFD54A, 2);
   DrawLabel(LRect, FEffectText, $FFFFE14A, 42);

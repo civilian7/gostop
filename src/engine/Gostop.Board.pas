@@ -255,6 +255,7 @@ type
     FAnimPlayed: TArray<THwatuCard>;
     FAnimDrawn: TArray<THwatuCard>;
     FAnimCaptured: TArray<THwatuCard>;
+    FAnimStealCount: Integer;       // 이번 먹기 단계에서 상대 획득더미에서 뺏어온 피 장수(0=없음)
     FAnimPlayedFrom: TPointF;
     FAnimDrawnFrom: TPointF;
     FFlySources: TArray<TPointF>;
@@ -6313,7 +6314,8 @@ begin
           end;
         end;
 
-        // 뺏어온 피가 있으면 뺏기 소리(폴리포니라 다른 소리와 겹쳐도 됨)
+        // 뺏어온 피가 있으면 뺏기 소리(폴리포니라 다른 소리와 겹쳐도 됨) + 눈에 띄도록 이 단계를 늦춤
+        FAnimStealCount := LStolen;
         if LStolen > 0 then
         begin
           TGostopAudio.Instance.Play('sfx_pi_steal');
@@ -6450,6 +6452,10 @@ begin
     4:
       begin
         LDur := 260;
+        if FAnimStealCount > 0 then
+        begin
+          LDur := 620;   // 상대에게서 피를 뺏어올 땐 눈에 띄도록 느리게
+        end;
       end;
   end;
 

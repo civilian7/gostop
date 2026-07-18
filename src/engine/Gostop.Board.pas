@@ -5457,6 +5457,14 @@ begin
         DrawLabel(LScoreBadgeR, LPart, TAlphaColors.White, 13);
         LScoreBadgeX := LScoreBadgeR.Right + 6;
       end;
+
+      // 합계 점수(고·박 적용 전) — 다른 뱃지들과 구분되도록 금색으로 강조
+      var LTotalText := Format('합계 %d점', [LRow.ScoreTotal]);
+      var LTotalBadgeW := Canvas.TextWidth(LTotalText) + 20;
+      var LTotalBadgeR := RectF(LScoreBadgeX, LScoreBadgeY, LScoreBadgeX + LTotalBadgeW, LScoreBadgeY + LScoreBadgeH);
+      Canvas.FillRound(LTotalBadgeR, LScoreBadgeH / 2, $FF6B5610);
+      Canvas.StrokeRound(LTotalBadgeR, LScoreBadgeH / 2, TAlphaColors.Gold, 1);
+      DrawLabel(LTotalBadgeR, LTotalText, TAlphaColors.Gold, 13);
     end;
 
     LY := LY + LRowHeights[I];

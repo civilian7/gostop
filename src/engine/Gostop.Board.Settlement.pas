@@ -26,6 +26,8 @@ type
     Flags: TArray<string>;
     /// <summary>승자 줄에만 채워지는 점수 내역 뱃지들(광 3·열끗 1·띠 3·피 3 형태).</summary>
     ScoreParts: TArray<string>;
+    /// <summary>승자 줄에만 채워지는 족보 합계 점수(고·박 적용 전, ScoreParts와 함께 표시).</summary>
+    ScoreTotal: Integer;
     /// <summary>아바타 없는 안내문(나가리·쓰리뻑 등).</summary>
     Text: string;
   end;
@@ -305,7 +307,9 @@ begin
       LWinRow.HasAmount := True;
       LWinRow.Amount := LNet4[LWinnerSeat] * AInput.MoneyPerPoint * AInput.Stakes;
       LWinRow.Flags := nil;
-      LWinRow.ScoreParts := ScorePartsOf(AEngine.ScoreOf(AGame.Winner));
+      var LWinBreakdown4 := AEngine.ScoreOf(AGame.Winner);
+      LWinRow.ScoreParts := ScorePartsOf(LWinBreakdown4);
+      LWinRow.ScoreTotal := LWinBreakdown4.Total;
       LRows.Add(LWinRow);
 
       for var S := 0 to 3 do
@@ -331,7 +335,9 @@ begin
       LWinRow.HasAmount := True;
       LWinRow.Amount := LSettle[AGame.Winner].Net * AInput.MoneyPerPoint * AInput.Stakes;
       LWinRow.Flags := nil;
-      LWinRow.ScoreParts := ScorePartsOf(AEngine.ScoreOf(AGame.Winner));
+      var LWinBreakdown3 := AEngine.ScoreOf(AGame.Winner);
+      LWinRow.ScoreParts := ScorePartsOf(LWinBreakdown3);
+      LWinRow.ScoreTotal := LWinBreakdown3.Total;
       LRows.Add(LWinRow);
 
       for var I := 0 to AGame.PlayerCount - 1 do

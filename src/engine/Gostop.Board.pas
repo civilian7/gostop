@@ -445,6 +445,23 @@ type
     function  IsPressed(const ARect: TRectF): Boolean;
     function  DrawStdButton(const ARect: TRectF; const ACaption: string; const AKind: TDlgBtnKind;
       const AEnabled: Boolean = True; const AFontSize: Single = 17): TRectF;
+
+    // MouseDown 디스패치 분기(화면/상태별로 분리 — 각자 원래 항상 Exit로 끝나던 블록 그대로)
+    procedure MouseDownGiri(const LPoint: TPointF);
+    procedure MouseDownShodangPrompt(const LPoint: TPointF);
+    procedure MouseDownTitleArea(const LPoint: TPointF);
+    procedure MouseDownSettingsDialog(const LPoint: TPointF);
+    procedure MouseDownMatchSetupDialog(const LPoint: TPointF);
+    procedure MouseDownTitleButtons(const LPoint: TPointF);
+    procedure MouseDownAvatarPicker(const LPoint: TPointF);
+    procedure MouseDownSeonPick(const LPoint: TPointF);
+    procedure MouseDownBonusDraw(const LPoint: TPointF);
+    procedure MouseDownGameOver(const LPoint: TPointF);
+    procedure MouseDownGoStopPrompt(const LPoint: TPointF);
+    procedure MouseDownFlipChoice(const LPoint: TPointF);
+    procedure MouseDownNegotiation(const LPoint: TPointF);
+    procedure MouseDownFloorChoice(const LPoint: TPointF);
+    procedure MouseDownPlayHand(const LPoint: TPointF);
   protected
     procedure Paint; override;
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Single); override;
@@ -6701,41 +6718,14 @@ begin
   // 기리(말번 커팅): 카드 클릭=그 위치 컷 / 퉁=그대로
   if FGiriPhase then
   begin
-    if FBtnTung.Contains(LPoint) then
-    begin
-      TGostopAudio.Instance.Play('ui_click');
-      ResolveGiri(-1);
-      Exit;
-    end;
-
-    for var K := 0 to FGiriRects.Count - 1 do
-    begin
-      if FGiriRects[K].Contains(LPoint) then
-      begin
-        TGostopAudio.Instance.Play('ui_click');
-        ResolveGiri(K);
-        Exit;
-      end;
-    end;
-
+    MouseDownGiri(LPoint);
     Exit;
   end;
 
   // AI 쇼당 → 사람 수락/거절 응답(최상단 모달)
   if FShodangPending then
   begin
-    if FBtnShodangYes.Contains(LPoint) then
-    begin
-      TGostopAudio.Instance.Play('ui_click');
-      HumanRespondShodang(True);
-    end
-    else
-    if FBtnShodangNo.Contains(LPoint) then
-    begin
-      TGostopAudio.Instance.Play('ui_click');
-      HumanRespondShodang(False);
-    end;
-
+    MouseDownShodangPrompt(LPoint);
     Exit;
   end;
 
@@ -6787,190 +6777,149 @@ begin
   // 타이틀 메뉴(게임 없음): 대전 시작/설정/종료 (선 뽑기·4인 협상 중엔 제외)
   if (FGame = nil) and (not FSeonPicking) and (not FNegotiating) then
   begin
-    // 설정창이 열려 있으면 설정 조작만
-    if FSettingsOpen then
-    begin
-      // 아바타 선택 오버레이가 떠 있으면 그것부터
-      if FAvatarPicking then
-      begin
-        for var K := 0 to FAvatarRects.Count - 1 do
-        begin
-          if FAvatarRects[K].Contains(LPoint) then
-          begin
-            TGostopAudio.Instance.Play('ui_select');
-            SetHumanAvatar(K);
-            Break;
-          end;
-        end;
-
-        FAvatarPicking := False;
-        Repaint;
-        Exit;
-      end;
-
-      // 인원수: 2/3/4 중 클릭한 칸으로 즉시 선택(3분할 버튼)
-      for var LSeg := 0 to 2 do
-      begin
-        if FCfgCountRects[LSeg].Contains(LPoint) then
-        begin
-          TGostopAudio.Instance.Play('ui_click');
-          FSetupCount := LSeg + 2;
-          Repaint;
-          Exit;
-        end;
-      end;
-
-      // AI 난이도: 하수/중수/고수/최고수 중 클릭한 칸으로 즉시 선택(4분할 버튼)
-      for var LSeg := 0 to 3 do
-      begin
-        if FCfgSkillRects[LSeg].Contains(LPoint) then
-        begin
-          TGostopAudio.Instance.Play('ui_click');
-          FConfig.AiSkill := AI_SKILL_VALUES[LSeg];
-          FConfig.SyncMoneyPerPoint;   // 점당 금액은 게임 레벨에 자동 연동
-          SaveSettings;
-          Repaint;
-          Exit;
-        end;
-      end;
-
-      for var I := 0 to High(FCfgRects) do
-      begin
-        if FCfgRects[I].Contains(LPoint) then
-        begin
-          TGostopAudio.Instance.Play('ui_click');
-          if I <= 4 then
-          begin
-            CycleCfg(I);
-          end
-          else
-          if I = 5 then
-          begin
-            // 닉네임: 행 위에 입력창 표시
-            BeginNickEdit(FCfgRects[5]);
-          end
-          else
-          begin
-            // 아바타: 선택 오버레이 열기
-            ApplyNickEdit;
-            LoadAvatarPool;
-            if FAvatarPool.Count > 0 then
-            begin
-              FAvatarPicking := True;
-            end;
-          end;
-
-          Repaint;
-          Exit;
-        end;
-      end;
-
-      if FBtnCfgCancel.Contains(LPoint) then
-      begin
-        TGostopAudio.Instance.Play('ui_click');
-        ApplyNickEdit;
-        FSettingsOpen := False;
-        Repaint;
-      end
-      else
-      if FBtnCfgNext.Contains(LPoint) then
-      begin
-        TGostopAudio.Instance.Play('ui_click');
-        ApplyNickEdit;
-        FSettingsOpen := False;
-        OpenMatchSetup(FSetupCount);
-      end;
-
-      Exit;
-    end;
-
-    // 대전 설정 다이얼로그(슬롯머신) 조작
-    if FMatchSetupOpen then
-    begin
-      if FBtnSetupSpin.Contains(LPoint) then
-      begin
-        TGostopAudio.Instance.Play('ui_click');
-        StartSlotSpin;
-        Repaint;
-      end
-      else
-      if FBtnSetupWatch.Contains(LPoint) then
-      begin
-        TGostopAudio.Instance.Play('ui_click');
-        if FSetupHumanRow >= 0 then
-        begin
-          // 관전 켬: 내 시트도 AI로 채움
-          var LOld := FSetupHumanRow;
-          FSetupHumanRow := -1;
-          StartSlotSpin(LOld);
-        end
-        else
-        begin
-          // 관전 끔: 마지막 시트에 복귀
-          FSetupHumanRow := FSetupCount - 1;
-          FSetupAvatar[FSetupHumanRow] := -1;
-          FSlotRemain[FSetupHumanRow] := 0;
-        end;
-
-        Repaint;
-      end
-      else
-      if FBtnSetupStart.Contains(LPoint) then
-      begin
-        TGostopAudio.Instance.Play('ui_click');
-        StartMatchFromSetup;
-      end
-      else
-      if FBtnSetupCancel.Contains(LPoint) then
-      begin
-        TGostopAudio.Instance.Play('ui_click');
-        FSlotTimer.Enabled := False;
-        FMatchSetupOpen := False;
-        Repaint;
-      end;
-
-      Exit;
-    end;
-
-    if FBtnMenuContinue.Contains(LPoint) and TGostopSaveGame.Exists then
-    begin
-      TGostopAudio.Instance.Play('ui_click');
-      if not LoadSavedGame then
-      begin
-        FStatus := '저장된 게임을 불러오지 못했습니다';
-        Repaint;
-      end;
-    end
-    else
-    if FBtnMenuNew.Contains(LPoint) then
-    begin
-      TGostopAudio.Instance.Play('ui_click');
-      // 인원수 기본값: 직전 매치 인원(있으면) 유지, 없으면 3인
-      if not (FSetupCount in [2, 3, 4]) then
-      begin
-        if FPlayerCount in [2, 3, 4] then
-        begin
-          FSetupCount := FPlayerCount;
-        end
-        else
-        begin
-          FSetupCount := 3;
-        end;
-      end;
-
-      FSettingsOpen := True;
-      Repaint;
-    end
-    else
-    if FBtnMenuExit.Contains(LPoint) and Assigned(FOnExitRequest) then
-    begin
-      FOnExitRequest(Self);
-    end;
-
+    MouseDownTitleArea(LPoint);
     Exit;
   end;
 
   // 아바타 선택 오버레이: 하나 고르거나 밖을 누르면 닫기
+  if FAvatarPicking then
+  begin
+    MouseDownAvatarPicker(LPoint);
+    Exit;
+  end;
+
+  // 내 아바타 클릭 → 아바타 선택 열기(게임 화면에서, 관전 모드 제외)
+  if (FGame <> nil) and (not FSeonPicking) and (not FSpectator) and Assigned(FAvatarPool) and (FAvatarPool.Count > 0)
+    and FMyAvatarRect.Contains(LPoint) then
+  begin
+    TGostopAudio.Instance.Play('ui_click');
+    FAvatarPicking := True;
+    Repaint;
+    Exit;
+  end;
+
+  // 선 뽑기: 내 카드를 클릭해 뒤집기
+  if FSeonPicking then
+  begin
+    MouseDownSeonPick(LPoint);
+    Exit;
+  end;
+
+  // 보너스 뽑기: 펼쳐진 더미에서 한 장 클릭(사람 차례일 때만)
+  if (FGame <> nil) and (FGame.Phase = gpAwaitingBonusDraw) then
+  begin
+    MouseDownBonusDraw(LPoint);
+    Exit;
+  end;
+
+  // 게임 종료: 새게임(이전 승자가 선) / 중지(매치 종료)
+  if (FGame <> nil) and (FGame.Phase = gpFinished) then
+  begin
+    MouseDownGameOver(LPoint);
+    Exit;
+  end;
+
+  // 고/스톱 대기: 보드 팝업의 고/스톱 버튼
+  if FAwaitingGoStop and (FGame <> nil) and (FGame.Phase = gpAwaitingGoStop) then
+  begin
+    MouseDownGoStopPrompt(LPoint);
+    Exit;
+  end;
+
+  // 쇼당 걸기 버튼(사람 차례에 가능할 때만 표시됨)
+  if (not FBtnShodang.IsEmpty) and FBtnShodang.Contains(LPoint) and HumanCanShodang then
+  begin
+    TGostopAudio.Instance.Play('ui_click');
+    HumanCallShodang;
+    Exit;
+  end;
+
+  // 뒤집기 선택 대기: 강조된 후보(바닥 2장) 중 하나를 클릭하면 그 패로 확정
+  if FFlipChoosing and (FGame <> nil) and (FGame.Phase = gpAwaitingFlipChoice) then
+  begin
+    MouseDownFlipChoice(LPoint);
+    Exit;
+  end;
+
+  // 협상: 왼쪽=참가/광팔기, 오른쪽=포기/안팔기 (사람의 논리 좌석에 따라 슬롯 매핑)
+  if FNegotiating then
+  begin
+    MouseDownNegotiation(LPoint);
+    Exit;
+  end;
+
+  if (FGame = nil) or (FGame.Phase <> gpPlaying) or (FGame.Current <> FHumanIndex) then
+  begin
+    Exit;
+  end;
+
+  // 선택 모드: 강조된 후보(바닥 같은 월) 클릭
+  if FChoosing then
+  begin
+    MouseDownFloorChoice(LPoint);
+    Exit;
+  end;
+
+  // 일반 모드: 오른쪽(위에 겹친) 손패부터 히트 테스트
+  MouseDownPlayHand(LPoint);
+end;
+
+procedure TGostopBoard.MouseDownGiri(const LPoint: TPointF);
+begin
+  if FBtnTung.Contains(LPoint) then
+  begin
+    TGostopAudio.Instance.Play('ui_click');
+    ResolveGiri(-1);
+    Exit;
+  end;
+
+  for var K := 0 to FGiriRects.Count - 1 do
+  begin
+    if FGiriRects[K].Contains(LPoint) then
+    begin
+      TGostopAudio.Instance.Play('ui_click');
+      ResolveGiri(K);
+      Exit;
+    end;
+  end;
+end;
+
+procedure TGostopBoard.MouseDownShodangPrompt(const LPoint: TPointF);
+begin
+  if FBtnShodangYes.Contains(LPoint) then
+  begin
+    TGostopAudio.Instance.Play('ui_click');
+    HumanRespondShodang(True);
+  end
+  else
+  if FBtnShodangNo.Contains(LPoint) then
+  begin
+    TGostopAudio.Instance.Play('ui_click');
+    HumanRespondShodang(False);
+  end;
+end;
+
+// 타이틀 화면(게임 없음) 클릭 디스패치: 설정창 → 대전설정 다이얼로그 → 타이틀 버튼 순
+procedure TGostopBoard.MouseDownTitleArea(const LPoint: TPointF);
+begin
+  if FSettingsOpen then
+  begin
+    MouseDownSettingsDialog(LPoint);
+    Exit;
+  end;
+
+  if FMatchSetupOpen then
+  begin
+    MouseDownMatchSetupDialog(LPoint);
+    Exit;
+  end;
+
+  MouseDownTitleButtons(LPoint);
+end;
+
+procedure TGostopBoard.MouseDownSettingsDialog(const LPoint: TPointF);
+begin
+  // 아바타 선택 오버레이가 떠 있으면 그것부터
   if FAvatarPicking then
   begin
     for var K := 0 to FAvatarRects.Count - 1 do
@@ -6988,178 +6937,308 @@ begin
     Exit;
   end;
 
-  // 내 아바타 클릭 → 아바타 선택 열기(게임 화면에서, 관전 모드 제외)
-  if (FGame <> nil) and (not FSeonPicking) and (not FSpectator) and Assigned(FAvatarPool) and (FAvatarPool.Count > 0)
-    and FMyAvatarRect.Contains(LPoint) then
+  // 인원수: 2/3/4 중 클릭한 칸으로 즉시 선택(3분할 버튼)
+  for var LSeg := 0 to 2 do
+  begin
+    if FCfgCountRects[LSeg].Contains(LPoint) then
+    begin
+      TGostopAudio.Instance.Play('ui_click');
+      FSetupCount := LSeg + 2;
+      Repaint;
+      Exit;
+    end;
+  end;
+
+  // AI 난이도: 하수/중수/고수/최고수 중 클릭한 칸으로 즉시 선택(4분할 버튼)
+  for var LSeg := 0 to 3 do
+  begin
+    if FCfgSkillRects[LSeg].Contains(LPoint) then
+    begin
+      TGostopAudio.Instance.Play('ui_click');
+      FConfig.AiSkill := AI_SKILL_VALUES[LSeg];
+      FConfig.SyncMoneyPerPoint;   // 점당 금액은 게임 레벨에 자동 연동
+      SaveSettings;
+      Repaint;
+      Exit;
+    end;
+  end;
+
+  for var I := 0 to High(FCfgRects) do
+  begin
+    if FCfgRects[I].Contains(LPoint) then
+    begin
+      TGostopAudio.Instance.Play('ui_click');
+      if I <= 4 then
+      begin
+        CycleCfg(I);
+      end
+      else
+      if I = 5 then
+      begin
+        // 닉네임: 행 위에 입력창 표시
+        BeginNickEdit(FCfgRects[5]);
+      end
+      else
+      begin
+        // 아바타: 선택 오버레이 열기
+        ApplyNickEdit;
+        LoadAvatarPool;
+        if FAvatarPool.Count > 0 then
+        begin
+          FAvatarPicking := True;
+        end;
+      end;
+
+      Repaint;
+      Exit;
+    end;
+  end;
+
+  if FBtnCfgCancel.Contains(LPoint) then
   begin
     TGostopAudio.Instance.Play('ui_click');
-    FAvatarPicking := True;
+    ApplyNickEdit;
+    FSettingsOpen := False;
     Repaint;
-    Exit;
-  end;
-
-  // 선 뽑기: 내 카드를 클릭해 뒤집기
-  if FSeonPicking then
-  begin
-    if (FSeonStep = seReveal) and FSeonHasCard[spBottom] and (not FSeonRevealed[spBottom])
-      and FSeonRect[spBottom].Contains(LPoint) then
-    begin
-      SeonRevealPos(spBottom);
-    end;
-
-    Exit;
-  end;
-
-  // 보너스 뽑기: 펼쳐진 더미에서 한 장 클릭(사람 차례일 때만)
-  if (FGame <> nil) and (FGame.Phase = gpAwaitingBonusDraw) then
-  begin
-    if (FGame.Current = FHumanIndex) and (not FPickActive) then
-    begin
-      for var K := FBonusRects.Count - 1 downto 0 do
-      begin
-        if FBonusRects[K].Contains(LPoint) then
-        begin
-          TGostopAudio.Instance.Play('ui_click');
-          StartBonusPick(K);
-          Break;
-        end;
-      end;
-    end;
-
-    Exit;
-  end;
-
-  // 게임 종료: 새게임(이전 승자가 선) / 중지(매치 종료)
-  if (FGame <> nil) and (FGame.Phase = gpFinished) then
-  begin
-    if FBtnNext.Contains(LPoint) then
-    begin
-      TGostopAudio.Instance.Play('ui_click');
-      GameOverContinue;
-    end
-    else
-    if FBtnQuit.Contains(LPoint) then
-    begin
-      TGostopAudio.Instance.Play('ui_click');
-      GameOverQuit;
-    end;
-
-    Exit;
-  end;
-
-  // 고/스톱 대기: 보드 팝업의 고/스톱 버튼
-  if FAwaitingGoStop and (FGame <> nil) and (FGame.Phase = gpAwaitingGoStop) then
-  begin
-    if FBtnGo.Contains(LPoint) then
-    begin
-      HumanGo;
-    end
-    else
-    if FBtnStop.Contains(LPoint) then
-    begin
-      HumanStop;
-    end;
-
-    Exit;
-  end;
-
-  // 쇼당 걸기 버튼(사람 차례에 가능할 때만 표시됨)
-  if (not FBtnShodang.IsEmpty) and FBtnShodang.Contains(LPoint) and HumanCanShodang then
+  end
+  else
+  if FBtnCfgNext.Contains(LPoint) then
   begin
     TGostopAudio.Instance.Play('ui_click');
-    HumanCallShodang;
-    Exit;
+    ApplyNickEdit;
+    FSettingsOpen := False;
+    OpenMatchSetup(FSetupCount);
   end;
+end;
 
-  // 뒤집기 선택 대기: 강조된 후보(바닥 2장) 중 하나를 클릭하면 그 패로 확정
-  if FFlipChoosing and (FGame <> nil) and (FGame.Phase = gpAwaitingFlipChoice) then
+procedure TGostopBoard.MouseDownMatchSetupDialog(const LPoint: TPointF);
+begin
+  if FBtnSetupSpin.Contains(LPoint) then
   begin
-    for var K := 0 to FFloorRects.Count - 1 do
+    TGostopAudio.Instance.Play('ui_click');
+    StartSlotSpin;
+    Repaint;
+  end
+  else
+  if FBtnSetupWatch.Contains(LPoint) then
+  begin
+    TGostopAudio.Instance.Play('ui_click');
+    if FSetupHumanRow >= 0 then
     begin
-      var LRealFloor := FFloorIndexMap[K];
-      var LAsset := FGame.Floor[LRealFloor].AssetId;
-      if ((LAsset = FFlipOptAssets[0]) or (LAsset = FFlipOptAssets[1])) and FFloorRects[K].Contains(LPoint) then
-      begin
-        var LOrd := 0;
-        if LAsset = FFlipOptAssets[1] then
-        begin
-          LOrd := 1;
-        end;
+      // 관전 켬: 내 시트도 AI로 채움
+      var LOld := FSetupHumanRow;
+      FSetupHumanRow := -1;
+      StartSlotSpin(LOld);
+    end
+    else
+    begin
+      // 관전 끔: 마지막 시트에 복귀
+      FSetupHumanRow := FSetupCount - 1;
+      FSetupAvatar[FSetupHumanRow] := -1;
+      FSlotRemain[FSetupHumanRow] := 0;
+    end;
 
-        TGostopAudio.Instance.Play('ui_click');
-        FFlipChoosing := False;
-        FTurnEvents.Clear;
-        var LBefore := FGame.Clone;
-        FAwaitingGoStop := FEngine.ResolveFlipChoice(LOrd);
-        StartTurnAnimation(LBefore,
-          procedure
-          begin
-            AutoStopIfLastCard;
-            AfterAction;
-          end);
-        Exit;
+    Repaint;
+  end
+  else
+  if FBtnSetupStart.Contains(LPoint) then
+  begin
+    TGostopAudio.Instance.Play('ui_click');
+    StartMatchFromSetup;
+  end
+  else
+  if FBtnSetupCancel.Contains(LPoint) then
+  begin
+    TGostopAudio.Instance.Play('ui_click');
+    FSlotTimer.Enabled := False;
+    FMatchSetupOpen := False;
+    Repaint;
+  end;
+end;
+
+procedure TGostopBoard.MouseDownTitleButtons(const LPoint: TPointF);
+begin
+  if FBtnMenuContinue.Contains(LPoint) and TGostopSaveGame.Exists then
+  begin
+    TGostopAudio.Instance.Play('ui_click');
+    if not LoadSavedGame then
+    begin
+      FStatus := '저장된 게임을 불러오지 못했습니다';
+      Repaint;
+    end;
+  end
+  else
+  if FBtnMenuNew.Contains(LPoint) then
+  begin
+    TGostopAudio.Instance.Play('ui_click');
+    // 인원수 기본값: 직전 매치 인원(있으면) 유지, 없으면 3인
+    if not (FSetupCount in [2, 3, 4]) then
+    begin
+      if FPlayerCount in [2, 3, 4] then
+      begin
+        FSetupCount := FPlayerCount;
+      end
+      else
+      begin
+        FSetupCount := 3;
       end;
     end;
 
-    Exit;   // 후보 아닌 곳은 무시
+    FSettingsOpen := True;
+    Repaint;
+  end
+  else
+  if FBtnMenuExit.Contains(LPoint) and Assigned(FOnExitRequest) then
+  begin
+    FOnExitRequest(Self);
+  end;
+end;
+
+procedure TGostopBoard.MouseDownAvatarPicker(const LPoint: TPointF);
+begin
+  for var K := 0 to FAvatarRects.Count - 1 do
+  begin
+    if FAvatarRects[K].Contains(LPoint) then
+    begin
+      TGostopAudio.Instance.Play('ui_select');
+      SetHumanAvatar(K);
+      Break;
+    end;
   end;
 
-  // 협상: 왼쪽=참가/광팔기, 오른쪽=포기/안팔기 (사람의 논리 좌석에 따라 슬롯 매핑)
-  if FNegotiating then
+  FAvatarPicking := False;
+  Repaint;
+end;
+
+procedure TGostopBoard.MouseDownSeonPick(const LPoint: TPointF);
+begin
+  if (FSeonStep = seReveal) and FSeonHasCard[spBottom] and (not FSeonRevealed[spBottom])
+    and FSeonRect[spBottom].Contains(LPoint) then
   begin
-    var LLeft := FBtnJoin.Contains(LPoint);
-    var LRight := FBtnGiveUp.Contains(LPoint);
-    if LLeft or LRight then
+    SeonRevealPos(spBottom);
+  end;
+end;
+
+procedure TGostopBoard.MouseDownBonusDraw(const LPoint: TPointF);
+begin
+  if (FGame.Current = FHumanIndex) and (not FPickActive) then
+  begin
+    for var K := FBonusRects.Count - 1 downto 0 do
+    begin
+      if FBonusRects[K].Contains(LPoint) then
+      begin
+        TGostopAudio.Instance.Play('ui_click');
+        StartBonusPick(K);
+        Break;
+      end;
+    end;
+  end;
+end;
+
+procedure TGostopBoard.MouseDownGameOver(const LPoint: TPointF);
+begin
+  if FBtnNext.Contains(LPoint) then
+  begin
+    TGostopAudio.Instance.Play('ui_click');
+    GameOverContinue;
+  end
+  else
+  if FBtnQuit.Contains(LPoint) then
+  begin
+    TGostopAudio.Instance.Play('ui_click');
+    GameOverQuit;
+  end;
+end;
+
+procedure TGostopBoard.MouseDownGoStopPrompt(const LPoint: TPointF);
+begin
+  if FBtnGo.Contains(LPoint) then
+  begin
+    HumanGo;
+  end
+  else
+  if FBtnStop.Contains(LPoint) then
+  begin
+    HumanStop;
+  end;
+end;
+
+procedure TGostopBoard.MouseDownFlipChoice(const LPoint: TPointF);
+begin
+  for var K := 0 to FFloorRects.Count - 1 do
+  begin
+    var LRealFloor := FFloorIndexMap[K];
+    var LAsset := FGame.Floor[LRealFloor].AssetId;
+    if ((LAsset = FFlipOptAssets[0]) or (LAsset = FFlipOptAssets[1])) and FFloorRects[K].Contains(LPoint) then
+    begin
+      var LOrd := 0;
+      if LAsset = FFlipOptAssets[1] then
+      begin
+        LOrd := 1;
+      end;
+
+      TGostopAudio.Instance.Play('ui_click');
+      FFlipChoosing := False;
+      FTurnEvents.Clear;
+      var LBefore := FGame.Clone;
+      FAwaitingGoStop := FEngine.ResolveFlipChoice(LOrd);
+      StartTurnAnimation(LBefore,
+        procedure
+        begin
+          AutoStopIfLastCard;
+          AfterAction;
+        end);
+      Exit;
+    end;
+  end;
+end;
+
+procedure TGostopBoard.MouseDownNegotiation(const LPoint: TPointF);
+begin
+  var LLeft := FBtnJoin.Contains(LPoint);
+  var LRight := FBtnGiveUp.Contains(LPoint);
+  if LLeft or LRight then
+  begin
+    TGostopAudio.Instance.Play('ui_click');
+    var LP2 := False;
+    var LP3 := False;
+    // AI인 P4는 광값이 있을 때만 판매(0원 판매 방지)
+    var LP4 := (FTable4 <> nil) and (TFourPlayer.GwangCount(FTable4.Hand(3), CfgScore) > 0);
+    if FNegIsSell then
+    begin
+      LP4 := LLeft;   // 사람이 P4: 광팔기=왼쪽, 안팔기=오른쪽
+    end
+    else
+    if FHumanLogical = 1 then
+    begin
+      LP2 := LRight;  // P2 포기=오른쪽
+    end
+    else
+    begin
+      LP3 := LRight;  // P3 포기=오른쪽
+    end;
+
+    ResolveNegotiation(LP2, LP3, LP4);
+  end;
+end;
+
+procedure TGostopBoard.MouseDownFloorChoice(const LPoint: TPointF);
+begin
+  for var K := 0 to FFloorRects.Count - 1 do
+  begin
+    var LRealFloor := FFloorIndexMap[K];
+    if (LRealFloor >= 0) and (LRealFloor < FGame.Floor.Count) and
+      (FGame.Floor[LRealFloor].Month = FChooseMonth) and FFloorRects[K].Contains(LPoint) then
     begin
       TGostopAudio.Instance.Play('ui_click');
-      var LP2 := False;
-      var LP3 := False;
-      // AI인 P4는 광값이 있을 때만 판매(0원 판매 방지)
-      var LP4 := (FTable4 <> nil) and (TFourPlayer.GwangCount(FTable4.Hand(3), CfgScore) > 0);
-      if FNegIsSell then
-      begin
-        LP4 := LLeft;   // 사람이 P4: 광팔기=왼쪽, 안팔기=오른쪽
-      end
-      else
-      if FHumanLogical = 1 then
-      begin
-        LP2 := LRight;  // P2 포기=오른쪽
-      end
-      else
-      begin
-        LP3 := LRight;  // P3 포기=오른쪽
-      end;
-
-      ResolveNegotiation(LP2, LP3, LP4);
+      PlayChosen(FChooseHandIndex, FloorMatchOrdinal(LRealFloor, FChooseMonth));
+      Exit;
     end;
-
-    Exit;
   end;
+end;
 
-  if (FGame = nil) or (FGame.Phase <> gpPlaying) or (FGame.Current <> FHumanIndex) then
-  begin
-    Exit;
-  end;
-
-  // 선택 모드: 강조된 후보(바닥 같은 월) 클릭
-  if FChoosing then
-  begin
-    for var K := 0 to FFloorRects.Count - 1 do
-    begin
-      var LRealFloor := FFloorIndexMap[K];
-      if (LRealFloor >= 0) and (LRealFloor < FGame.Floor.Count) and
-        (FGame.Floor[LRealFloor].Month = FChooseMonth) and FFloorRects[K].Contains(LPoint) then
-      begin
-        TGostopAudio.Instance.Play('ui_click');
-        PlayChosen(FChooseHandIndex, FloorMatchOrdinal(LRealFloor, FChooseMonth));
-        Exit;
-      end;
-    end;
-
-    Exit;
-  end;
-
-  // 일반 모드: 오른쪽(위에 겹친) 손패부터 히트 테스트
+procedure TGostopBoard.MouseDownPlayHand(const LPoint: TPointF);
+begin
   for var K := FHandRects.Count - 1 downto 0 do
   begin
     if FHandRects[K].Contains(LPoint) then

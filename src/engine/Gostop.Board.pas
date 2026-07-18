@@ -4456,9 +4456,16 @@ begin
           LBot := LPanel.Top - 14;
         end;
 
+        // 손패(뒷면)·먹은패 열. P2(왼)는 손패가 바깥쪽(왼쪽)·먹은패가 안쪽,
+        // P4(오른)는 반대로 손패가 바깥쪽(오른쪽)·먹은패가 안쪽이 되도록 배치
         var LColW := ARegion.Right - ARegion.Left;
         var LXHand := ARegion.Left + LColW * 0.30;   // 손패(뒷면) 열
         var LXCap := ARegion.Left + LColW * 0.70;    // 먹은패 열
+        if APos = spRight then
+        begin
+          LXHand := ARegion.Left + LColW * 0.70;
+          LXCap := ARegion.Left + LColW * 0.30;
+        end;
 
         // 손패(뒷면) 세로 부채
         var LStep := LHandStep;

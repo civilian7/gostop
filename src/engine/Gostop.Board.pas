@@ -132,7 +132,6 @@ type
     FSlotRemain: array [0 .. 3] of Integer;      // 남은 스핀 스텝(0=정지)
     FSlotTick: Integer;
     FSlotTimer: TTimer;
-    FSetupRowRects: array [0 .. 3] of TRectF;    // 행 클릭 → 내 시트로
     FBtnSetupStart: TRectF;
     FBtnSetupCancel: TRectF;
     FBtnSetupSpin: TRectF;                       // 다시 돌리기
@@ -4598,13 +4597,12 @@ begin
   const LPad = 22.0;        // 패널 좌우 안여백
   const LRowH = 60.0;       // 행 높이(간격 포함)
   const LRowGap = 10.0;     // 행 사이 간격
-  const LHintH = 26.0;      // 안내 문구 높이
   const LBtnH = 40.0;       // 버튼 높이
   const LBtnGap = 16.0;     // 버튼 사이 간격
   const LRowGap2 = 12.0;    // 버튼 행 사이 간격
 
-  // 제목(48) + 행들 + 안내 + 버튼2행 + 하단여백
-  var LPanelH := 48 + FSetupCount * LRowH + LHintH + 8 + LBtnH + LRowGap2 + LBtnH + 22;
+  // 제목(48) + 행들 + 버튼2행 + 하단여백. 휴먼 좌석은 항상 마지막 행 고정(선택 불가)
+  var LPanelH := 48 + FSetupCount * LRowH + 12 + LBtnH + LRowGap2 + LBtnH + 22;
   var LPanel := DrawStdDialog(Format('대전 설정 — %s (%d인)', [GAME_MODE_LABELS[FSetupCount], FSetupCount]), 500.0, LPanelH);
   var LCx := (LPanel.Left + LPanel.Right) / 2;
 
@@ -4612,23 +4610,12 @@ begin
   begin
     var LY := LPanel.Top + 50 + R * LRowH;
     var LRow := RectF(LPanel.Left + LPad, LY, LPanel.Right - LPad, LY + LRowH - LRowGap);
-    FSetupRowRects[R] := LRow;
 
-    // 행 배경 — 내 시트 행은 금테 강조, 클릭 가능한(=내 시트 아닌) 행은 호버 시 밝게
+    // 행 배경 — 내 시트 행(항상 마지막 행)만 금테 강조. 좌석 선택 기능은 없음(휴먼 고정)
     Canvas.Fill.Color := $FF20301F;
     if R = FSetupHumanRow then
     begin
       Canvas.Fill.Color := $FF2F4A2E;
-    end
-    else
-    if IsPressed(FSetupRowRects[R]) then
-    begin
-      Canvas.Fill.Color := AdjustColor($FF20301F, -12);
-    end
-    else
-    if IsHot(FSetupRowRects[R]) then
-    begin
-      Canvas.Fill.Color := AdjustColor($FF20301F, 22);
     end;
 
     Canvas.FillRect(LRow, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
@@ -4678,10 +4665,7 @@ begin
       False, 1, [], TTextAlign.Leading, TTextAlign.Center);
   end;
 
-  // 안내 문구(중앙)
-  var LBY := LPanel.Top + 50 + FSetupCount * LRowH + 2;
-  DrawLabel(RectF(LPanel.Left, LBY, LPanel.Right, LBY + LHintH), 'AI 행을 클릭하면 그 시트에 내가 앉습니다', $FF8A968A, 12);
-  LBY := LBY + LHintH + 8;
+  var LBY := LPanel.Top + 50 + FSetupCount * LRowH + 12;
 
   // 보조 버튼 행: [다시 돌리기] [관전 모드] — 중앙 정렬 한 쌍
   var LBtnW := 160.0;
@@ -6814,26 +6798,6 @@ begin
     // 대전 설정 다이얼로그(슬롯머신) 조작
     if FMatchSetupOpen then
     begin
-      // 행 클릭 = 그 시트에 내가 앉음(이전 내 시트는 AI로 스핀)
-      for var R := 0 to FSetupCount - 1 do
-      begin
-        if FSetupRowRects[R].Contains(LPoint) and (R <> FSetupHumanRow) then
-        begin
-          TGostopAudio.Instance.Play('ui_select');
-          var LOld := FSetupHumanRow;
-          FSetupHumanRow := R;
-          FSetupAvatar[R] := -1;
-          FSlotRemain[R] := 0;
-          if LOld >= 0 then
-          begin
-            StartSlotSpin(LOld);
-          end;
-
-          Repaint;
-          Exit;
-        end;
-      end;
-
       if FBtnSetupSpin.Contains(LPoint) then
       begin
         TGostopAudio.Instance.Play('ui_click');

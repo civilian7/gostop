@@ -321,9 +321,12 @@ begin
     else
     if AInput.PlayerCount = 4 then
     begin
+      // LWinnerSeat·S(아래 루프)는 "선=0..말번=3" 논리 좌석(SeatMap 공간). SeatAvatar는 물리 좌석
+      // 배열이므로 (NextStartPos+논리좌석) mod 4로 반드시 회전해서 인덱싱해야 한다 — 이 회전을
+      // 빠뜨리면 선이 바뀐 판(대부분의 판)에서 정산창에 엉뚱한 사람 얼굴이 뜬다.
       var LWinnerSeat := AInput.SeatMap[AGame.Winner];
       var LWinRow: TResultRow;
-      LWinRow.AvatarIdx := AInput.SeatAvatar[LWinnerSeat];
+      LWinRow.AvatarIdx := AInput.SeatAvatar[AInput.GameToPhysical[AGame.Winner]];
       LWinRow.IsWinner := True;
       LWinRow.HasAmount := True;
       LWinRow.Amount := LNet4[LWinnerSeat] * AInput.MoneyPerPoint * AInput.Stakes;
@@ -339,7 +342,7 @@ begin
         if (S <> LWinnerSeat) and (S <> AInput.SitOutSeat) then
         begin
           var LRow: TResultRow;
-          LRow.AvatarIdx := AInput.SeatAvatar[S];
+          LRow.AvatarIdx := AInput.SeatAvatar[(AInput.NextStartPos + S) mod 4];
           LRow.IsWinner := False;
           LRow.HasAmount := True;
           LRow.Amount := LNet4[S] * AInput.MoneyPerPoint * AInput.Stakes;

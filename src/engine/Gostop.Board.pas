@@ -114,6 +114,7 @@ type
     FSettingsOpen: Boolean;      // 설정창 표시 중
     FCfgRects: array [0 .. 10] of TRectF;  // 설정 행 값 영역(0=인원수, 1~5=토글, 9=닉네임, 10=아바타)
     FCfgCountRects: array [0 .. 2] of TRectF;  // 인원수 3분할 선택(2/3/4인) 클릭 영역
+    FCfgSkillRects: array [0 .. 3] of TRectF;  // AI 난이도 4분할 선택(하수/중수/고수/최고수) 클릭 영역
     FBtnCfgCancel: TRectF;      // 설정창 '취소'(타이틀로 복귀)
     FBtnCfgNext: TRectF;        // 설정창 '다음'(대전 설정 다이얼로그로 진행)
 
@@ -471,6 +472,8 @@ implementation
 const
   GWANG_UNIT_PRICE = 1;      // 광 1개당 단가(광값 = 광개수 × 단가)
   // PANEL_W/PANEL_H는 Gostop.Board.Layout 유닛에 있음(uses로 참조)
+  AI_SKILL_LABELS: array [0 .. 3] of string = ('하수', '중수', '고수', '최고수');
+  AI_SKILL_VALUES: array [0 .. 3] of Integer = (30, 50, 70, 90);
 
 // 군용담요 텍스처용 결정론적 섬유 잡음(-32..31). 좌표 해시 기반(Random 미사용).
 function FeltNoise(const AX, AY: Integer): Integer;
@@ -3896,24 +3899,6 @@ begin
   LValues[7] := Format('%s원', [FormatFloat('#,##0', FConfig.SeedMoney)]);
   LValues[9] := FConfig.Nickname;
   LValues[10] := '변경';
-  case FConfig.AiSkill of
-    30:
-      begin
-        LValues[8] := '초급';
-      end;
-    50:
-      begin
-        LValues[8] := '중급';
-      end;
-    70:
-      begin
-        LValues[8] := '고급';
-      end;
-  else
-    begin
-      LValues[8] := '최상';
-    end;
-  end;
 
   for var I := 0 to ROW_COUNT - 1 do
   begin
@@ -3958,6 +3943,33 @@ begin
       // 켬/끔 설정: 슬라이드 토글 스위치(오른쪽 정렬)
       FCfgRects[I] := LValueArea;
       DrawCfgToggle(LValueArea, LToggleOn[I]);
+    end
+    else
+    if I = 8 then
+    begin
+      // AI 난이도: 하수/중수/고수/최고수를 한 번에 보여주는 4분할 선택 버튼
+      var LSegGap := 4.0;
+      var LSegW := (LValueArea.Width - LSegGap * 3) / 4;
+      for var LSeg := 0 to 3 do
+      begin
+        var LSegRect := RectF(LValueArea.Left + LSeg * (LSegW + LSegGap), LValueArea.Top,
+          LValueArea.Left + LSeg * (LSegW + LSegGap) + LSegW, LValueArea.Bottom);
+        FCfgSkillRects[LSeg] := LSegRect;
+        if AI_SKILL_VALUES[LSeg] = FConfig.AiSkill then
+        begin
+          Canvas.FillRound(LSegRect, 8, $FF2E7D32);
+          Canvas.StrokeRound(LSegRect, 8, $FFFFD54A, 1.5);
+          DrawLabel(LSegRect, AI_SKILL_LABELS[LSeg], TAlphaColors.White, 12);
+        end
+        else
+        begin
+          Canvas.FillRound(LSegRect, 8, $FF2F4436);
+          Canvas.StrokeRound(LSegRect, 8, $60FFFFFF, 1);
+          DrawLabel(LSegRect, AI_SKILL_LABELS[LSeg], $FFCBD6C8, 12);
+        end;
+      end;
+
+      FCfgRects[I] := LValueArea;
     end
     else
     begin
@@ -4063,21 +4075,21 @@ begin
 
   if ASkill <= 30 then
   begin
-    Result := '초급';
+    Result := '하수';
   end
   else
   if ASkill <= 50 then
   begin
-    Result := '중급';
+    Result := '중수';
   end
   else
   if ASkill <= 70 then
   begin
-    Result := '고급';
+    Result := '고수';
   end
   else
   begin
-    Result := '최상';
+    Result := '최고수';
   end;
 end;
 
@@ -6622,9 +6634,22 @@ begin
         end;
       end;
 
+      // AI 난이도: 하수/중수/고수/최고수 중 클릭한 칸으로 즉시 선택(4분할 버튼)
+      for var LSeg := 0 to 3 do
+      begin
+        if FCfgSkillRects[LSeg].Contains(LPoint) then
+        begin
+          TGostopAudio.Instance.Play('ui_click');
+          FConfig.AiSkill := AI_SKILL_VALUES[LSeg];
+          SaveSettings;
+          Repaint;
+          Exit;
+        end;
+      end;
+
       for var I := 1 to High(FCfgRects) do
       begin
-        if FCfgRects[I].Contains(LPoint) then
+        if (I <> 8) and FCfgRects[I].Contains(LPoint) then
         begin
           TGostopAudio.Instance.Play('ui_click');
           if I <= 8 then
@@ -6701,7 +6726,7 @@ begin
         if (R <> FSetupHumanRow) and FSetupSkRects[R].Contains(LPoint) then
         begin
           TGostopAudio.Instance.Play('ui_click');
-          // 고유(-1) → 초급 → 중급 → 고급 → 최상 → 고유 순환
+          // 고유(-1) → 하수 → 중수 → 고수 → 최고수 → 고유 순환
           case FSetupSkill[R] of
             -1:
               begin

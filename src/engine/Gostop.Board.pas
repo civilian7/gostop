@@ -5349,7 +5349,7 @@ begin
     LCountdownH := 56.0;   // 자동 진행 카운트다운 표시 영역
   end;
 
-  // 승자 줄은 점수 내역 뱃지(광 3·열끗 1·띠 3·피 3)가 있으면 한 줄 더 필요해 그만큼 늘림
+  // 승자 줄은 점수 내역 뱃지(광(3)·열끗(3)·청단(3) 등)가 있으면 한 줄 더 필요해 그만큼 늘림
   const SCORE_ROW_EXTRA_H = 32.0;
   var LRowHeights: TArray<Single>;
   SetLength(LRowHeights, LN);
@@ -5441,7 +5441,7 @@ begin
       DrawLabel(RectF(LTextLeft, LY, LPanel.Right - 18, LY + LRowH), LRow.Text, LTextColor, LFontSize);
     end;
 
-    // 승자 점수 내역(광 3·열끗 1·띠 3·피 3) — 박 뱃지와 같은 둥근 뱃지 스타일, 아바타 아래 별도 줄
+    // 승자 점수 내역(광(3)·열끗(3)·청단(3) 등) — 박 뱃지와 같은 둥근 뱃지 스타일, 아바타 아래 별도 줄
     if LRow.IsWinner and (Length(LRow.ScoreParts) > 0) then
     begin
       var LScoreBadgeH := 24.0;
@@ -5459,7 +5459,7 @@ begin
       end;
 
       // 합계 점수(고·박 적용 전) — 다른 뱃지들과 구분되도록 금색으로 강조
-      var LTotalText := Format('합계 %d점', [LRow.ScoreTotal]);
+      var LTotalText := Format('합계(%d)', [LRow.ScoreTotal]);
       var LTotalBadgeW := Canvas.TextWidth(LTotalText) + 20;
       var LTotalBadgeR := RectF(LScoreBadgeX, LScoreBadgeY, LScoreBadgeX + LTotalBadgeW, LScoreBadgeY + LScoreBadgeH);
       Canvas.FillRound(LTotalBadgeR, LScoreBadgeH / 2, $FF6B5610);

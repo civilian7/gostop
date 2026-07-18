@@ -125,28 +125,49 @@ begin
   end;
 end;
 
-// 승자 결과 줄에 표시할 점수 내역 뱃지(광 3·열끗 1·띠 3·피 3 — 0장인 종류는 생략)
+// 승자 결과 줄에 표시할 점수 내역 뱃지 — 장수가 아니라 "그 항목이 실제로 낸 점수"를 보여준다
+// (광(3)·열끗(3)·청단(3) 식. 문턱 미달로 0점인 항목은 표시하지 않음 — 예: 열끗 1장은 열끗(0)이 아니라 아예 생략)
 function ScorePartsOf(const ABreakdown: TScoreBreakdown): TArray<string>;
 begin
   Result := nil;
-  if ABreakdown.BrightCount > 0 then
+  if ABreakdown.BrightPoints > 0 then
   begin
-    Result := Result + [Format('광 %d', [ABreakdown.BrightCount])];
+    Result := Result + [Format('광(%d)', [ABreakdown.BrightPoints])];
   end;
 
-  if ABreakdown.AnimalCount > 0 then
+  if ABreakdown.AnimalPoints > 0 then
   begin
-    Result := Result + [Format('열끗 %d', [ABreakdown.AnimalCount])];
+    Result := Result + [Format('열끗(%d)', [ABreakdown.AnimalPoints])];
   end;
 
-  if ABreakdown.RibbonCount > 0 then
+  if ABreakdown.GodoriPoints > 0 then
   begin
-    Result := Result + [Format('띠 %d', [ABreakdown.RibbonCount])];
+    Result := Result + [Format('고도리(%d)', [ABreakdown.GodoriPoints])];
   end;
 
-  if ABreakdown.JunkValue > 0 then
+  if ABreakdown.RibbonPoints > 0 then
   begin
-    Result := Result + [Format('피 %d', [ABreakdown.JunkValue])];
+    Result := Result + [Format('띠(%d)', [ABreakdown.RibbonPoints])];
+  end;
+
+  if ABreakdown.HongdanPoints > 0 then
+  begin
+    Result := Result + [Format('홍단(%d)', [ABreakdown.HongdanPoints])];
+  end;
+
+  if ABreakdown.CheongdanPoints > 0 then
+  begin
+    Result := Result + [Format('청단(%d)', [ABreakdown.CheongdanPoints])];
+  end;
+
+  if ABreakdown.ChodanPoints > 0 then
+  begin
+    Result := Result + [Format('초단(%d)', [ABreakdown.ChodanPoints])];
+  end;
+
+  if ABreakdown.JunkPoints > 0 then
+  begin
+    Result := Result + [Format('피(%d)', [ABreakdown.JunkPoints])];
   end;
 end;
 

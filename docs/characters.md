@@ -40,8 +40,10 @@
 ## 2. 캐릭터 추가/교체 절차
 
 1. **이미지**: 1:1(1024²) 상반신·투명배경으로 생성(§4의 프롬프트) → `assets/avatars/raw/avatar_NN.png`.
-2. **크롭**: 얼굴 중심 정사각 128×128로 가공(원 마스크는 앱이 로드 시 적용) → `assets/avatars/avatar_NN.png`
-   (평상시), `assets/avatars/states/avatar_NN_{cheer,sad}.png`(환호·슬픔, 같은 크롭 규칙).
+2. **크롭·배경제거**: 얼굴 중심 정사각 128×128 + rembg로 배경 제거(원 마스크 없이 사각형
+   그대로 저장 — 원형 표현이 필요하면 앱 쪽에서 처리) → `assets/avatars/avatar_NN.png`(평상시),
+   `assets/avatars/states/avatar_NN_{cheer,sad}.png`(환호·슬픔, 같은 크롭 규칙). 절차·스크립트는
+   [[avatar-image-pipeline.md]] 참조.
 3. **정본 데이터**: `assets/characters.json`에 항목 추가/수정(이름·능력치·`ageJob`/`personality`/`playstyle`/
    `quotes`/`images`). `Gostop.Characters.pas`는 코드 수정 없이 자동 반영(지연 로드).
 4. **페르소나·대사**: 본 문서 §4에 카드 추가(JSON 작성의 원본 자료로 사용).

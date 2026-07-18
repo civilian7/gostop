@@ -128,13 +128,11 @@ type
     FSetupCount: Integer;                        // 시작할 인원(2/3/4)
     FSetupHumanRow: Integer;                     // 내 시트 행(0-기반), -1 = 관전(전원 AI)
     FSetupAvatar: array [0 .. 3] of Integer;     // 행별 배정 아바타(릴 타깃)
-    FSetupSkill: array [0 .. 3] of Integer;      // 행별 AI 난이도
     FSlotDisp: array [0 .. 3] of Integer;        // 릴에 현재 표시 중인 아바타
     FSlotRemain: array [0 .. 3] of Integer;      // 남은 스핀 스텝(0=정지)
     FSlotTick: Integer;
     FSlotTimer: TTimer;
     FSetupRowRects: array [0 .. 3] of TRectF;    // 행 클릭 → 내 시트로
-    FSetupSkRects: array [0 .. 3] of TRectF;     // 난이도 클릭 → 순환
     FBtnSetupStart: TRectF;
     FBtnSetupCancel: TRectF;
     FBtnSetupSpin: TRectF;                       // 다시 돌리기
@@ -410,10 +408,8 @@ type
     function  PickUnusedAvatar: Integer;
     function  AvatarName(const AIndex: Integer): string;
     function  AvatarStat(const AIndex: Integer; const AStat: Integer): Integer;
-    function  DerivedSkill(const AAvatarIndex: Integer): Integer;
     procedure RollSeatLuck;
     function  SeatDisplayName(const APos: TSeatPos): string;
-    function  SkillLabel(const ASkill: Integer): string;
     procedure SetVolumeFromX(const AX: Single);
     procedure SetSpeedFromX(const AX: Single);
     function  PlayerPanelRect(const APos: TSeatPos): TRectF;
@@ -4146,12 +4142,6 @@ begin
   Result := TGostopCharacters.StatOf(AIndex, AStat);
 end;
 
-// 캐릭터 고유 AI 스킬 = (수읽기 + 침착) × 1.25 (0~100)
-function TGostopBoard.DerivedSkill(const AAvatarIndex: Integer): Integer;
-begin
-  Result := TGostopCharacters.DerivedSkill(AAvatarIndex);
-end;
-
 // 판별 운 굴림: 캐릭터 운 스탯 ×2 ± 15 (5~99). 새 판마다 호출
 procedure TGostopBoard.RollSeatLuck;
 begin
@@ -4194,34 +4184,6 @@ begin
     begin
       Result := 'P4';
     end;
-  end;
-end;
-
-function TGostopBoard.SkillLabel(const ASkill: Integer): string;
-begin
-  if ASkill < 0 then
-  begin
-    Result := '고유';
-    Exit;
-  end;
-
-  if ASkill <= 30 then
-  begin
-    Result := '병아리';
-  end
-  else
-  if ASkill <= 50 then
-  begin
-    Result := '선수';
-  end
-  else
-  if ASkill <= 70 then
-  begin
-    Result := '타짜';
-  end
-  else
-  begin
-    Result := '신의손';
   end;
 end;
 
@@ -4374,7 +4336,7 @@ begin
   begin
     var LPos := FReplacingSeats[I];
     FSeatAvatar[LPos] := FReplaceNewAvatar[I];
-    FSeatSkill[LPos] := DerivedSkill(FReplaceNewAvatar[I]);
+    FSeatSkill[LPos] := FConfig.AiSkill;   // 휴먼 제외 전원 동일 게임 레벨 유지
     FMoney[LPos] := FConfig.SeedMoney;
     FWins[LPos] := 0;
     FLosses[LPos] := 0;
@@ -4439,7 +4401,6 @@ begin
   for var R := 0 to 3 do
   begin
     FSetupAvatar[R] := -1;
-    FSetupSkill[R] := -1;   // 기본: 캐릭터 고유 능력치
     FSlotDisp[R] := -1;
     FSlotRemain[R] := 0;
   end;
@@ -4621,15 +4582,8 @@ begin
     else
     begin
       FSeatAvatar[LPos] := FSetupAvatar[R];
-      // 고유(-1)면 캐릭터 능력치(수읽기+침착)에서 스킬 유도
-      if FSetupSkill[R] < 0 then
-      begin
-        FSeatSkill[LPos] := DerivedSkill(FSetupAvatar[R]);
-      end
-      else
-      begin
-        FSeatSkill[LPos] := FSetupSkill[R];
-      end;
+      // AI 난이도는 '새게임' 단계에서 정한 게임 레벨(FConfig.AiSkill)을 모든 AI 좌석이 동일하게 사용
+      FSeatSkill[LPos] := FConfig.AiSkill;
     end;
   end;
 
@@ -4648,7 +4602,6 @@ begin
   const LBtnH = 40.0;       // 버튼 높이
   const LBtnGap = 16.0;     // 버튼 사이 간격
   const LRowGap2 = 12.0;    // 버튼 행 사이 간격
-  const LSkW = 100.0;       // 난이도 버튼 폭
 
   // 제목(48) + 행들 + 안내 + 버튼2행 + 하단여백
   var LPanelH := 48 + FSetupCount * LRowH + LHintH + 8 + LBtnH + LRowGap2 + LBtnH + 22;
@@ -4659,7 +4612,7 @@ begin
   begin
     var LY := LPanel.Top + 50 + R * LRowH;
     var LRow := RectF(LPanel.Left + LPad, LY, LPanel.Right - LPad, LY + LRowH - LRowGap);
-    FSetupRowRects[R] := RectF(LRow.Left, LRow.Top, LRow.Right - LSkW - 12, LRow.Bottom);
+    FSetupRowRects[R] := LRow;
 
     // 행 배경 — 내 시트 행은 금테 강조, 클릭 가능한(=내 시트 아닌) 행은 호버 시 밝게
     Canvas.Fill.Color := $FF20301F;
@@ -4717,36 +4670,12 @@ begin
 
     Canvas.StrokeRound(LAv, 6, $80FFFFFF, 1);
 
-    // 이름(아바타 오른쪽 ~ 난이도 버튼 왼쪽, 세로 중앙)
+    // 이름(아바타 오른쪽 ~ 행 끝까지, 세로 중앙). AI는 모두 '새게임'에서 정한 동일 레벨이라
+    // 좌석별 난이도 선택은 없음(휴먼만 다름)
     Canvas.Fill.Color := TAlphaColors.White;
     Canvas.Font.Size := 16;
-    Canvas.FillText(RectF(LAv.Right + 14, LRow.Top, LRow.Right - LSkW - 20, LRow.Bottom), LName,
+    Canvas.FillText(RectF(LAv.Right + 14, LRow.Top, LRow.Right - 12, LRow.Bottom), LName,
       False, 1, [], TTextAlign.Leading, TTextAlign.Center);
-
-    // 난이도(AI 행만) — 세로 중앙, 폭 일정
-    if R <> FSetupHumanRow then
-    begin
-      var LSkY := LRow.Top + (LRow.Height - 34) / 2;
-      FSetupSkRects[R] := RectF(LRow.Right - LSkW - 6, LSkY, LRow.Right - 6, LSkY + 34);
-
-      var LSkColor: TAlphaColor := $FF37474F;
-      if IsPressed(FSetupSkRects[R]) then
-      begin
-        LSkColor := AdjustColor(LSkColor, -24);
-      end
-      else
-      if IsHot(FSetupSkRects[R]) then
-      begin
-        LSkColor := AdjustColor(LSkColor, 26);
-      end;
-
-      Canvas.FillRound(FSetupSkRects[R], 8, LSkColor);
-      DrawLabel(FSetupSkRects[R], SkillLabel(FSetupSkill[R]), $FFFFE082, 14);
-    end
-    else
-    begin
-      FSetupSkRects[R] := TRectF.Empty;
-    end;
   end;
 
   // 안내 문구(중앙)
@@ -6898,41 +6827,6 @@ begin
           if LOld >= 0 then
           begin
             StartSlotSpin(LOld);
-          end;
-
-          Repaint;
-          Exit;
-        end;
-      end;
-
-      // 난이도 순환
-      for var R := 0 to FSetupCount - 1 do
-      begin
-        if (R <> FSetupHumanRow) and FSetupSkRects[R].Contains(LPoint) then
-        begin
-          TGostopAudio.Instance.Play('ui_click');
-          // 고유(-1) → 병아리 → 선수 → 타짜 → 신의손 → 고유 순환
-          case FSetupSkill[R] of
-            -1:
-              begin
-                FSetupSkill[R] := 30;
-              end;
-            30:
-              begin
-                FSetupSkill[R] := 50;
-              end;
-            50:
-              begin
-                FSetupSkill[R] := 70;
-              end;
-            70:
-              begin
-                FSetupSkill[R] := 100;
-              end;
-          else
-            begin
-              FSetupSkill[R] := -1;
-            end;
           end;
 
           Repaint;

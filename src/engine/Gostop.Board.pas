@@ -36,7 +36,8 @@ uses
   Gostop.CardImages,
   Gostop.Audio,
   Gostop.Assets,
-  Gostop.SaveGame;
+  Gostop.SaveGame,
+  Gostop.Board.Settlement;
 {$ENDREGION}
 
 type
@@ -63,16 +64,6 @@ type
     Pos: TSeatPos;       // 손패 대상 자리
     Angle: Single;       // 착지 각도(좌/우 자리는 90/270)
     Scale: Single;       // 카드 크기 배율
-  end;
-
-  /// <summary>정산창 한 줄. 아바타·금액·박 뱃지를 구조적으로 담아 렌더링과 데이터를 분리한다.</summary>
-  TResultRow = record
-    AvatarIdx: Integer;    // -1 = 아바타 없음(안내문 줄)
-    IsWinner: Boolean;     // True면 환호 아바타 + 강조 스타일
-    HasAmount: Boolean;    // True면 Amount·Flags 표시, False면 Text만 표시
-    Amount: Integer;       // 지불/수령 금액(부호 포함) — 천단위 콤마로 표시
-    Flags: TArray<string>; // 박 뱃지들(피박/광박/고박/멍박/쇼당독박 등)
-    Text: string;          // 아바타 없는 안내문 또는 헤더의 "승" 문구(닉네임 미포함)
   end;
 
   /// <summary>
@@ -162,7 +153,6 @@ type
     FSeatMap: TArray<Integer>;       // 게임 인덱스 → 물리 좌석(0..3)
     FSitOutSeat: Integer;
     FGwang: TGwangSale;
-    FNet4: array [0 .. 3] of Integer;
 
     // 시드머니·전적(물리 자리별로 판 간 지속)
     FStakes: Integer;   // 판돈 배수(나가리 시 다음 판 ×2로 이월, 승부 나면 1로 복귀)
@@ -335,8 +325,6 @@ type
     procedure PickTick(Sender: TObject);
     procedure DrawBonusDraw;
     procedure BuildFinalSummary;
-    function FlagLabels(const AResult: TPlayerResult): TArray<string>;
-    function StakesSuffix: string;
     procedure PlayChosen(const AHandIndex: Integer; const AFloorChoice: Integer);
     procedure AutoStopIfLastCard;
     procedure EnterFlipChoice;
@@ -1067,10 +1055,6 @@ begin
   FAwaitingGoStop := False;
   FShodangActive := False;   // 쇼당 상태 초기화(매 게임)
   FShodangPending := False;
-  for var S := 0 to 3 do
-  begin
-    FNet4[S] := 0;
-  end;
 
   // 새 매치면 시드머니·전적·판돈 배수 리셋
   if ANewMatch then
@@ -2462,274 +2446,75 @@ begin
   Result := True;
 end;
 
-function TGostopBoard.FlagLabels(const AResult: TPlayerResult): TArray<string>;
-begin
-  Result := nil;
-  if AResult.Gobak then
-  begin
-    Result := Result + ['고박'];
-  end;
-
-  if AResult.Pibak then
-  begin
-    Result := Result + ['피박'];
-  end;
-
-  if AResult.Gwangbak then
-  begin
-    Result := Result + ['광박'];
-  end;
-
-  if AResult.Meongbak then
-  begin
-    Result := Result + ['멍박'];
-  end;
-end;
-
-// 판돈 배수 표기(나가리 이월분). ×1이면 빈 문자열
-function TGostopBoard.StakesSuffix: string;
-begin
-  if FStakes > 1 then
-  begin
-    Result := Format(' (판돈 ×%d)', [FStakes]);
-  end
-  else
-  begin
-    Result := '';
-  end;
-end;
-
+// 정산 계산은 Gostop.Board.Settlement.TGostopSettlement.Build(순수 함수)에 위임하고,
+// 여기서는 매치 상태를 입력으로 모아 전달한 뒤 결과를 그대로 필드에 반영만 한다.
 procedure TGostopBoard.BuildFinalSummary;
 begin
-  // 오링 카운트 집계용: 이번 정산 전에 이미 파산 상태였던 상대 좌석(중복 집계 방지)
-  var LWasBroke: set of TSeatPos := [];
-  for var LPos in ActivePhysicalSeats do
-  begin
-    if (LPos <> spBottom) and (FMoney[LPos] <= 0) then
-    begin
-      Include(LWasBroke, LPos);
-    end;
-  end;
+  var LInput: TSettlementInput;
+  LInput.PlayerCount := FPlayerCount;
+  LInput.MoneyPerPoint := FConfig.MoneyPerPoint;
+  LInput.Stakes := FStakes;
+  LInput.NextStartPos := Ord(FNextStartPos);
+  LInput.SeatMap := FSeatMap;
+  LInput.SitOutSeat := FSitOutSeat;
+  LInput.Spectator := FSpectator;
+  LInput.ShodangActive := FShodangActive;
+  LInput.ShodangCaller := FShodangCaller;
+  LInput.ShodangAccepter := FShodangAccepter;
+  LInput.ShodangDecliner := FShodangDecliner;
 
-  var LSettle := FEngine.FinalSettlement;
-
-  // 쇼당 독박: 수락자(밀어줄 대상)가 이겼으면 거절자가 전액(호출자 몫까지)을 독박,
-  // 호출자는 면제(피박·광박은 각 패자별 계산이 이미 반영됨 — 합만 거절자에게 몰아줌)
-  var LDokbakIdx := -1;
-  if FShodangActive then
-  begin
-    LDokbakIdx := TShodang.ApplyDokbak(LSettle, FPlayerCount, FGame.Winner,
-      FShodangCaller, FShodangAccepter, FShodangDecliner);
-  end;
-
-  var LSeatFlag: array [0 .. 3] of TArray<string>;
+  SetLength(LInput.SeatAvatar, 4);
+  SetLength(LInput.MoneyBefore, 4);
   for var S := 0 to 3 do
   begin
-    LSeatFlag[S] := nil;
+    LInput.SeatAvatar[S] := FSeatAvatar[TSeatPos(S)];
+    LInput.MoneyBefore[S] := FMoney[TSeatPos(S)];
   end;
 
-  // 4인: 게임 정산을 FNet4(좌석)에 합산해 최종 손익 확정 + 좌석별 박 플래그
-  if FPlayerCount = 4 then
+  LInput.ActiveOpponentSeats := nil;
+  for var LPos in ActivePhysicalSeats do
   begin
-    for var I := 0 to High(FSeatMap) do
+    if LPos <> spBottom then
     begin
-      FNet4[FSeatMap[I]] := FNet4[FSeatMap[I]] + LSettle[I].Net;
-      LSeatFlag[FSeatMap[I]] := FlagLabels(LSettle[I]);
+      LInput.ActiveOpponentSeats := LInput.ActiveOpponentSeats + [Ord(LPos)];
     end;
   end;
 
-  // 물리 자리별 머니 반영(최종 손익 × 단가 × 판돈 배수)
-  if FPlayerCount = 4 then
+  SetLength(LInput.GameToPhysical, FGame.PlayerCount);
+  for var I := 0 to FGame.PlayerCount - 1 do
   begin
-    for var S := 0 to 3 do
-    begin
-      var LPos := TSeatPos((Ord(FNextStartPos) + S) mod 4);
-      FMoney[LPos] := FMoney[LPos] + FNet4[S] * FConfig.MoneyPerPoint * FStakes;
-    end;
-  end
-  else
-  begin
-    for var I := 0 to FGame.PlayerCount - 1 do
-    begin
-      FMoney[PhysicalPos(I)] := FMoney[PhysicalPos(I)] + LSettle[I].Net * FConfig.MoneyPerPoint * FStakes;
-    end;
+    LInput.GameToPhysical[I] := Ord(PhysicalPos(I));
   end;
 
-  // 오링 카운트: 이번 정산으로 새로 파산한 상대 수만큼 내 게임 이력에 누적(이미 파산 상태였던 좌석은 제외)
-  if not FSpectator then
+  var LOut := TGostopSettlement.Build(FGame, FEngine, LInput);
+
+  for var S := 0 to 3 do
   begin
-    var LNewlyBroke := 0;
-    for var LPos in ActivePhysicalSeats do
+    FMoney[TSeatPos(S)] := LOut.MoneyAfter[S];
+  end;
+
+  if LOut.NewlyBrokeCount > 0 then
+  begin
+    FConfig.KillCount := FConfig.KillCount + LOut.NewlyBrokeCount;
+    SaveSettings;
+  end;
+
+  if LOut.WinnerSeat >= 0 then
+  begin
+    Inc(FWins[TSeatPos(LOut.WinnerSeat)]);
+    for var LSeat in LOut.ParticipantSeats do
     begin
-      if (LPos <> spBottom) and (FMoney[LPos] <= 0) and (not (LPos in LWasBroke)) then
+      if LSeat <> LOut.WinnerSeat then
       begin
-        Inc(LNewlyBroke);
-      end;
-    end;
-
-    if LNewlyBroke > 0 then
-    begin
-      FConfig.KillCount := FConfig.KillCount + LNewlyBroke;
-      SaveSettings;
-    end;
-  end;
-
-  // 전적(참가자만): 승자 1승, 나머지 참가자 1패
-  if FGame.Winner >= 0 then
-  begin
-    Inc(FWins[PhysicalPos(FGame.Winner)]);
-    for var I := 0 to FGame.PlayerCount - 1 do
-    begin
-      if I <> FGame.Winner then
-      begin
-        Inc(FLosses[PhysicalPos(I)]);
+        Inc(FLosses[TSeatPos(LSeat)]);
       end;
     end;
   end;
 
-  // 총통 무효 판인지(나가리와 구분 — 판돈 이월 없음)
-  var LChongtong := False;
-  for var LEvt in FGame.Events do
-  begin
-    if LEvt.Kind = pekChongtong then
-    begin
-      LChongtong := True;
-      Break;
-    end;
-  end;
-
-  // 결과 줄(아바타·금액·박 뱃지 구조화 — 정산창 렌더링용)
-  var LRows := TList<TResultRow>.Create;
-  try
-    if FGame.ThreeBbeok then
-    begin
-      var LRow: TResultRow;
-      LRow.AvatarIdx := -1;
-      LRow.IsWinner := False;
-      LRow.HasAmount := False;
-      LRow.Text := '쓰리뻑! — 즉시 승리 (고정 점수)';
-      LRows.Add(LRow);
-    end;
-
-    if FGame.Winner < 0 then
-    begin
-      var LMsg1, LMsg2: string;
-      if LChongtong then
-      begin
-        LMsg1 := '총통! — 무효 판';
-        LMsg2 := '다음 게임으로 넘어갑니다';
-      end
-      else
-      begin
-        LMsg1 := '나가리 (무승부)';
-        LMsg2 := Format('다음 판 판돈 ×%d!', [FStakes * 2]);
-      end;
-
-      var LRow: TResultRow;
-      LRow.AvatarIdx := -1;
-      LRow.IsWinner := False;
-      LRow.HasAmount := False;
-      LRow.Text := LMsg1;
-      LRows.Add(LRow);
-      LRow.Text := LMsg2;
-      LRows.Add(LRow);
-    end
-    else
-    if FPlayerCount = 4 then
-    begin
-      var LWinnerSeat := FSeatMap[FGame.Winner];
-      var LWinRow: TResultRow;
-      LWinRow.AvatarIdx := FSeatAvatar[TSeatPos(LWinnerSeat)];
-      LWinRow.IsWinner := True;
-      LWinRow.HasAmount := True;
-      LWinRow.Amount := FNet4[LWinnerSeat] * FConfig.MoneyPerPoint * FStakes;
-      LWinRow.Flags := nil;
-      LRows.Add(LWinRow);
-
-      for var S := 0 to 3 do
-      begin
-        // 승자 제외 + 게임에 참가하지 않은(빠진/관전) 좌석은 정산에 표시하지 않음
-        if (S <> LWinnerSeat) and (S <> FSitOutSeat) then
-        begin
-          var LRow: TResultRow;
-          LRow.AvatarIdx := FSeatAvatar[TSeatPos(S)];
-          LRow.IsWinner := False;
-          LRow.HasAmount := True;
-          LRow.Amount := FNet4[S] * FConfig.MoneyPerPoint * FStakes;
-          LRow.Flags := LSeatFlag[S];
-          LRows.Add(LRow);
-        end;
-      end;
-    end
-    else
-    begin
-      var LWinRow: TResultRow;
-      LWinRow.AvatarIdx := FSeatAvatar[PhysicalPos(FGame.Winner)];
-      LWinRow.IsWinner := True;
-      LWinRow.HasAmount := True;
-      LWinRow.Amount := LSettle[FGame.Winner].Net * FConfig.MoneyPerPoint * FStakes;
-      LWinRow.Flags := nil;
-      LRows.Add(LWinRow);
-
-      for var I := 0 to FGame.PlayerCount - 1 do
-      begin
-        if I <> FGame.Winner then
-        begin
-          var LFlags := FlagLabels(LSettle[I]);
-          if I = LDokbakIdx then
-          begin
-            LFlags := ['쇼당독박'] + LFlags;
-          end;
-
-          var LRow: TResultRow;
-          LRow.AvatarIdx := FSeatAvatar[PhysicalPos(I)];
-          LRow.IsWinner := False;
-          LRow.HasAmount := True;
-          LRow.Amount := LSettle[I].Net * FConfig.MoneyPerPoint * FStakes;
-          LRow.Flags := LFlags;
-          LRows.Add(LRow);
-        end;
-      end;
-    end;
-
-    FResultRows := LRows.ToArray;
-    FResultTitle := Trim(StakesSuffix);   // FStakes 갱신 전 값 — 아래에서 FStakes가 바뀌어도 이 판의 배수 정보 보존
-  finally
-    LRows.Free;
-  end;
-
-  // 상태 표시줄(FStatus)용 요약 텍스트(다이얼로그와 별개, 간단 요약)
-  var LStatusParts := TList<string>.Create;
-  try
-    for var LRow in FResultRows do
-    begin
-      if LRow.HasAmount then
-      begin
-        LStatusParts.Add(Format('%s원 %s', [FormatFloat('#,##0', LRow.Amount), string.Join(' ', LRow.Flags)]).Trim)
-      end
-      else
-      begin
-        LStatusParts.Add(LRow.Text);
-      end;
-    end;
-
-    FStatus := string.Join('   ', LStatusParts.ToArray);
-  finally
-    LStatusParts.Free;
-  end;
-
-  // 판돈 배수 갱신: 나가리면 다음 판 ×2 이월(총통 무효 판은 그대로 유지), 승부가 나면 1로 복귀
-  if FGame.Winner < 0 then
-  begin
-    if not LChongtong then
-    begin
-      FStakes := FStakes * 2;
-    end;
-  end
-  else
-  begin
-    FStakes := 1;
-  end;
+  FResultRows := LOut.ResultRows;
+  FResultTitle := LOut.ResultTitle;
+  FStatus := LOut.StatusText;
+  FStakes := LOut.NewStakes;
 end;
 
 procedure TGostopBoard.AfterAction;

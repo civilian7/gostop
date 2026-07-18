@@ -1589,19 +1589,21 @@ const
   SHUFFLE_FLICKER_SECONDS = 0.14;   // 재배치 주기(초)
   SHUFFLE_CARD_COUNT = 12;          // 흩어져 보일 카드 장수
 
-// 셔플 카드들의 위치·각도를 중앙(바닥) 영역 안에서 새로 무작위 배치
+// 셔플 카드들의 위치·각도를 중앙(바닥) 영역 한가운데에 밀집된 형태로 새로 무작위 배치
 procedure TGostopBoard.RandomizeShuffleLayout;
 begin
   var LCen := CenterRegion;
   var CS := CardSize;
-  var LMarginX := CS.Width * 0.6 / 2;
-  var LMarginY := CS.Height * 0.6 / 2;
+  var LMidX := (LCen.Left + LCen.Right) / 2;
+  var LMidY := (LCen.Top + LCen.Bottom) / 2;
+  var LSpreadX := CS.Width * 0.55;    // 카드 다발이 뭉쳐 보이도록 좁은 반경
+  var LSpreadY := CS.Height * 0.45;
   SetLength(FShufflePts, SHUFFLE_CARD_COUNT);
   SetLength(FShuffleAngles, SHUFFLE_CARD_COUNT);
   for var I := 0 to SHUFFLE_CARD_COUNT - 1 do
   begin
-    var LX := LCen.Left + LMarginX + Random * (LCen.Width - LMarginX * 2);
-    var LY := LCen.Top + LMarginY + Random * (LCen.Height - LMarginY * 2);
+    var LX := LMidX + (Random - 0.5) * LSpreadX;
+    var LY := LMidY + (Random - 0.5) * LSpreadY;
     FShufflePts[I] := PointF(LX, LY);
     FShuffleAngles[I] := Random * 50 - 25;   // -25~+25도, 흐트러진 느낌
   end;

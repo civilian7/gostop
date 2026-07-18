@@ -405,7 +405,11 @@ begin
       AData.ShodangAccepter := LRoot.GetValue<Integer>('shodangAccepter', -1);
       AData.ShodangDecliner := LRoot.GetValue<Integer>('shodangDecliner', -1);
 
-      Result := (AData.PlayerCount >= 2) and (Length(AData.Players) = AData.PlayerCount);
+      // AData.PlayerCount는 매치 좌석 수(4인 매치=4)이고 Players는 "이번 판" 실제 참가자 수다.
+      // 4인 매치에서 말번 협상 때 누군가 포기(SitOutSeat)하면 이번 판은 3인으로 진행되므로
+      // Players 길이가 PlayerCount보다 작을 수 있다(반대로 클 수는 없음). 예전엔 완전히 같아야
+      // 한다고 검사해 말번이 빠진 4인 판을 저장한 뒤에는 항상 "이어하기"가 실패했다.
+      Result := (AData.PlayerCount >= 2) and (Length(AData.Players) >= 2) and (Length(AData.Players) <= AData.PlayerCount);
     finally
       LValue.Free;
     end;

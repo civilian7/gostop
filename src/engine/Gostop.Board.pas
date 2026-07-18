@@ -117,7 +117,7 @@ type
     FConfig: TGameConfig;        // 게임 룰·플레이어 설정(피박/광박/고박/보너스/금액/시드/난이도/닉네임)
     FNickEdit: TEdit;            // 닉네임 입력용(설정창에서만 표시, IME 지원)
     FSettingsOpen: Boolean;      // 설정창 표시 중
-    FCfgRects: array [0 .. 8] of TRectF;   // 설정 행 값 영역(0~4=토글, 5~6=값버튼, 7=닉네임, 8=아바타)
+    FCfgRects: array [0 .. 6] of TRectF;   // 설정 행 값 영역(0~4=토글, 5=닉네임, 6=아바타)
     FCfgCountRects: array [0 .. 2] of TRectF;  // 상단 인원수 카드(맞고/삼파전/광팔어유) 클릭 영역
     FCfgSkillRects: array [0 .. 3] of TRectF;  // 상단 AI 난이도 카드(병아리/선수/타짜/신의손) 클릭 영역
     FBtnCfgCancel: TRectF;      // 설정창 '취소'(타이틀로 복귀)
@@ -3799,48 +3799,6 @@ begin
       begin
         FConfig.Bonus := not FConfig.Bonus;
       end;
-    5:
-      begin
-        case FConfig.MoneyPerPoint of
-          50:
-            begin
-              FConfig.MoneyPerPoint := 100;
-            end;
-          100:
-            begin
-              FConfig.MoneyPerPoint := 500;
-            end;
-          500:
-            begin
-              FConfig.MoneyPerPoint := 1000;
-            end;
-        else
-          begin
-            FConfig.MoneyPerPoint := 50;
-          end;
-        end;
-      end;
-    6:
-      begin
-        case FConfig.SeedMoney of
-          10000:
-            begin
-              FConfig.SeedMoney := 30000;
-            end;
-          30000:
-            begin
-              FConfig.SeedMoney := 50000;
-            end;
-          50000:
-            begin
-              FConfig.SeedMoney := 100000;
-            end;
-        else
-          begin
-            FConfig.SeedMoney := 10000;
-          end;
-        end;
-      end;
   end;
 
   SaveSettings;
@@ -4000,7 +3958,7 @@ end;
 
 procedure TGostopBoard.DrawSettings;
 const
-  ROW_COUNT = 9;   // 0~4=켬/끔 토글, 5~6=값 버튼, 7=닉네임, 8=아바타
+  ROW_COUNT = 7;   // 0~4=켬/끔 토글, 5=닉네임, 6=아바타(점당금액·시드머니는 시스템 자동 결정이라 UI 없음)
   CARD_ROW_H = 106.0;
   CARD_GAP = 12.0;
 begin
@@ -4052,17 +4010,15 @@ begin
 
   var LRowsTop := LCardY + CARD_ROW_H + CARD_GAP;
 
-  // 행: 라벨(왼쪽) + 값(오른쪽). 0~4=켬/끔 토글, 5~6=값 버튼, 7=닉네임, 8=아바타
+  // 행: 라벨(왼쪽) + 값(오른쪽). 0~4=켬/끔 토글, 5=닉네임, 6=아바타
   var LLabels: array [0 .. ROW_COUNT - 1] of string;
   LLabels[0] := '피박';
   LLabels[1] := '광박';
   LLabels[2] := '멍박';
   LLabels[3] := '고박 (×2)';
   LLabels[4] := '보너스패';
-  LLabels[5] := '점당 금액';
-  LLabels[6] := '시드머니';
-  LLabels[7] := '닉네임';
-  LLabels[8] := '아바타';
+  LLabels[5] := '닉네임';
+  LLabels[6] := '아바타';
 
   var LToggleOn: array [0 .. 4] of Boolean;
   LToggleOn[0] := FConfig.Pibak;
@@ -4071,11 +4027,9 @@ begin
   LToggleOn[3] := FConfig.Gobak;
   LToggleOn[4] := FConfig.Bonus;
 
-  var LValues: array [5 .. 8] of string;
-  LValues[5] := Format('%s원', [FormatFloat('#,##0', FConfig.MoneyPerPoint)]);
-  LValues[6] := Format('%s원', [FormatFloat('#,##0', FConfig.SeedMoney)]);
-  LValues[7] := FConfig.Nickname;
-  LValues[8] := '변경';
+  var LValues: array [5 .. 6] of string;
+  LValues[5] := FConfig.Nickname;
+  LValues[6] := '변경';
 
   for var I := 0 to ROW_COUNT - 1 do
   begin
@@ -4119,8 +4073,8 @@ begin
   if Assigned(FAvatarPool) and (FHumanAvatarIdx >= 0) and (FHumanAvatarIdx < FAvatarPool.Count) then
   begin
     var LBmp := FAvatarPool[FHumanAvatarIdx];
-    var LSide := FCfgRects[8].Height - 4;
-    var LTh := RectF(FCfgRects[8].Left + 6, FCfgRects[8].Top + 2, FCfgRects[8].Left + 6 + LSide, FCfgRects[8].Top + 2 + LSide);
+    var LSide := FCfgRects[6].Height - 4;
+    var LTh := RectF(FCfgRects[6].Left + 6, FCfgRects[6].Top + 2, FCfgRects[6].Left + 6 + LSide, FCfgRects[6].Top + 2 + LSide);
     Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), LTh, 1, False);
   end;
 
@@ -4712,10 +4666,22 @@ begin
   Canvas.FillText(RectF(0, Height * 0.40, Width, Height * 0.40 + 72), '고스톱',
     False, 1, [], TTextAlign.Center, TTextAlign.Center);
   DrawLabel(RectF(0, Height * 0.40 + 74, Width, Height * 0.40 + 100), '- 밤일낮장 · 정통 맞고 -', $FFD8E0D0, 15);
+
+  var LStatParts: TArray<string> := nil;
   if FConfig.KillCount > 0 then
   begin
+    LStatParts := LStatParts + [Format('상대 오링 %d회', [FConfig.KillCount])];
+  end;
+
+  if FConfig.RefillCount > 0 then
+  begin
+    LStatParts := LStatParts + [Format('내 리필 %d회', [FConfig.RefillCount])];
+  end;
+
+  if Length(LStatParts) > 0 then
+  begin
     DrawLabel(RectF(0, Height * 0.40 + 98, Width, Height * 0.40 + 120),
-      Format('상대 오링 %d회', [FConfig.KillCount]), $FFFFD54A, 13);
+      string.Join('   ·   ', LStatParts), $FFFFD54A, 13);
   end;
 
   // 메뉴 버튼 3개: 이어하기 · 새게임 · 끝내기
@@ -6739,6 +6705,7 @@ begin
         begin
           TGostopAudio.Instance.Play('ui_click');
           FConfig.AiSkill := AI_SKILL_VALUES[LSeg];
+          FConfig.SyncMoneyPerPoint;   // 점당 금액은 게임 레벨에 자동 연동
           SaveSettings;
           Repaint;
           Exit;
@@ -6750,15 +6717,15 @@ begin
         if FCfgRects[I].Contains(LPoint) then
         begin
           TGostopAudio.Instance.Play('ui_click');
-          if I <= 6 then
+          if I <= 4 then
           begin
             CycleCfg(I);
           end
           else
-          if I = 7 then
+          if I = 5 then
           begin
             // 닉네임: 행 위에 입력창 표시
-            BeginNickEdit(FCfgRects[7]);
+            BeginNickEdit(FCfgRects[5]);
           end
           else
           begin
@@ -6959,6 +6926,16 @@ begin
     if FBtnQuit.Contains(LPoint) then
     begin
       TGostopAudio.Instance.Play('ui_click');
+
+      // 휴먼이 오링된 채로 나가는 경우: 대기실(타이틀)로 나가며 시드머니를 리필하고
+      // 그 사실을 개인 이력에 기록(오링된 상대 캐릭터 교체는 AI 쪽 별도 로직이라 여기선 상관없음)
+      if (not FSpectator) and (FMoney[spBottom] <= 0) then
+      begin
+        FMoney[spBottom] := FConfig.SeedMoney;
+        FConfig.RefillCount := FConfig.RefillCount + 1;
+        SaveSettings;
+      end;
+
       ClearGame;
       FStatus := '새 게임을 시작하세요';
       Repaint;

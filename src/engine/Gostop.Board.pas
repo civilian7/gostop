@@ -258,6 +258,8 @@ type
     FEffectTimer: TTimer;
     FTurnSpecialKind: TPlayEventKind;   // 이번 턴 대표 특수 이벤트(먹기 단계에 재생)
     FTurnSpecialPri: Integer;
+    FAngrySeats: set of TSeatPos;       // 피를 뺏겨 화난 표정으로 보일 좌석(3초 후 원복)
+    FAngryTimer: TTimer;
 
     // 입력/렌더 보조
     FHandRects: TList<TRectF>;
@@ -326,6 +328,7 @@ type
     procedure DrawFlyerCard(const ACenter: TPointF; const AAssetId: string; const AFlip: Boolean; const AProgress: Single);
     procedure DrawEffectBanner;
     procedure EffectTimerTick(Sender: TObject);
+    procedure AngryTimerTick(Sender: TObject);
     procedure CollectTurnEffects;
     procedure PlayTurnSound;
     function CapturedAnchor(const AActor: Integer): TPointF;
@@ -741,6 +744,10 @@ begin
   FEffectTimer.Interval := 1500;
   FEffectTimer.Enabled := False;
   FEffectTimer.OnTimer := EffectTimerTick;
+  FAngryTimer := TTimer.Create(Self);
+  FAngryTimer.Interval := 3000;
+  FAngryTimer.Enabled := False;
+  FAngryTimer.OnTimer := AngryTimerTick;
   FSeonTimer := TTimer.Create(Self);
   FSeonTimer.Interval := 600;
   FSeonTimer.Enabled := False;
@@ -837,6 +844,7 @@ begin
   // 잔상·스테일 상태 리셋(타이틀 복귀 시 배너·고/스톱 플래그 잔존 방지)
   FAwaitingGoStop := False;
   FEffectText := '';
+  FAngrySeats := [];
   FResultRows := nil;
   FResultTitle := '';
   if Assigned(FSeonTimer) then
@@ -4243,11 +4251,22 @@ begin
   var LAv := RectF(LCxB - LAvSize / 2, LBox.Top + 8, LCxB + LAvSize / 2, LBox.Top + 8 + LAvSize);
   var LInfo := RectF(LBox.Left + 8, LAv.Bottom + 6, LBox.Right - 8, LBox.Bottom - 4);
 
-  // 아바타 그리기
+  // 아바타 그리기 — 피 뺏긴 직후 3초는 화남 표정(FAngrySeats, 없으면 평상시로 폴백)
   var LAvDrawn := False;
-  if Assigned(FAvatarPool) and (FSeatAvatar[APos] >= 0) and (FSeatAvatar[APos] < FAvatarPool.Count) then
+  var LAvIdx := FSeatAvatar[APos];
+  if Assigned(FAvatarPool) and (LAvIdx >= 0) and (LAvIdx < FAvatarPool.Count) then
   begin
-    var LBmp := FAvatarPool[FSeatAvatar[APos]];
+    var LBmp: TBitmap := nil;
+    if (APos in FAngrySeats) and Assigned(FAvatarAngryPool) and (LAvIdx < FAvatarAngryPool.Count) then
+    begin
+      LBmp := FAvatarAngryPool[LAvIdx];
+    end;
+
+    if not Assigned(LBmp) then
+    begin
+      LBmp := FAvatarPool[LAvIdx];
+    end;
+
     Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), LAv, 1, False);
     LAvDrawn := True;
   end;
@@ -5383,12 +5402,36 @@ begin
     FEffectTimer.Enabled := False;
     FEffectTimer.Enabled := True;   // 표시 시간 리셋
   end;
+
+  // 피 뺏김: 뺏긴 좌석을 3초간 화난 표정으로(자뻑·뻑 회수·3장 쓸어먹기 등 모든 pekPiSteal 공통)
+  var LGotAngry := False;
+  for var LEvt in FTurnEvents do
+  begin
+    if (LEvt.Kind = pekPiSteal) and (LEvt.VictimIndex >= 0) then
+    begin
+      Include(FAngrySeats, PhysicalPos(LEvt.VictimIndex));
+      LGotAngry := True;
+    end;
+  end;
+
+  if LGotAngry then
+  begin
+    FAngryTimer.Enabled := False;
+    FAngryTimer.Enabled := True;   // 표시 시간 리셋
+  end;
 end;
 
 procedure TGostopBoard.EffectTimerTick(Sender: TObject);
 begin
   FEffectTimer.Enabled := False;
   FEffectText := '';
+  Repaint;
+end;
+
+procedure TGostopBoard.AngryTimerTick(Sender: TObject);
+begin
+  FAngryTimer.Enabled := False;
+  FAngrySeats := [];
   Repaint;
 end;
 

@@ -44,6 +44,8 @@ type
     Month: Integer;
     /// <summary>사람이 읽을 수 있는 설명.</summary>
     Text: string;
+    /// <summary>피를 뺏긴 플레이어 인덱스(pekPiSteal 전용, 해당 없으면 -1).</summary>
+    VictimIndex: Integer;
   end;
 
   /// <summary>게임 진행 단계.</summary>
@@ -198,7 +200,8 @@ type
     FFlipHandCaptured: Boolean;
     FFlipHandPlaced: Boolean;
     function ScoreAndFinish(const APlayer: TPlayer): Boolean;
-    procedure AddEvent(const AKind: TPlayEventKind; const APlayerIndex: Integer; const AMonth: Integer; const AText: string);
+    procedure AddEvent(const AKind: TPlayEventKind; const APlayerIndex: Integer; const AMonth: Integer; const AText: string;
+      const AVictimIndex: Integer = -1);
     procedure StealPiFromOthers(const AWinnerIndex: Integer);
     function StealOnePi(const AWinnerIndex: Integer; const AVictimIndex: Integer): Boolean;
     function FlipBenefit(const ACard: THwatuCard): Integer;
@@ -483,7 +486,8 @@ begin
   Create(AState, LRules);
 end;
 
-procedure TTurnEngine.AddEvent(const AKind: TPlayEventKind; const APlayerIndex: Integer; const AMonth: Integer; const AText: string);
+procedure TTurnEngine.AddEvent(const AKind: TPlayEventKind; const APlayerIndex: Integer; const AMonth: Integer; const AText: string;
+  const AVictimIndex: Integer);
 var
   LEvent: TPlayEvent;
 begin
@@ -496,6 +500,7 @@ begin
   LEvent.PlayerIndex := APlayerIndex;
   LEvent.Month := AMonth;
   LEvent.Text := AText;
+  LEvent.VictimIndex := AVictimIndex;
   FState.Events.Add(LEvent);
   if Assigned(FOnEvent) then
   begin
@@ -644,11 +649,11 @@ begin
   LWinner.Captured.Add(LPi);
   if LGivingGukjin then
   begin
-    AddEvent(pekPiSteal, AWinnerIndex, 0, Format('%s ← %s 국진(쌍피 대용) 1장', [LWinner.Name, LVictim.Name]));
+    AddEvent(pekPiSteal, AWinnerIndex, 0, Format('%s ← %s 국진(쌍피 대용) 1장', [LWinner.Name, LVictim.Name]), AVictimIndex);
   end
   else
   begin
-    AddEvent(pekPiSteal, AWinnerIndex, 0, Format('%s ← %s 피 1장', [LWinner.Name, LVictim.Name]));
+    AddEvent(pekPiSteal, AWinnerIndex, 0, Format('%s ← %s 피 1장', [LWinner.Name, LVictim.Name]), AVictimIndex);
   end;
 
   Result := True;

@@ -188,6 +188,8 @@ type
     FBtnJoin: TRectF;
     FBtnGiveUp: TRectF;
     FBtnNext: TRectF;
+    FGameOverTimer: TTimer;     // 게임종료 팝업 방치 시 자동진행 카운트다운
+    FGameOverRemain: Single;    // 남은 시간(초, 실수 — 숫자 축소 애니메이션용)
     FBtnGo: TRectF;
     FBtnStop: TRectF;
     FNextStartPos: TSeatPos;   // 선(P1)의 물리 위치. 반시계로 P1→P2→P3→P4 배정
@@ -289,7 +291,7 @@ type
     FOnGameOver: TNotifyEvent;
 
     procedure AiTimerTick(Sender: TObject);
-    procedure ClearGame;
+    procedure ClearGame(const ADeleteSave: Boolean = True);
     procedure GenerateFeltTile;
     procedure AfterAction;
     procedure StartPlay;
@@ -425,6 +427,9 @@ type
     function CenterRegion: TRectF;
     procedure DrawNegotiation;
     procedure DrawGameOver;
+    procedure GameOverContinue;
+    procedure GameOverQuit;
+    procedure GameOverTimerTick(Sender: TObject);
     procedure DrawGoStopPrompt;
     procedure DrawShodangButton;
     function  HumanCanShodang: Boolean;
@@ -483,6 +488,7 @@ const
   AI_SKILL_LABELS: array [0 .. 3] of string = ('병아리', '선수', '타짜', '신의손');
   AI_SKILL_VALUES: array [0 .. 3] of Integer = (30, 50, 70, 100);
   GAME_MODE_LABELS: array [2 .. 4] of string = ('맞고', '삼파전', '광팔어유');   // 2/3/4인 모드 별칭
+  GAME_OVER_COUNTDOWN_SECONDS = 5.0;   // 게임종료 팝업 방치 시 자동진행까지의 대기 시간(초)
 
 // 군용담요 텍스처용 결정론적 섬유 잡음(-32..31). 좌표 해시 기반(Random 미사용).
 function FeltNoise(const AX, AY: Integer): Integer;
@@ -812,6 +818,10 @@ begin
   FReplaceTimer.Interval := 16;   // ~60fps
   FReplaceTimer.Enabled := False;
   FReplaceTimer.OnTimer := ReplaceTimerTick;
+  FGameOverTimer := TTimer.Create(Self);
+  FGameOverTimer.Interval := 16;   // ~60fps(숫자 축소 애니메이션용)
+  FGameOverTimer.Enabled := False;
+  FGameOverTimer.OnTimer := GameOverTimerTick;
   FNegAnimTimer := TTimer.Create(Self);
   FNegAnimTimer.Interval := 33;   // ~30fps 흔들림
   FNegAnimTimer.Enabled := False;
@@ -833,7 +843,7 @@ end;
 
 destructor TGostopBoard.Destroy;
 begin
-  ClearGame;
+  ClearGame(False);   // 앱 종료에 의한 정리 — 저장 파일은 보존('이어하기'가 살아있어야 함)
   for var LP := spTop to spRight do
   begin
     FreeAndNil(FAvatars[LP]);
@@ -859,7 +869,7 @@ begin
   inherited Destroy;
 end;
 
-procedure TGostopBoard.ClearGame;
+procedure TGostopBoard.ClearGame(const ADeleteSave: Boolean);
 begin
   FAiTimer.Enabled := False;
   FAnimTimer.Enabled := False;
@@ -927,6 +937,11 @@ begin
     FReplaceTimer.Enabled := False;
   end;
 
+  if Assigned(FGameOverTimer) then
+  begin
+    FGameOverTimer.Enabled := False;
+  end;
+
   FReplacingSeats := nil;
   FHoverHand := -1;
   FHoverBonus := -1;
@@ -940,8 +955,13 @@ begin
   FreeAndNil(FGame);
   FreeAndNil(FTable4);
 
-  // 타이틀 복귀·새 게임 시작 등 진행 중 게임이 사라지는 모든 경로에서 저장 파일도 함께 정리
-  TGostopSaveGame.Delete;
+  // 타이틀 복귀·새 게임 시작 등 진행 중 게임이 사라지는 경로에서는 저장 파일도 함께 정리.
+  // 단, 소멸자에서 정리 목적으로 호출될 때는 지우면 안 됨(앱을 그냥 닫은 것 — '이어하기'가
+  // 살아있어야 함) → ADeleteSave=False로 호출
+  if ADeleteSave then
+  begin
+    TGostopSaveGame.Delete;
+  end;
 end;
 
 procedure TGostopBoard.GenerateFeltTile;
@@ -2708,6 +2728,11 @@ begin
     // 게임이 끝난 채로 앱이 닫혀도 다음 실행이 끝난 판을 이어서 하기로 열지 않도록 즉시 정리
     TGostopSaveGame.Delete;
     BuildFinalSummary;
+
+    // 방치 시 자동진행 카운트다운 시작(관전 모드도 포함 — AI끼리도 계속 진행되어야 함)
+    FGameOverRemain := GAME_OVER_COUNTDOWN_SECONDS;
+    FGameOverTimer.Enabled := True;
+
     if FGame.Winner < 0 then
     begin
       TGostopAudio.Instance.Play('draw');
@@ -5344,6 +5369,70 @@ begin
   end;
 end;
 
+// 게임종료 팝업 '새게임' 처리(버튼 클릭·자동진행 공용). 매치 이어가기(머니·전적 유지).
+// 오링된 상대가 있으면 새 도전자 등장 연출 후 진행
+procedure TGostopBoard.GameOverContinue;
+begin
+  FGameOverTimer.Enabled := False;
+  var LStartPos := spTop;
+  if FGame.Winner >= 0 then
+  begin
+    LStartPos := PhysicalPos(FGame.Winner);
+  end;
+
+  BeginSeatReplacement(LStartPos);
+end;
+
+// 게임종료 팝업 '중지'/'타이틀로' 처리(버튼 클릭·자동진행 공용)
+procedure TGostopBoard.GameOverQuit;
+begin
+  FGameOverTimer.Enabled := False;
+
+  // 휴먼이 오링된 채로 나가는 경우: 대기실(타이틀)로 나가며 시드머니를 리필하고
+  // 그 사실을 개인 이력에 기록(오링된 상대 캐릭터 교체는 AI 쪽 별도 로직이라 여기선 상관없음)
+  if (not FSpectator) and (FMoney[spBottom] <= 0) then
+  begin
+    FMoney[spBottom] := FConfig.SeedMoney;
+    FConfig.RefillCount := FConfig.RefillCount + 1;
+    SaveSettings;
+  end;
+
+  ClearGame;
+  FStatus := '새 게임을 시작하세요';
+  Repaint;
+  if Assigned(FOnStateChanged) then
+  begin
+    FOnStateChanged(Self);
+  end;
+end;
+
+// 게임종료 팝업 방치 카운트다운. 다 되면 자동진행(오링된 휴먼이면 타이틀로, 아니면 새게임)
+procedure TGostopBoard.GameOverTimerTick(Sender: TObject);
+begin
+  if (FGame = nil) or (FGame.Phase <> gpFinished) then
+  begin
+    FGameOverTimer.Enabled := False;
+    Exit;
+  end;
+
+  FGameOverRemain := FGameOverRemain - (FGameOverTimer.Interval / 1000) * FGameSpeed;
+  if FGameOverRemain > 0 then
+  begin
+    Repaint;
+    Exit;
+  end;
+
+  var LHumanBroke := (not FSpectator) and (FHumanIndex >= 0) and (FMoney[spBottom] <= 0);
+  if LHumanBroke then
+  begin
+    GameOverQuit;
+  end
+  else
+  begin
+    GameOverContinue;
+  end;
+end;
+
 procedure TGostopBoard.DrawGameOver;
 begin
   var LN := Length(FResultRows);
@@ -5365,7 +5454,13 @@ begin
     LTopPad := 52.0;   // 판돈 배수 제목이 있으면 그만큼 위쪽 여백 확보
   end;
 
-  var LPanelH := LTopPad + LN * LRowH + 18 + LBtnH + 18;
+  var LCountdownH := 0.0;
+  if FGameOverTimer.Enabled then
+  begin
+    LCountdownH := 56.0;   // 자동 진행 카운트다운 표시 영역
+  end;
+
+  var LPanelH := LTopPad + LN * LRowH + 18 + LCountdownH + LBtnH + 18;
   var LPanel := DrawStdDialog(FResultTitle, 480.0, LPanelH);
   var LCX := (LPanel.Left + LPanel.Right) / 2;
   var LAmountR0 := LPanel.Right - 18 - LAmountColW;
@@ -5442,6 +5537,33 @@ begin
     end;
 
     LY := LY + LRowH;
+  end;
+
+  // 자동 진행 카운트다운(가운데, 숫자가 크게 나타났다가 작아지는 애니메이션 — 매초 반복)
+  if FGameOverTimer.Enabled then
+  begin
+    var LCdCY := LY + LCountdownH / 2 - 6;
+    var LSecLeft := Trunc(FGameOverRemain) + 1;
+    if LSecLeft < 1 then
+    begin
+      LSecLeft := 1;
+    end;
+
+    var LLocalT := Frac(FGameOverRemain);
+    if FGameOverRemain <= 0 then
+    begin
+      LLocalT := 0;
+    end;
+
+    var LScale := 1.0 + LLocalT * 0.9;   // 매초 시작(1.9배 큼) → 그 초가 끝날수록(1.0배) 작아짐
+    var LBaseR := 20.0;
+    var LR := LBaseR * LScale;
+    var LCircle := RectF(LCX - LR, LCdCY - LR, LCX + LR, LCdCY + LR);
+    Canvas.FillCircle(LCircle, $302E7D32);
+    Canvas.StrokeCircle(LCircle, $FFFFD54A, 2);
+    DrawLabel(LCircle, IntToStr(LSecLeft), TAlphaColors.White, 16 * LScale);
+    DrawLabel(RectF(LCX - 100, LCdCY + LBaseR + 6, LCX + 100, LCdCY + LBaseR + 22), '자동 진행까지', $FF8A968A, 11);
+    LY := LY + LCountdownH;
   end;
 
   // 버튼: 내가 파산했으면 타이틀로 복귀만, 아니면 새게임(이어가기)/중지 2개
@@ -6913,36 +7035,13 @@ begin
     if FBtnNext.Contains(LPoint) then
     begin
       TGostopAudio.Instance.Play('ui_click');
-      var LStartPos := spTop;
-      if FGame.Winner >= 0 then
-      begin
-        LStartPos := PhysicalPos(FGame.Winner);
-      end;
-
-      // 매치 이어가기(머니·전적 유지). 오링된 상대가 있으면 새 도전자 등장 연출 후 진행
-      BeginSeatReplacement(LStartPos);
+      GameOverContinue;
     end
     else
     if FBtnQuit.Contains(LPoint) then
     begin
       TGostopAudio.Instance.Play('ui_click');
-
-      // 휴먼이 오링된 채로 나가는 경우: 대기실(타이틀)로 나가며 시드머니를 리필하고
-      // 그 사실을 개인 이력에 기록(오링된 상대 캐릭터 교체는 AI 쪽 별도 로직이라 여기선 상관없음)
-      if (not FSpectator) and (FMoney[spBottom] <= 0) then
-      begin
-        FMoney[spBottom] := FConfig.SeedMoney;
-        FConfig.RefillCount := FConfig.RefillCount + 1;
-        SaveSettings;
-      end;
-
-      ClearGame;
-      FStatus := '새 게임을 시작하세요';
-      Repaint;
-      if Assigned(FOnStateChanged) then
-      begin
-        FOnStateChanged(Self);
-      end;
+      GameOverQuit;
     end;
 
     Exit;

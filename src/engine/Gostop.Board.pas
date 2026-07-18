@@ -4391,8 +4391,14 @@ begin
           LCardsR := ARegion.Right - 6;
         end;
 
-        // 먹은패(위) — P1(위)은 패널(오른쪽)에 붙여 우측 앵커
-        DrawCapturedFan(LCaptured, LCardsL, LCardsR, ARegion.Top + 8, 0.66, APos = spTop);
+        // 먹은패 — P1(위)은 자리 맨 위(패널쪽 우측 앵커), P3(아래)는 손패(뒷면) 바로 위에 붙임
+        var LCapY := ARegion.Top + 8;
+        if APos = spBottom then
+        begin
+          LCapY := ARegion.Bottom - LBackH - 8 - 10 - CS.Height * 0.66;
+        end;
+
+        DrawCapturedFan(LCaptured, LCardsL, LCardsR, LCapY, 0.66, APos = spTop);
 
         // 손패(뒷면, 아래) — 가로 부채. P1은 우측(패널쪽) 앵커
         var LHandY := ARegion.Bottom - LBackH - 8;

@@ -2226,26 +2226,15 @@ begin
     end;
   end;
 
-  // 광값 이동 표시(지불자들 → 판매자)
-  var LYinfo := LPanel.Bottom - 66;
-  DrawLabel(RectF(LPanel.Left, LYinfo, LPanel.Right, LYinfo + 28),
-    Format('광값 %d × %d원', [FGwang.GwangCount, GWANG_UNIT_PRICE * FConfig.MoneyPerPoint]),
-    $FFD8E0D0, 16);
-
-  var LPayers := '';
-  for var LP := 0 to High(FGwang.PayerSeats) do
+  // 텍스트 설명 대신, 판매자 아바타를 중앙 하단에 크게 표시
+  var LSellerPos := TSeatPos((Ord(FNextStartPos) + FGwang.SellerSeat) mod 4);
+  var LAvBmp := ResultAvatarBitmap(FSeatAvatar[LSellerPos], True, False);
+  if Assigned(LAvBmp) then
   begin
-    if LPayers <> '' then
-    begin
-      LPayers := LPayers + ' · ';
-    end;
-
-    LPayers := LPayers + SeatLabel(FGwang.PayerSeats[LP]);
+    var LAvSz := 80.0;
+    var LAvR := RectF(Width / 2 - LAvSz / 2, LPanel.Bottom - 88, Width / 2 + LAvSz / 2, LPanel.Bottom - 8);
+    Canvas.DrawBitmap(LAvBmp, RectF(0, 0, LAvBmp.Width, LAvBmp.Height), LAvR, 1, False);
   end;
-
-  DrawLabel(RectF(LPanel.Left, LYinfo + 30, LPanel.Right, LYinfo + 58),
-    Format('%s → %s : 각 %s원 지불', [LPayers, LSeller, FormatFloat('#,##0', FGwang.ValuePerPayer * FConfig.MoneyPerPoint)]),
-    $FFFFE082, 17);
 end;
 
 procedure TGostopBoard.StartPlay;
@@ -2468,6 +2457,10 @@ begin
   begin
     FRowPos[S] := TSeatPos(EnsureRange(LData.RowPos[S], 0, 3));
   end;
+
+  // 새게임/설정 화면을 거치지 않고 타이틀에서 곧바로 이어하기로 들어오면 FAvatarPool이
+  // 아직 비어 있어(nil) 캐릭터 이미지 대신 절차 생성 폴백 얼굴이 그려진다 — 미리 로드해 둔다.
+  LoadAvatarPool;
 
   for var S := 0 to 3 do
   begin

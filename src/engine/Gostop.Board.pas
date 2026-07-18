@@ -472,7 +472,7 @@ implementation
 const
   GWANG_UNIT_PRICE = 1;      // 광 1개당 단가(광값 = 광개수 × 단가)
   // PANEL_W/PANEL_H는 Gostop.Board.Layout 유닛에 있음(uses로 참조)
-  AI_SKILL_LABELS: array [0 .. 3] of string = ('하수', '중수', '고수', '최고수');
+  AI_SKILL_LABELS: array [0 .. 3] of string = ('병아리', '선수', '타짜', '신의손');
   AI_SKILL_VALUES: array [0 .. 3] of Integer = (30, 50, 70, 90);
 
 // 군용담요 텍스처용 결정론적 섬유 잡음(-32..31). 좌표 해시 기반(Random 미사용).
@@ -4075,21 +4075,21 @@ begin
 
   if ASkill <= 30 then
   begin
-    Result := '하수';
+    Result := '병아리';
   end
   else
   if ASkill <= 50 then
   begin
-    Result := '중수';
+    Result := '선수';
   end
   else
   if ASkill <= 70 then
   begin
-    Result := '고수';
+    Result := '타짜';
   end
   else
   begin
-    Result := '최고수';
+    Result := '신의손';
   end;
 end;
 
@@ -6726,7 +6726,7 @@ begin
         if (R <> FSetupHumanRow) and FSetupSkRects[R].Contains(LPoint) then
         begin
           TGostopAudio.Instance.Play('ui_click');
-          // 고유(-1) → 하수 → 중수 → 고수 → 최고수 → 고유 순환
+          // 고유(-1) → 병아리 → 선수 → 타짜 → 신의손 → 고유 순환
           case FSetupSkill[R] of
             -1:
               begin

@@ -102,21 +102,19 @@ type
     FMuteRect: TRectF;
     FVolTrackRect: TRectF;
     FSpeedRect: TRectF;        // 속도 슬라이더 히트 영역
-    FBtnMenu2: TRectF;
-    FBtnMenu3: TRectF;
-    FBtnMenu4: TRectF;
+    FBtnMenuNew: TRectF;        // 타이틀 '새게임' 버튼
     FBtnMenuExit: TRectF;
-    FBtnMenuCfg: TRectF;       // 타이틀 '설정' 버튼
-    FBtnMenuContinue: TRectF;  // 타이틀 '이어서 하기' 버튼(저장 파일 있을 때만 표시)
+    FBtnMenuContinue: TRectF;  // 타이틀 '이어서 하기' 버튼(저장 파일 없으면 비활성 표시)
     FCreditRect: TRectF;       // 우하단 제작자 크레딧(클릭=GitHub)
     FOnExitRequest: TNotifyEvent;
 
-    // 게임 룰·플레이어 설정(게임 시작 전 설정창에서 변경, INI 유지)
+    // 게임 룰·플레이어 설정('새게임' 다이얼로그 1단계: 인원수+룰+닉네임+아바타, INI 유지)
     FConfig: TGameConfig;        // 게임 룰·플레이어 설정(피박/광박/고박/보너스/금액/시드/난이도/닉네임)
     FNickEdit: TEdit;            // 닉네임 입력용(설정창에서만 표시, IME 지원)
     FSettingsOpen: Boolean;      // 설정창 표시 중
-    FCfgRects: array [0 .. 9] of TRectF;   // 설정 행 값 버튼(8=닉네임, 9=아바타)
-    FBtnCfgClose: TRectF;
+    FCfgRects: array [0 .. 10] of TRectF;  // 설정 행 값 버튼(0=인원수, 9=닉네임, 10=아바타)
+    FBtnCfgCancel: TRectF;      // 설정창 '취소'(타이틀로 복귀)
+    FBtnCfgNext: TRectF;        // 설정창 '다음'(대전 설정 다이얼로그로 진행)
 
     // 대전 설정 다이얼로그: 슬롯머신 연출로 AI 배정, 내 시트(P1~PN) 선택, 관전 모드
     FMatchSetupOpen: Boolean;
@@ -3776,7 +3774,7 @@ end;
 // 게임 룰·플레이어 설정창(게임 시작 전 타이틀에서만)
 procedure TGostopBoard.DrawSettings;
 const
-  ROW_COUNT = 10;
+  ROW_COUNT = 11;
 begin
   var LRowH := 42.0;
   var LPanelW := 460.0;
@@ -3786,32 +3784,26 @@ begin
 
   Canvas.FillRound(LPanel, 14, $F02E3A2E);
   Canvas.StrokeRound(LPanel, 14, $FFFFD54A, 2);
-  DrawLabel(RectF(LPanel.Left, LPanel.Top + 12, LPanel.Right, LPanel.Top + 46), '게임 룰 설정', TAlphaColors.Gold, 22);
+  DrawLabel(RectF(LPanel.Left, LPanel.Top + 12, LPanel.Right, LPanel.Top + 46), '새 게임', TAlphaColors.Gold, 22);
 
-  // 행: 라벨(왼쪽) + 값 버튼(오른쪽)
+  // 행: 라벨(왼쪽) + 값 버튼(오른쪽). 0=인원수, 1~8=룰/경제, 9=닉네임, 10=아바타
   var LLabels: array [0 .. ROW_COUNT - 1] of string;
-  LLabels[0] := '피박';
-  LLabels[1] := '광박';
-  LLabels[2] := '멍박';
-  LLabels[3] := '고박 (×2)';
-  LLabels[4] := '보너스패';
-  LLabels[5] := '점당 금액';
-  LLabels[6] := '시드머니';
-  LLabels[7] := 'AI 난이도';
-  LLabels[8] := '닉네임';
-  LLabels[9] := '아바타';
+  LLabels[0] := '인원수';
+  LLabels[1] := '피박';
+  LLabels[2] := '광박';
+  LLabels[3] := '멍박';
+  LLabels[4] := '고박 (×2)';
+  LLabels[5] := '보너스패';
+  LLabels[6] := '점당 금액';
+  LLabels[7] := '시드머니';
+  LLabels[8] := 'AI 난이도';
+  LLabels[9] := '닉네임';
+  LLabels[10] := '아바타';
 
   var LValues: array [0 .. ROW_COUNT - 1] of string;
-  if FConfig.Pibak then
-  begin
-    LValues[0] := '켬';
-  end
-  else
-  begin
-    LValues[0] := '끔';
-  end;
+  LValues[0] := Format('%d인', [FSetupCount]);
 
-  if FConfig.Gwangbak then
+  if FConfig.Pibak then
   begin
     LValues[1] := '켬';
   end
@@ -3820,7 +3812,7 @@ begin
     LValues[1] := '끔';
   end;
 
-  if FConfig.Meongbak then
+  if FConfig.Gwangbak then
   begin
     LValues[2] := '켬';
   end
@@ -3829,7 +3821,7 @@ begin
     LValues[2] := '끔';
   end;
 
-  if FConfig.Gobak then
+  if FConfig.Meongbak then
   begin
     LValues[3] := '켬';
   end
@@ -3838,35 +3830,44 @@ begin
     LValues[3] := '끔';
   end;
 
-  if FConfig.Bonus then
+  if FConfig.Gobak then
   begin
-    LValues[4] := '3장 포함';
+    LValues[4] := '켬';
   end
   else
   begin
-    LValues[4] := '없음(48장)';
+    LValues[4] := '끔';
   end;
 
-  LValues[5] := Format('%s원', [FormatFloat('#,##0', FConfig.MoneyPerPoint)]);
-  LValues[6] := Format('%s원', [FormatFloat('#,##0', FConfig.SeedMoney)]);
-  LValues[8] := FConfig.Nickname;
-  LValues[9] := '변경';
+  if FConfig.Bonus then
+  begin
+    LValues[5] := '3장 포함';
+  end
+  else
+  begin
+    LValues[5] := '없음(48장)';
+  end;
+
+  LValues[6] := Format('%s원', [FormatFloat('#,##0', FConfig.MoneyPerPoint)]);
+  LValues[7] := Format('%s원', [FormatFloat('#,##0', FConfig.SeedMoney)]);
+  LValues[9] := FConfig.Nickname;
+  LValues[10] := '변경';
   case FConfig.AiSkill of
     30:
       begin
-        LValues[7] := '초급';
+        LValues[8] := '초급';
       end;
     50:
       begin
-        LValues[7] := '중급';
+        LValues[8] := '중급';
       end;
     70:
       begin
-        LValues[7] := '고급';
+        LValues[8] := '고급';
       end;
   else
     begin
-      LValues[7] := '최상';
+      LValues[8] := '최상';
     end;
   end;
 
@@ -3891,15 +3892,19 @@ begin
   if Assigned(FAvatarPool) and (FHumanAvatarIdx >= 0) and (FHumanAvatarIdx < FAvatarPool.Count) then
   begin
     var LBmp := FAvatarPool[FHumanAvatarIdx];
-    var LSide := FCfgRects[9].Height - 4;
-    var LTh := RectF(FCfgRects[9].Left + 6, FCfgRects[9].Top + 2, FCfgRects[9].Left + 6 + LSide, FCfgRects[9].Top + 2 + LSide);
+    var LSide := FCfgRects[10].Height - 4;
+    var LTh := RectF(FCfgRects[10].Left + 6, FCfgRects[10].Top + 2, FCfgRects[10].Left + 6 + LSide, FCfgRects[10].Top + 2 + LSide);
     Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), LTh, 1, False);
   end;
 
-  // 닫기
-  FBtnCfgClose := RectF(Width / 2 - 70, LPanel.Bottom - 56, Width / 2 + 70, LPanel.Bottom - 16);
-  Canvas.FillRound(FBtnCfgClose, 10, $FF2E7D32);
-  DrawLabel(FBtnCfgClose, '확인', TAlphaColors.White, 17);
+  // 취소 · 다음(대전 설정으로 진행)
+  FBtnCfgCancel := RectF(Width / 2 - 150, LPanel.Bottom - 56, Width / 2 - 10, LPanel.Bottom - 16);
+  Canvas.FillRound(FBtnCfgCancel, 10, $FF37474F);
+  DrawLabel(FBtnCfgCancel, '취소', TAlphaColors.White, 17);
+
+  FBtnCfgNext := RectF(Width / 2 + 10, LPanel.Bottom - 56, Width / 2 + 150, LPanel.Bottom - 16);
+  Canvas.FillRound(FBtnCfgNext, 10, $FF2E7D32);
+  DrawLabel(FBtnCfgNext, '다음', TAlphaColors.White, 17);
 end;
 
 // 아바타 인덱스 → 실명풍 이름(범위 밖이면 빈 문자열)
@@ -4348,7 +4353,7 @@ begin
   FBtnSetupCancel := DrawStdButton(RectF(LCx + LBtnGap / 2, LBY, LCx + LBtnGap / 2 + LBtnW, LBY + LBtnH), '취소', dbkDanger);
 end;
 
-// 타이틀 메뉴(게임 없음 상태): 로고 + 대전 버튼 + 종료
+// 타이틀 메뉴(게임 없음 상태): 로고 + 이어하기/새게임/끝내기 3버튼
 procedure TGostopBoard.DrawTitleMenu;
 begin
   var LMidX := Width / 2;
@@ -4373,57 +4378,46 @@ begin
     False, 1, [], TTextAlign.Center, TTextAlign.Center);
   DrawLabel(RectF(0, Height * 0.40 + 74, Width, Height * 0.40 + 100), '- 밤일낮장 · 정통 맞고 -', $FFD8E0D0, 15);
 
-  // 대전 버튼 3개
-  var LBW := 150.0;
-  var LBH := 54.0;
+  // 메뉴 버튼 3개: 이어하기 · 새게임 · 끝내기
+  var LBW := 170.0;
+  var LBH := 56.0;
   var LGap := 24.0;
   var LBY := Height * 0.62;
+  var LHasSave := TGostopSaveGame.Exists;
 
-  // 이어서 하기(저장 파일이 있을 때만 표시) — 대전 버튼 줄 바로 위에 강조색으로
-  if TGostopSaveGame.Exists then
+  FBtnMenuContinue := RectF(LMidX - LBW * 1.5 - LGap, LBY, LMidX - LBW * 0.5 - LGap, LBY + LBH);
+  FBtnMenuNew := RectF(LMidX - LBW * 0.5, LBY, LMidX + LBW * 0.5, LBY + LBH);
+  FBtnMenuExit := RectF(LMidX + LBW * 0.5 + LGap, LBY, LMidX + LBW * 1.5 + LGap, LBY + LBH);
+
+  Canvas.Stroke.Kind := TBrushKind.Solid;
+
+  // 이어하기: 저장 데이터가 있을 때만 활성(금색 강조), 없으면 회색으로 비활성 표시
+  if LHasSave then
   begin
-    var LContW := 220.0;
-    var LContH := 46.0;
-    FBtnMenuContinue := RectF(LMidX - LContW / 2, LBY - LContH - 18, LMidX + LContW / 2, LBY - 18);
-    Canvas.Stroke.Kind := TBrushKind.Solid;
     Canvas.Stroke.Color := $FFFFD54A;
     Canvas.Stroke.Thickness := 2;
     Canvas.FillRound(FBtnMenuContinue, 10, $FFB8860B);
     Canvas.DrawRect(FBtnMenuContinue, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-    DrawLabel(FBtnMenuContinue, '이어서 하기', TAlphaColors.White, 19);
+    DrawLabel(FBtnMenuContinue, '이어하기', TAlphaColors.White, 19);
   end
   else
   begin
-    FBtnMenuContinue := RectF(0, 0, 0, 0);
+    Canvas.Stroke.Color := $30FFFFFF;
+    Canvas.Stroke.Thickness := 1;
+    Canvas.FillRound(FBtnMenuContinue, 10, $60333A33);
+    Canvas.DrawRect(FBtnMenuContinue, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+    DrawLabel(FBtnMenuContinue, '이어하기', $806E786E, 19);
   end;
 
-  FBtnMenu2 := RectF(LMidX - LBW * 1.5 - LGap, LBY, LMidX - LBW * 0.5 - LGap, LBY + LBH);
-  FBtnMenu3 := RectF(LMidX - LBW * 0.5, LBY, LMidX + LBW * 0.5, LBY + LBH);
-  FBtnMenu4 := RectF(LMidX + LBW * 0.5 + LGap, LBY, LMidX + LBW * 1.5 + LGap, LBY + LBH);
-
-  Canvas.Stroke.Kind := TBrushKind.Solid;
   Canvas.Stroke.Color := $FFFFD54A;
   Canvas.Stroke.Thickness := 2;
-  Canvas.FillRound(FBtnMenu2, 10, $FF2E7D32);
-  Canvas.DrawRect(FBtnMenu2, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-  DrawLabel(FBtnMenu2, '2인 대전', TAlphaColors.White, 19);
+  Canvas.FillRound(FBtnMenuNew, 10, $FF2E7D32);
+  Canvas.DrawRect(FBtnMenuNew, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  DrawLabel(FBtnMenuNew, '새게임', TAlphaColors.White, 19);
 
-  Canvas.FillRound(FBtnMenu3, 10, $FF2E7D32);
-  Canvas.DrawRect(FBtnMenu3, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-  DrawLabel(FBtnMenu3, '3인 대전', TAlphaColors.White, 19);
-
-  Canvas.FillRound(FBtnMenu4, 10, $FF2E7D32);
-  Canvas.DrawRect(FBtnMenu4, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-  DrawLabel(FBtnMenu4, '4인 대전', TAlphaColors.White, 19);
-
-  // 설정 · 종료
-  FBtnMenuCfg := RectF(LMidX - 150, LBY + LBH + 26, LMidX - 10, LBY + LBH + 26 + 40);
-  Canvas.FillRound(FBtnMenuCfg, 10, $FF37474F);
-  DrawLabel(FBtnMenuCfg, '설정', TAlphaColors.White, 17);
-
-  FBtnMenuExit := RectF(LMidX + 10, LBY + LBH + 26, LMidX + 150, LBY + LBH + 26 + 40);
   Canvas.FillRound(FBtnMenuExit, 10, $FF8E2430);
-  DrawLabel(FBtnMenuExit, '종료', TAlphaColors.White, 17);
+  Canvas.DrawRect(FBtnMenuExit, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  DrawLabel(FBtnMenuExit, '끝내기', TAlphaColors.White, 19);
 end;
 
 // 참여 자리의 정보 패널 일괄 그리기(선 뽑기·딜·플레이 공용)
@@ -6347,15 +6341,34 @@ begin
         if FCfgRects[I].Contains(LPoint) then
         begin
           TGostopAudio.Instance.Play('ui_click');
-          if I <= 7 then
+          if I = 0 then
           begin
-            CycleCfg(I);
+            // 인원수: 2 → 3 → 4 → 2 순환
+            case FSetupCount of
+              2:
+                begin
+                  FSetupCount := 3;
+                end;
+              3:
+                begin
+                  FSetupCount := 4;
+                end;
+            else
+              begin
+                FSetupCount := 2;
+              end;
+            end;
           end
           else
-          if I = 8 then
+          if I <= 8 then
+          begin
+            CycleCfg(I - 1);
+          end
+          else
+          if I = 9 then
           begin
             // 닉네임: 행 위에 입력창 표시
-            BeginNickEdit(FCfgRects[8]);
+            BeginNickEdit(FCfgRects[9]);
           end
           else
           begin
@@ -6373,12 +6386,20 @@ begin
         end;
       end;
 
-      if FBtnCfgClose.Contains(LPoint) then
+      if FBtnCfgCancel.Contains(LPoint) then
       begin
         TGostopAudio.Instance.Play('ui_click');
         ApplyNickEdit;
         FSettingsOpen := False;
         Repaint;
+      end
+      else
+      if FBtnCfgNext.Contains(LPoint) then
+      begin
+        TGostopAudio.Instance.Play('ui_click');
+        ApplyNickEdit;
+        FSettingsOpen := False;
+        OpenMatchSetup(FSetupCount);
       end;
 
       Exit;
@@ -6497,27 +6518,22 @@ begin
       end;
     end
     else
-    if FBtnMenu2.Contains(LPoint) then
+    if FBtnMenuNew.Contains(LPoint) then
     begin
       TGostopAudio.Instance.Play('ui_click');
-      OpenMatchSetup(2);
-    end
-    else
-    if FBtnMenu3.Contains(LPoint) then
-    begin
-      TGostopAudio.Instance.Play('ui_click');
-      OpenMatchSetup(3);
-    end
-    else
-    if FBtnMenu4.Contains(LPoint) then
-    begin
-      TGostopAudio.Instance.Play('ui_click');
-      OpenMatchSetup(4);
-    end
-    else
-    if FBtnMenuCfg.Contains(LPoint) then
-    begin
-      TGostopAudio.Instance.Play('ui_click');
+      // 인원수 기본값: 직전 매치 인원(있으면) 유지, 없으면 3인
+      if not (FSetupCount in [2, 3, 4]) then
+      begin
+        if FPlayerCount in [2, 3, 4] then
+        begin
+          FSetupCount := FPlayerCount;
+        end
+        else
+        begin
+          FSetupCount := 3;
+        end;
+      end;
+
       FSettingsOpen := True;
       Repaint;
     end

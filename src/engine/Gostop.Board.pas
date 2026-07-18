@@ -4391,17 +4391,27 @@ begin
           LCardsR := ARegion.Right - 6;
         end;
 
-        // 먹은패 — P1(위)은 자리 맨 위(패널쪽 우측 앵커), P3(아래)는 손패(뒷면) 바로 위에 붙임
-        var LCapY := ARegion.Top + 8;
-        if APos = spBottom then
+        // 손패(뒷면) Y — P1(위)은 자리 맨 위, P3(아래)는 자리 맨 아래
+        var LHandY := ARegion.Bottom - LBackH - 8;
+        if APos = spTop then
         begin
-          LCapY := ARegion.Bottom - LBackH - 8 - 10 - CS.Height * 0.66;
+          LHandY := ARegion.Top + 8;
+        end;
+
+        // 먹은패 Y — 손패 다음 순서(위→아래: P1은 손패→먹은패, P3는 먹은패→손패)
+        var LCapY: Single;
+        if APos = spTop then
+        begin
+          LCapY := LHandY + LBackH + 10;
+        end
+        else
+        begin
+          LCapY := LHandY - 10 - CS.Height * 0.66;
         end;
 
         DrawCapturedFan(LCaptured, LCardsL, LCardsR, LCapY, 0.66, APos = spTop);
 
-        // 손패(뒷면, 아래) — 가로 부채. P1은 우측(패널쪽) 앵커
-        var LHandY := ARegion.Bottom - LBackH - 8;
+        // 손패(뒷면) 그리기 — 가로 부채. P1은 우측(패널쪽) 앵커
         var LStep := LHandStep;
         if LHandCount > 1 then
         begin

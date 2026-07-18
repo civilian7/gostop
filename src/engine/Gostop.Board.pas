@@ -88,6 +88,7 @@ type
     FAvatarCheerPool: TObjectList<TBitmap>;     // 환호(승리) 상태 풀. FAvatarPool과 인덱스 정렬(없으면 nil)
     FAvatarSadPool: TObjectList<TBitmap>;       // 슬픔(패배) 상태 풀. FAvatarPool과 인덱스 정렬(없으면 nil)
     FAvatarAngryPool: TObjectList<TBitmap>;     // 화남(패배·박 당함) 상태 풀. FAvatarPool과 인덱스 정렬(없으면 nil)
+    FSkillAvatarPool: TObjectList<TBitmap>;     // AI 난이도 카드 전용 인물 풀(assets\avatars\difficulty, 4장 고정)
     FSeatAvatar: array [TSeatPos] of Integer;   // 자리별 배정(풀 인덱스, -1=미배정)
     FHumanAvatarIdx: Integer;                   // 사람이 고른 아바타(-1=랜덤). 매치 간 유지
     FAvatarPicking: Boolean;                    // 아바타 선택 오버레이 표시 중
@@ -373,6 +374,7 @@ type
     procedure DrawPanels;
     procedure GenerateAvatars;
     procedure LoadAvatarPool;
+    procedure LoadSkillAvatarPool;
     function  LoadStateAvatar(const AFile: string): TBitmap;
     function  ResultAvatarBitmap(const AAvatarIdx: Integer; const AIsWinner, AIsPenalized: Boolean): TBitmap;
     procedure AssignAvatars;
@@ -383,7 +385,7 @@ type
     procedure DrawSettings;
     procedure DrawCfgToggle(const ARect: TRectF; const AOn: Boolean);
     procedure DrawCardShell(const ARect: TRectF; const ASelected: Boolean);
-    procedure DrawAvatarCard(const ARect: TRectF; const AAvatarIdx: Integer; const ACaption: string; const ASelected: Boolean);
+    procedure DrawAvatarCard(const ARect: TRectF; const ABitmap: TBitmap; const ACaption: string; const ASelected: Boolean);
     procedure DrawAvatarStackCard(const ARect: TRectF; const ACount: Integer; const ACaption: string; const ASelected: Boolean);
     procedure CycleCfg(const AIndex: Integer);
     function  CfgScore: TScoreOptions;
@@ -476,9 +478,8 @@ const
   GWANG_UNIT_PRICE = 1;      // 광 1개당 단가(광값 = 광개수 × 단가)
   // PANEL_W/PANEL_H는 Gostop.Board.Layout 유닛에 있음(uses로 참조)
   AI_SKILL_LABELS: array [0 .. 3] of string = ('병아리', '선수', '타짜', '신의손');
-  AI_SKILL_VALUES: array [0 .. 3] of Integer = (30, 50, 70, 90);
+  AI_SKILL_VALUES: array [0 .. 3] of Integer = (30, 50, 70, 100);
   GAME_MODE_LABELS: array [2 .. 4] of string = ('맞고', '삼파전', '광팔어유');   // 2/3/4인 모드 별칭
-  AI_SKILL_AVATAR: array [0 .. 3] of Integer = (3, 7, 11, 15);   // 난이도 카드에 표시할 아바타 풀 인덱스(인원수 카드의 0~2와 안 겹치게)
 
 // 군용담요 텍스처용 결정론적 섬유 잡음(-32..31). 좌표 해시 기반(Random 미사용).
 function FeltNoise(const AX, AY: Integer): Integer;
@@ -843,6 +844,7 @@ begin
   FreeAndNil(FAvatarCheerPool);
   FreeAndNil(FAvatarSadPool);
   FreeAndNil(FAvatarAngryPool);
+  FreeAndNil(FSkillAvatarPool);
   FreeAndNil(FFeltTile);
   FreeAndNil(FImages);
   FreeAndNil(FFloorIndexMap);
@@ -3393,6 +3395,35 @@ begin
   end;
 end;
 
+// assets\avatars\difficulty 의 diff_*.png 를 AI 난이도 카드 전용 풀로 로드(지연, 1회, 파일명 정렬 =
+// 병아리/선수/타짜/신의손 순 — AI_SKILL_LABELS와 인덱스 맞춤)
+procedure TGostopBoard.LoadSkillAvatarPool;
+begin
+  if Assigned(FSkillAvatarPool) then
+  begin
+    Exit;
+  end;
+
+  FSkillAvatarPool := TObjectList<TBitmap>.Create(True);
+  var LDir := TPath.Combine(THwatuAssets.AvatarDir, 'difficulty');
+  if (LDir = '') or (not TDirectory.Exists(LDir)) then
+  begin
+    Exit;
+  end;
+
+  var LFiles := TDirectory.GetFiles(LDir, 'diff_*.png');
+  TArray.Sort<string>(LFiles);
+  for var LFile in LFiles do
+  begin
+    try
+      FSkillAvatarPool.Add(TBitmap.CreateFromFile(LFile));
+    except
+      // 손상/열기 실패 파일은 건너뜀(풀에서 제외)
+      Continue;
+    end;
+  end;
+end;
+
 // 매치 시작 시 자리별 아바타 배정 — 사람은 선택값(없으면 랜덤), AI는 랜덤. 한 게임 내 중복 금지
 procedure TGostopBoard.AssignAvatars;
 begin
@@ -3807,27 +3838,6 @@ begin
           end;
         end;
       end;
-    7:
-      begin
-        case FConfig.AiSkill of
-          30:
-            begin
-              FConfig.AiSkill := 50;
-            end;
-          50:
-            begin
-              FConfig.AiSkill := 70;
-            end;
-          70:
-            begin
-              FConfig.AiSkill := 90;
-            end;
-        else
-          begin
-            FConfig.AiSkill := 30;
-          end;
-        end;
-      end;
   end;
 
   SaveSettings;
@@ -3880,20 +3890,18 @@ begin
 end;
 
 // 아바타 1장 + 캡션이 있는 선택형 카드(AI 난이도 등 '단일 인물'을 나타낼 때)
-procedure TGostopBoard.DrawAvatarCard(const ARect: TRectF; const AAvatarIdx: Integer; const ACaption: string; const ASelected: Boolean);
+procedure TGostopBoard.DrawAvatarCard(const ARect: TRectF; const ABitmap: TBitmap; const ACaption: string; const ASelected: Boolean);
 const
   CAPTION_H = 24.0;
 begin
   DrawCardShell(ARect, ASelected);
-  LoadAvatarPool;
 
   var LAvSize := Min(ARect.Width - 16, ARect.Height - CAPTION_H - 14);
   var LCx := (ARect.Left + ARect.Right) / 2;
   var LAvR := RectF(LCx - LAvSize / 2, ARect.Top + 8, LCx + LAvSize / 2, ARect.Top + 8 + LAvSize);
-  if Assigned(FAvatarPool) and (AAvatarIdx >= 0) and (AAvatarIdx < FAvatarPool.Count) then
+  if Assigned(ABitmap) then
   begin
-    var LBmp := FAvatarPool[AAvatarIdx];
-    Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), LAvR, 1, False);
+    Canvas.DrawBitmap(ABitmap, RectF(0, 0, ABitmap.Width, ABitmap.Height), LAvR, 1, False);
   end;
 
   Canvas.StrokeRound(LAvR, 6, $60FFFFFF, 1);
@@ -3984,12 +3992,19 @@ begin
   LCardY := LCardY + CARD_ROW_H + CARD_GAP;
   var LSeg4Gap := CARD_GAP * 0.75;
   var LSeg4W := (LCardAreaW - LSeg4Gap * 3) / 4;
+  LoadSkillAvatarPool;
   for var LSeg := 0 to 3 do
   begin
     var LSegRect := RectF(LCardAreaL + LSeg * (LSeg4W + LSeg4Gap), LCardY,
       LCardAreaL + LSeg * (LSeg4W + LSeg4Gap) + LSeg4W, LCardY + CARD_ROW_H);
     FCfgSkillRects[LSeg] := LSegRect;
-    DrawAvatarCard(LSegRect, AI_SKILL_AVATAR[LSeg], AI_SKILL_LABELS[LSeg], AI_SKILL_VALUES[LSeg] = FConfig.AiSkill);
+    var LSkillBmp: TBitmap := nil;
+    if Assigned(FSkillAvatarPool) and (LSeg < FSkillAvatarPool.Count) then
+    begin
+      LSkillBmp := FSkillAvatarPool[LSeg];
+    end;
+
+    DrawAvatarCard(LSegRect, LSkillBmp, AI_SKILL_LABELS[LSeg], AI_SKILL_VALUES[LSeg] = FConfig.AiSkill);
   end;
 
   var LRowsTop := LCardY + CARD_ROW_H + CARD_GAP;
@@ -6805,7 +6820,7 @@ begin
               end;
             70:
               begin
-                FSetupSkill[R] := 90;
+                FSetupSkill[R] := 100;
               end;
           else
             begin

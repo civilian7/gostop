@@ -129,3 +129,29 @@ grid.save(r"C:\scratch\grid_normal.png")
 1. `python scripts/avatar_bg_remove.py single <새 사진> assets/avatars/avatar_NN.png` 실행
    (상태별로도 동일하게 `assets/avatars/states/avatar_NN_{cheer,sad,angry}.png`).
 2. `build.ps1` 실행.
+
+---
+
+## 6. 20인 로스터와 독립된 소규모 아바타 세트(예: AI 난이도 카드)
+
+20인 캐릭터 로스터(`assets/avatars/avatar_*.png`)와 무관하게, 특정 UI 요소 전용으로
+소수 인물만 필요할 때는 별도 하위 폴더 + 별도 파일 접두어로 완전히 분리한다(로스터
+인덱스와 섞이지 않게).
+
+실제 사례 — "새 게임" 다이얼로그의 AI 난이도 카드(병아리/선수/타짜/신의손):
+- 생성 프롬프트: `assets/gemini_prompt_difficulty.txt`(2x4 격자로 생성됐고, 라벨별로
+  여러 장 중 마음에 드는 1장씩만 골라 씀 — 격자가 정확히 필요한 칸 수와 안 맞아도 된다).
+- 원본: `assets/avatars/raw/sheet_difficulty.png`.
+- 라벨 텍스트가 이미지에 박제되어 있으면 `sheet` 모드의 격자 자동 크롭으로는 텍스트까지
+  같이 잘리므로, 이런 경우는 셀 좌표를 수동 계산해 텍스트 아래쪽만 잘라내는 별도
+  스크립트(1회성)로 처리했다 — `sheet`/`single` 모드가 못 다루는 "격자에서 임의 셀만
+  고르고 텍스트를 피해야 하는" 케이스의 표준 대응.
+- 결과물: `assets/avatars/difficulty/diff_01_byeongari.png` ~ `diff_04_sinuison.png`
+  (파일명 정렬 순서 = `AI_SKILL_LABELS`/`AI_SKILL_VALUES` 인덱스 순서 — 이 프로젝트에서
+  반복되는 "파일 정렬 순서 = 코드 인덱스 순서" 불변식).
+- `Gostop.Board.pas`: 전용 풀 `FSkillAvatarPool`(`LoadSkillAvatarPool`, `assets\avatars\difficulty`의
+  `diff_*.png`를 정렬 로드)을 신설해 20인 로스터용 `FAvatarPool`과 완전히 분리 —
+  `DrawAvatarCard`도 아바타 풀 인덱스 대신 `TBitmap`을 직접 받도록 해 특정 풀에
+  종속되지 않게 했다.
+- `build.ps1`은 `assets/avatars` 하위 폴더를 `raw`만 제외하고 전부 복사하므로,
+  `difficulty` 폴더는 별도 설정 없이 자동으로 `bin\assets`에 배포된다.

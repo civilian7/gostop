@@ -1563,43 +1563,34 @@ var
   LFlies: TList<TDealFly>;
   LTotal: array [TSeatPos] of Integer;
 
-  // 자리 APos의 AIndex번째 손패(총 ATotal장) 착지 정보 — 정보 패널 제외 공간 기준
+  // 자리 APos의 AIndex번째 손패(총 ATotal장) 착지 정보 — 아바타 카드로 빨려들어가듯 날아감
   function HandFly(const APos: TSeatPos; const AIndex, ATotal: Integer): TDealFly;
   begin
     Result := Default(TDealFly);
     Result.IsFloor := False;
     Result.Pos := APos;
-    var CS := CardSize;
-    var LA := SeatCardArea(APos);
-    var LMidX := (LA.Left + LA.Right) / 2;
+    var LAvatar := SeatAvatarRect(APos);
+    Result.Target := PointF((LAvatar.Left + LAvatar.Right) / 2, (LAvatar.Top + LAvatar.Bottom) / 2);
     case APos of
       spTop:
         begin
           Result.Scale := 0.45;
           Result.Angle := 0;
-          Result.Target := PointF(LMidX + (AIndex - (ATotal - 1) / 2) * CS.Width * 0.45 * 0.45,
-            LA.Top + 10 + CS.Height * 0.45 / 2);
         end;
       spBottom:
         begin
           Result.Scale := 0.7;
           Result.Angle := 0;
-          Result.Target := PointF(LMidX + (AIndex - (ATotal - 1) / 2) * CS.Width * 0.7 * 0.5,
-            LA.Top + LA.Height * 0.55);
         end;
       spLeft:
         begin
           Result.Scale := 0.45;
           Result.Angle := 90;
-          Result.Target := PointF(LA.Left + 6 + CS.Height * 0.45 / 2,
-            LA.Top + CS.Width * 0.45 / 2 + AIndex * CS.Width * 0.45 * 0.45);
         end;
     else
       begin
         Result.Scale := 0.45;
         Result.Angle := 270;
-        Result.Target := PointF(LA.Right - 6 - CS.Height * 0.45 / 2,
-          LA.Top + CS.Width * 0.45 / 2 + AIndex * CS.Width * 0.45 * 0.45);
       end;
     end;
   end;
@@ -5880,8 +5871,9 @@ end;
 
 function TGostopBoard.CapturedAnchor(const AActor: Integer): TPointF;
 begin
-  var LRegion := SeatRegion(PhysicalPos(AActor));
-  Result := PointF(LRegion.Left + 50, LRegion.Top + 30);
+  // 먹은 패·뺏어온 피는 좌석의 아바타 카드로 빨려들어가듯 날아가게 함
+  var LAvatar := SeatAvatarRect(PhysicalPos(AActor));
+  Result := PointF((LAvatar.Left + LAvatar.Right) / 2, (LAvatar.Top + LAvatar.Bottom) / 2);
 end;
 
 procedure TGostopBoard.CollectTurnEffects;

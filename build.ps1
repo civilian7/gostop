@@ -28,14 +28,14 @@ Set-Location $Root
 #      avatars\raw·_source_sheet.png·gemini_prompt.txt는 에셋 재생성용 자료일 뿐 게임이 안 읽음)
 robocopy "$Root\assets" "$Root\bin\assets" /MIR `
   /XD "$Root\assets\hwatu\svg" "$Root\assets\avatars\raw" `
-  /XF *.ogg *.svg *.md *.tsv gemini_prompt.txt _source_sheet.png `
+  /XF *.ogg *.svg *.md *.tsv gemini_prompt*.txt _source_sheet.png `
   /NJH /NJS /NDL /NFL /NP | Out-Null
 if ($LASTEXITCODE -ge 8) { throw 'assets 복사(robocopy) 실패' }
 $global:LASTEXITCODE = 0
 
 # robocopy /XF·/XD 는 제외 파일을 삭제하지 않으므로, 기존 배포분에 남은 불필요 파일/폴더 정리
 Get-ChildItem -Path "$Root\bin\assets" -Recurse -File -ErrorAction SilentlyContinue |
-  Where-Object { $_.Extension -in '.ogg', '.svg', '.md', '.tsv' -or $_.Name -in 'gemini_prompt.txt', '_source_sheet.png' } |
+  Where-Object { $_.Extension -in '.ogg', '.svg', '.md', '.tsv' -or $_.Name -like 'gemini_prompt*.txt' -or $_.Name -eq '_source_sheet.png' } |
   Remove-Item -Force -ErrorAction SilentlyContinue
 Get-ChildItem -Path "$Root\bin\assets" -Recurse -Directory -ErrorAction SilentlyContinue |
   Where-Object { $_.Name -in 'svg', 'raw' } |

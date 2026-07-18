@@ -30,7 +30,7 @@ type
     function ScaledOf(const AKey: string; const ASource: TBitmap; const AWidth, AHeight: Integer): TBitmap;
   public
     /// <summary>PNG 폴더 경로를 지정해 캐시를 생성합니다.</summary>
-    /// <param name="APngDir">카드 PNG가 들어 있는 폴더(예: assets\hwatu\png).</param>
+    /// <param name="APngDir">카드 PNG가 들어 있는 폴더(예: assets\hwatu).</param>
     constructor Create(const APngDir: string);
     destructor Destroy; override;
 

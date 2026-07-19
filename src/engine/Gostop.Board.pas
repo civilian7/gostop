@@ -350,7 +350,8 @@ type
     procedure AnimApplyStageEnd(const AStage: Integer);
     procedure FinishAnimation;
     procedure DrawFlyers;
-    procedure DrawFlyerCard(const ACenter: TPointF; const AAssetId: string; const AFlip: Boolean; const AProgress: Single);
+    procedure DrawFlyerCard(const ACenter: TPointF; const AAssetId: string; const AFlip: Boolean;
+      const AProgress: Single; const ASquashY: Single = 1.0);
     procedure DrawEffectBanner;
     procedure EffectTimerTick(Sender: TObject);
     procedure AngryTimerTick(Sender: TObject);
@@ -6534,7 +6535,8 @@ begin
   end;
 end;
 
-procedure TGostopBoard.DrawFlyerCard(const ACenter: TPointF; const AAssetId: string; const AFlip: Boolean; const AProgress: Single);
+procedure TGostopBoard.DrawFlyerCard(const ACenter: TPointF; const AAssetId: string; const AFlip: Boolean;
+  const AProgress: Single; const ASquashY: Single);
 begin
   var CS := CardSize;
   var LScaleX := 1.0;
@@ -6546,7 +6548,8 @@ begin
   end;
 
   var LW := CS.Width * LScaleX;
-  var LR := RectF(ACenter.X - LW / 2, ACenter.Y - CS.Height / 2, ACenter.X + LW / 2, ACenter.Y + CS.Height / 2);
+  var LH := CS.Height * ASquashY;   // 착지 임팩트: 도착 막바지에 살짝 눌렸다 펴짐
+  var LR := RectF(ACenter.X - LW / 2, ACenter.Y - LH / 2, ACenter.X + LW / 2, ACenter.Y + LH / 2);
   if LShowBack then
   begin
     DrawBack(LR);
@@ -6569,7 +6572,17 @@ begin
     end;
   end;
 
-  var LEase := FAnimT * FAnimT * (3 - 2 * FAnimT);   // smoothstep
+  // 손으로 쥔 패를 내려치는 느낌: 초반에 빠르게 튀어나가 감속(ease-out cubic) + 이동 중 살짝
+  // 떠오르는 아치(사인 곡선, 이동거리에 비례해 최대 높이 제한) + 도착 막바지 착지 스쿼시
+  var LT := FAnimT;
+  var LEase := 1 - (1 - LT) * (1 - LT) * (1 - LT);   // ease-out cubic
+
+  var LSquash := 1.0;
+  if LT > 0.82 then
+  begin
+    var LK := (LT - 0.82) / 0.18;
+    LSquash := 1 - 0.16 * Sin(LK * Pi);   // 눌렸다(중간) 다시 펴짐(끝)
+  end;
 
   var LCards: TArray<THwatuCard>;
   var LFlip := False;
@@ -6593,7 +6606,7 @@ begin
     end;
   end;
 
-  // 각 카드가 출발점에서 제자리(타깃)로 직행
+  // 각 카드가 출발점에서 제자리(타깃)로, 직선이 아니라 아치를 그리며 날아감
   for var I := 0 to High(LCards) do
   begin
     if (I > High(FFlySources)) or (I > High(FFlyTargets)) then
@@ -6601,9 +6614,14 @@ begin
       Break;
     end;
 
-    var LP := PointF(FFlySources[I].X + (FFlyTargets[I].X - FFlySources[I].X) * LEase,
-      FFlySources[I].Y + (FFlyTargets[I].Y - FFlySources[I].Y) * LEase);
-    DrawFlyerCard(LP, LCards[I].AssetId, LFlip, LEase);
+    var LDX := FFlyTargets[I].X - FFlySources[I].X;
+    var LDY := FFlyTargets[I].Y - FFlySources[I].Y;
+    var LDist := Sqrt(LDX * LDX + LDY * LDY);
+    var LArcH := Min(70.0, LDist * 0.14);
+    var LArc := Sin(LT * Pi) * LArcH;
+
+    var LP := PointF(FFlySources[I].X + LDX * LEase, FFlySources[I].Y + LDY * LEase - LArc);
+    DrawFlyerCard(LP, LCards[I].AssetId, LFlip, LEase, LSquash);
   end;
 end;
 

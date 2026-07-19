@@ -4794,8 +4794,9 @@ begin
   var LIR := LInfo.Right;
   var LIT := LInfo.Top;
 
-  // 선 배지 — 카드 좌상단 코너(정보와 겹치지 않게)
-  if (FGame <> nil) and (LogicalSeatOf(APos) = 0) then
+  // 선 배지 — 카드 좌상단 코너(정보와 겹치지 않게). 선은 딜(패 돌리기)보다 먼저 정해지므로
+  // FGame이 아직 없어도(4인은 협상 완료 전까지 FGame=nil) 셔플·딜·협상 중엔 이미 표시해야 한다.
+  if ((FGame <> nil) or FDealing or FShuffling or FNegotiating) and (LogicalSeatOf(APos) = 0) then
   begin
     var LSB := RectF(LBox.Left + 3, LBox.Top + 3, LBox.Left + 27, LBox.Top + 23);
     Canvas.FillRound(LSB, 6, $FFD32F2F);
@@ -5260,14 +5261,24 @@ begin
     Exit;
   end;
 
-  // 참가/포기: 표준 다이얼로그 — 손패(팔 수 있는 패는 살짝 위로) + 하단 버튼
+  // 참가/포기: 표준 다이얼로그 — 바닥패는 1장만 공개, 나머지는 뒷면(4인 맞고 정통 룰) + 하단 버튼
   if (FTable4 <> nil) and (FTable4.Floor.Count > 0) then
   begin
     var CS := CardSize;
     var LC := CenterRegion;
-    var LX := (LC.Left + LC.Right) / 2 - CS.Width / 2;
-    var LY := (LC.Top + LC.Bottom) / 2 - CS.Height / 2;
-    DrawFront(RectF(LX, LY, LX + CS.Width, LY + CS.Height), FTable4.Floor[0].AssetId);
+    var LCX := (LC.Left + LC.Right) / 2;
+    var LCY := (LC.Top + LC.Bottom) / 2;
+
+    // 공개 안 된 나머지는 살짝 겹쳐 쌓인 뒷면 무더기로(스톡 무더기와 같은 표현)
+    var LHiddenCount := FTable4.Floor.Count - 1;
+    for var I := LHiddenCount downto 1 do
+    begin
+      var LOff := I * 3.0;
+      DrawBack(RectF(LCX - CS.Width / 2 + LOff, LCY - CS.Height / 2 + LOff,
+        LCX + CS.Width / 2 + LOff, LCY + CS.Height / 2 + LOff));
+    end;
+
+    DrawFront(RectF(LCX - CS.Width / 2, LCY - CS.Height / 2, LCX + CS.Width / 2, LCY + CS.Height / 2), FTable4.Floor[0].AssetId);
   end;
 
   var LPanelW := Min(Width * 0.86, 760.0);
@@ -5383,7 +5394,9 @@ begin
     Exit;
   end;
 
-  FGameOverRemain := FGameOverRemain - (FGameOverTimer.Interval / 1000) * FGameSpeed;
+  // 게임속도(FGameSpeed)와 무관하게 절대 초로 흘러야 함(속도를 올려도 다음 판까지 기다리는
+  // 시간이 짧아지지 않게) — 다른 애니메이션과 달리 FGameSpeed를 곱하지 않는다.
+  FGameOverRemain := FGameOverRemain - FGameOverTimer.Interval / 1000;
   if FGameOverRemain > 0 then
   begin
     Repaint;
@@ -6326,8 +6339,9 @@ begin
   Repaint;
 end;
 
-// 좌석 아바타 옆(보드 중앙 방향)에 대사 말풍선을 그린다 — 어느 좌석이든 화면 안에 들어오도록
-// 아바타 중심→보드 중앙 방향으로 살짝 떨어진 지점에 배치.
+// 좌석 아바타 옆, 카드 영역과 겹치지 않는 "빈" 쪽에 대사 말풍선 + 꼬리를 그린다.
+// PlayerPanelRect 배치상 손패는 항상 아바타의 특정 한쪽에 붙어 있으므로(P1=왼쪽·P3=오른쪽·
+// P2=아래·P4=위), 그 반대쪽이 상대적으로 비어 있는 방향이다.
 procedure TGostopBoard.DrawSpeechBubble;
 begin
   if FSpeechText = '' then
@@ -6339,28 +6353,54 @@ begin
   var LAvCx := (LAvR.Left + LAvR.Right) / 2;
   var LAvCy := (LAvR.Top + LAvR.Bottom) / 2;
 
-  var LCen := CenterRegion;
-  var LDX := (LCen.Left + LCen.Right) / 2 - LAvCx;
-  var LDY := (LCen.Top + LCen.Bottom) / 2 - LAvCy;
-  var LDist := Sqrt(LDX * LDX + LDY * LDY);
-  if LDist < 1 then
-  begin
-    LDist := 1;
+  var LDX := 0.0;
+  var LDY := 0.0;
+  case FSpeechSeat of
+    spTop:
+      begin
+        LDX := 1;    // 손패가 왼쪽 → 오른쪽으로
+      end;
+    spBottom:
+      begin
+        LDX := -1;   // 손패가 오른쪽 → 왼쪽으로
+      end;
+    spLeft:
+      begin
+        LDY := -1;   // 손패가 아래 → 위로
+      end;
+  else
+    begin
+      LDY := 1;      // spRight: 손패가 위 → 아래로
+    end;
   end;
-
-  var LOffset := LAvR.Width / 2 + 44;
-  var LBx := LAvCx + LDX / LDist * LOffset;
-  var LBy := LAvCy + LDY / LDist * LOffset;
 
   Canvas.Font.Size := 14;
   var LTextW := EnsureRange(Canvas.TextWidth(FSpeechText) + 30, 70, 200);
   var LTextH := 40.0;
+
+  var LOffset := LAvR.Width / 2 + Max(LTextW, LTextH) / 2 + 14;
+  var LBx := LAvCx + LDX * LOffset;
+  var LBy := LAvCy + LDY * LOffset;
   var LR := RectF(LBx - LTextW / 2, LBy - LTextH / 2, LBx + LTextW / 2, LBy + LTextH / 2);
 
-  Canvas.FillRound(LR, 12, $F0F5EEDD);
+  const BUBBLE_FILL = $F0F5EEDD;
+  Canvas.FillRound(LR, 12, BUBBLE_FILL);
   Canvas.StrokeRound(LR, 12, $FF8A7048, 1.5);
 
+  // 말꼬리: 말풍선에서 아바타를 향하는 작은 삼각형
+  var LTailW := 14.0;
+  var LTailLen := 12.0;
+  var LTailBaseCx := LBx - LDX * (LTextW / 2 - 2);
+  var LTailBaseCy := LBy - LDY * (LTextH / 2 - 2);
+  var LPerpX := -LDY;
+  var LPerpY := LDX;
+  var LTailTip := PointF(LTailBaseCx - LDX * LTailLen, LTailBaseCy - LDY * LTailLen);
+  var LTailP1 := PointF(LTailBaseCx + LPerpX * LTailW / 2, LTailBaseCy + LPerpY * LTailW / 2);
+  var LTailP2 := PointF(LTailBaseCx - LPerpX * LTailW / 2, LTailBaseCy - LPerpY * LTailW / 2);
   Canvas.Fill.Kind := TBrushKind.Solid;
+  Canvas.Fill.Color := BUBBLE_FILL;
+  Canvas.FillPolygon([LTailTip, LTailP1, LTailP2], 1);
+
   Canvas.Fill.Color := $FF3A2A18;
   Canvas.Font.Size := 14;
   Canvas.FillText(LR, FSpeechText, True, 1, [], TTextAlign.Center, TTextAlign.Center);

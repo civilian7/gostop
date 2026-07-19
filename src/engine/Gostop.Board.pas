@@ -229,6 +229,12 @@ type
     FPickTimer: TTimer;
     FBtnQuit: TRectF;             // 게임 종료 팝업 '중지' 버튼
 
+    // 표준 다이얼로그(DrawStdDialog) 등장 팝인 애니메이션 — 모든 팝업에 공용
+    FDialogPopTimer: TTimer;
+    FDialogPopT: Single;         // 0~1, 현재 다이얼로그의 등장 진행도(1=정착)
+    FDialogPopKey: string;       // 마지막에 그린 다이얼로그 식별 키(제목+크기) — 바뀌면 새로 등장한 것으로 판단
+    FDialogPreMatrix: TMatrix;   // DrawStdDialog 진입 전 매트릭스(EndStdDialog에서 복원)
+
     // 딜(패 돌리기) 애니메이션 — 덱에서 각 자리·바닥으로 카드가 날아가며 분배
     FDealing: Boolean;
     FDealTimer: TTimer;
@@ -442,6 +448,8 @@ type
     procedure HumanRespondShodang(const AAccept: Boolean);
     procedure DrawShodangPrompt;
     function  DrawStdDialog(const ATitle: string; const AWidth, AHeight: Single): TRectF;
+    procedure EndStdDialog;
+    procedure DialogPopTick(Sender: TObject);
     function  AdjustColor(const AColor: TAlphaColor; const ADelta: Integer): TAlphaColor;
     function  IsHot(const ARect: TRectF): Boolean;
     function  IsPressed(const ARect: TRectF): Boolean;
@@ -816,6 +824,10 @@ begin
   FShuffleTimer.Interval := 16;   // ~60fps
   FShuffleTimer.Enabled := False;
   FShuffleTimer.OnTimer := ShuffleTimerTick;
+  FDialogPopTimer := TTimer.Create(Self);
+  FDialogPopTimer.Interval := 16;   // ~60fps
+  FDialogPopTimer.Enabled := False;
+  FDialogPopTimer.OnTimer := DialogPopTick;
   FBonusRects := TList<TRectF>.Create;
   FPickTimer := TTimer.Create(Self);
   FPickTimer.Interval := 16;   // ~60fps
@@ -2237,6 +2249,8 @@ begin
     var LAvR := RectF(Width / 2 - LAvSz / 2, LPanel.Bottom - 88, Width / 2 + LAvSz / 2, LPanel.Bottom - 8);
     Canvas.DrawBitmap(LAvBmp, RectF(0, 0, LAvBmp.Width, LAvBmp.Height), LAvR, 1, False);
   end;
+
+  EndStdDialog;
 end;
 
 procedure TGostopBoard.StartPlay;
@@ -4554,6 +4568,8 @@ begin
   // 주 버튼 행: [시작] [취소] — 중앙 정렬 한 쌍(보조 버튼과 같은 폭)
   FBtnSetupStart := DrawStdButton(RectF(LCx - LBtnW - LBtnGap / 2, LBY, LCx - LBtnGap / 2, LBY + LBtnH), '시작', dbkPrimary);
   FBtnSetupCancel := DrawStdButton(RectF(LCx + LBtnGap / 2, LBY, LCx + LBtnGap / 2 + LBtnW, LBY + LBtnH), '취소', dbkDanger);
+
+  EndStdDialog;
 end;
 
 // 타이틀 메뉴(게임 없음 상태): 로고 + 이어하기/새게임/끝내기 3버튼
@@ -5219,6 +5235,8 @@ begin
   var LBtnY := LPanel.Bottom - LBtnH - 18;
   FBtnJoin := DrawStdButton(RectF(LCX - LBtnW - LGap / 2, LBtnY, LCX - LGap / 2, LBtnY + LBtnH), '참가', dbkPrimary);
   FBtnGiveUp := DrawStdButton(RectF(LCX + LGap / 2, LBtnY, LCX + LGap / 2 + LBtnW, LBtnY + LBtnH), '포기', dbkDanger);
+
+  EndStdDialog;
 end;
 
 // 정산 줄에 표시할 아바타 비트맵. 승자=환호, 패자=슬픔(없으면 평상시로 폴백). 인덱스 없으면 nil
@@ -5512,6 +5530,8 @@ begin
     FBtnNext := DrawStdButton(RectF(LCX - LBtnW - LGap / 2, LY + 12, LCX - LGap / 2, LY + 12 + LBtnH), '새게임', dbkPrimary);
     FBtnQuit := DrawStdButton(RectF(LCX + LGap / 2, LY + 12, LCX + LGap / 2 + LBtnW, LY + 12 + LBtnH), '중지', dbkDanger);
   end;
+
+  EndStdDialog;
 end;
 
 procedure TGostopBoard.DrawGoStopPrompt;
@@ -5526,19 +5546,68 @@ begin
   var LBtnY := LPanel.Bottom - LBtnH - 16;
   FBtnGo := DrawStdButton(RectF(LCX - LBtnW - LGap / 2, LBtnY, LCX - LGap / 2, LBtnY + LBtnH), '고', dbkPrimary);
   FBtnStop := DrawStdButton(RectF(LCX + LGap / 2, LBtnY, LCX + LGap / 2 + LBtnW, LBtnY + LBtnH), '스톱', dbkDanger);
+
+  EndStdDialog;
 end;
 
-// 표준 다이얼로그: 딤 + 중앙 둥근 패널 + 제목. 모든 팝업이 재사용해 스타일 통일. 패널 rect 반환
+// 다이얼로그 등장 팝인 진행 타이머(등장 시작~정착까지 매 프레임 재생)
+procedure TGostopBoard.DialogPopTick(Sender: TObject);
+begin
+  FDialogPopT := FDialogPopT + FDialogPopTimer.Interval / 170;   // 총 170ms
+  if FDialogPopT >= 1 then
+  begin
+    FDialogPopT := 1;
+    FDialogPopTimer.Enabled := False;
+  end;
+
+  Repaint;
+end;
+
+// 표준 다이얼로그 패널 시작. (제목+크기)가 직전 프레임과 다르면 새로 등장한 것으로 보고
+// 팝인 애니메이션(살짝 작게 시작해 튀었다 정착)을 시작한다. 이 함수가 남긴 매트릭스는
+// 다이얼로그 내용을 전부 그린 뒤 EndStdDialog로 반드시 복원해야 한다(패널·내용이 함께 스케일되도록).
 function TGostopBoard.DrawStdDialog(const ATitle: string; const AWidth, AHeight: Single): TRectF;
 begin
   Canvas.FillRound(LocalRect, 0, $88000000);   // 배경 딤
+
+  var LKey := Format('%s|%.0f|%.0f', [ATitle, AWidth, AHeight]);
+  if LKey <> FDialogPopKey then
+  begin
+    FDialogPopKey := LKey;
+    FDialogPopT := 0;
+    FDialogPopTimer.Enabled := True;
+  end;
+
   Result := RectF(Width / 2 - AWidth / 2, Height / 2 - AHeight / 2, Width / 2 + AWidth / 2, Height / 2 + AHeight / 2);
+
+  FDialogPreMatrix := Canvas.Matrix;
+  if FDialogPopT < 1 then
+  begin
+    // ease-out-back: 0에서 살짝 넘치듯(오버슈트) 1로 정착
+    const OVERSHOOT = 1.70158;
+    var LK := FDialogPopT - 1;
+    var LBack := 1 + (OVERSHOOT + 1) * LK * LK * LK + OVERSHOOT * LK * LK;
+    var LScale := 0.6 + LBack * 0.4;   // 60% 크기에서 시작해 튀며 100%로 정착
+
+    var LCx := (Result.Left + Result.Right) / 2;
+    var LCy := (Result.Top + Result.Bottom) / 2;
+    var LMx := TMatrix.CreateTranslation(-LCx, -LCy) * TMatrix.CreateScaling(LScale, LScale) * TMatrix.CreateTranslation(LCx, LCy);
+    Canvas.SetMatrix(LMx * FDialogPreMatrix);
+  end;
+
   Canvas.FillRound(Result, 18, $F02E3A2E);      // 따뜻한 다크
   Canvas.StrokeRound(Result, 18, $FFE8C868, 2); // 부드러운 금색 테두리
   if ATitle <> '' then
   begin
     DrawLabel(RectF(Result.Left, Result.Top + 16, Result.Right, Result.Top + 50), ATitle, TAlphaColors.Gold, 22);
   end;
+end;
+
+// DrawStdDialog가 남긴 팝인 매트릭스를 복원한다 — 그 다이얼로그의 내용(버튼·라벨·카드 등)을
+// 전부 그린 직후 반드시 호출해야, 패널과 내용이 함께 스케일되어 자연스럽게 등장한다.
+procedure TGostopBoard.EndStdDialog;
+begin
+  Canvas.SetMatrix(FDialogPreMatrix);
 end;
 
 // AARRGGBB 색상의 RGB 채널을 ADelta만큼 밝게(양수)/어둡게(음수) 조정(호버·눌림 효과 공용)
@@ -5822,6 +5891,8 @@ begin
   var LBtnY := LPanel.Bottom - LBtnH - 16;
   FBtnShodangYes := DrawStdButton(RectF(LCX - LBtnW - LGap / 2, LBtnY, LCX - LGap / 2, LBtnY + LBtnH), '받기', dbkPrimary);
   FBtnShodangNo := DrawStdButton(RectF(LCX + LGap / 2, LBtnY, LCX + LGap / 2 + LBtnW, LBtnY + LBtnH), '거절', dbkDanger);
+
+  EndStdDialog;
 end;
 
 procedure TGostopBoard.Paint;

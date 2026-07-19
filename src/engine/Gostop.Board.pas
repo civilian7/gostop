@@ -1234,8 +1234,8 @@ procedure TGostopBoard.FanDialogGeometry(out APanelW, ACardW, ACardH, AStep, AHa
   ATopPad: Single);
 begin
   var CS := CardSize;
-  ACardW := CS.Width * 0.5;
-  ACardH := CS.Height * 0.5;
+  ACardW := CS.Width * 0.65;
+  ACardH := CS.Height * 0.65;
   AAvColW := Max(130.0, 150.0);
   ATopPad := 54.0;
 
@@ -1247,7 +1247,9 @@ begin
   end;
 
   var LMaxPanelW := Width * 0.86;
-  var LFanAvailW := LMaxPanelW - AAvColW - 24 - 20 - 24 - 24;
+  // 부채꼴 실폭 = Step*(N-1) + 카드폭(양끝 반폭)이므로, 간격 상한 계산 시 카드폭만큼 미리 빼 둬야
+  // 실제 패널 폭이 LMaxPanelW를 넘지 않는다.
+  var LFanAvailW := LMaxPanelW - AAvColW - 24 - 20 - 24 - 24 - ACardW;
 
   AStep := ACardW * 0.55;
   if LRefCount > 1 then
@@ -1285,7 +1287,7 @@ begin
 
   var LBtnH := 46.0;
   var LPanelH := LTopPad + LCardH + LArcDrop + 20 + LBtnH + 20;
-  var LPanel := DrawStdDialog('기리/패 선택', LPanelW, LPanelH);
+  var LPanel := DrawStdDialog('기리', LPanelW, LPanelH);
   var LBodyTop := LPanel.Top + LTopPad;
 
   // 좌측: 사람(항상 말번) 아바타 + 아래에 닉네임
@@ -2113,7 +2115,7 @@ begin
 
   var LHoverRaise := LCardH * 0.22;   // 호버 시 위로 솟는 양(손패 호버와 동일한 비율)
   var LPanelH := LTopPad + LHoverRaise + LCardH + LArcDrop + 24;
-  var LPanel := DrawStdDialog('기리/패 선택', LPanelW, LPanelH);
+  var LPanel := DrawStdDialog('패선택', LPanelW, LPanelH);
   var LBodyTop := LPanel.Top + LTopPad;
 
   // 좌측: 현재 차례 플레이어 아바타 + 아래에 닉네임

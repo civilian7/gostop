@@ -74,6 +74,7 @@ type
   private
     FImages: TCardImageCache;
     FFeltTile: TBitmap;
+    FWoodTile: TBitmap;   // 다이얼로그 패널용 나무 결 텍스처(절차 생성, 펠트와 같은 방식)
     FAvatars: array [TSeatPos] of TBitmap;      // 자리별 아바타(절차 생성 폴백)
     FAvatarPool: TObjectList<TBitmap>;          // 파일 아바타 풀(assets\avatars, 지연 로드)
     FAvatarCheerPool: TObjectList<TBitmap>;     // 환호(승리) 상태 풀. FAvatarPool과 인덱스 정렬(없으면 nil)
@@ -299,6 +300,7 @@ type
     procedure AiTimerTick(Sender: TObject);
     procedure ClearGame(const ADeleteSave: Boolean = True);
     procedure GenerateFeltTile;
+    procedure GenerateWoodTile;
     procedure AfterAction;
     procedure StartPlay;
     procedure SetupAgentsAndEngine(const AFreshDeal: Boolean);
@@ -894,6 +896,7 @@ begin
   FreeAndNil(FAvatarAngryPool);
   FreeAndNil(FSkillAvatarPool);
   FreeAndNil(FFeltTile);
+  FreeAndNil(FWoodTile);
   FreeAndNil(FImages);
   FreeAndNil(FFloorIndexMap);
   FreeAndNil(FFloorRects);
@@ -1033,6 +1036,40 @@ begin
       end;
     finally
       FFeltTile.Unmap(LData);
+    end;
+  end;
+end;
+
+// 다이얼로그 패널용 나무 결 텍스처(짙은 호두나무 톤 + 가로로 흐르는 불규칙 결무늬 + 미세 잡음).
+// 펠트 배경과 같은 절차 생성 방식(외부 이미지 에셋 없이 코드로 만듦) — 단색 채움 대신 질감을 줘
+// 다이얼로그가 일반 앱 알림창처럼 밋밋해 보이지 않게 한다.
+procedure TGostopBoard.GenerateWoodTile;
+const
+  TILE = 128;
+  BASE_R = 58;
+  BASE_G = 38;
+  BASE_B = 26;
+begin
+  FWoodTile := TBitmap.Create(TILE, TILE);
+  var LData: TBitmapData;
+  if FWoodTile.Map(TMapAccess.Write, LData) then
+  begin
+    try
+      for var Y := 0 to TILE - 1 do
+      begin
+        for var X := 0 to TILE - 1 do
+        begin
+          var LGrain := Round(Sin(Y * 0.25 + Sin(X * 0.05) * 2.5) * 14 + Sin(Y * 0.9) * 4);
+          var LNoise := FeltNoise(X, Y) div 4;
+          var LShade := LGrain + LNoise;
+          var LR := EnsureRange(BASE_R + LShade, 0, 255);
+          var LG := EnsureRange(BASE_G + (LShade * 2) div 3, 0, 255);
+          var LB := EnsureRange(BASE_B + LShade div 2, 0, 255);
+          LData.SetPixel(X, Y, $FF000000 or (Cardinal(LR) shl 16) or (Cardinal(LG) shl 8) or Cardinal(LB));
+        end;
+      end;
+    finally
+      FWoodTile.Unmap(LData);
     end;
   end;
 end;
@@ -5595,8 +5632,27 @@ begin
     Canvas.SetMatrix(LMx * FDialogPreMatrix);
   end;
 
-  Canvas.FillRound(Result, 18, $F02E3A2E);      // 따뜻한 다크
-  Canvas.StrokeRound(Result, 18, $FFE8C868, 2); // 부드러운 금색 테두리
+  // 단색 대신 나무 결 텍스처(절차 생성)로 채워 일반 앱 알림창처럼 밋밋해 보이지 않게 함
+  if FWoodTile = nil then
+  begin
+    GenerateWoodTile;
+  end;
+
+  if (FWoodTile <> nil) and (FWoodTile.Width > 0) then
+  begin
+    Canvas.Fill.Kind := TBrushKind.Bitmap;
+    Canvas.Fill.Bitmap.Bitmap := FWoodTile;
+    Canvas.Fill.Bitmap.WrapMode := TWrapMode.Tile;
+    Canvas.FillRect(Result, 18, 18, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+    Canvas.Fill.Kind := TBrushKind.Solid;
+  end
+  else
+  begin
+    Canvas.FillRound(Result, 18, $F02E3A2E);   // 텍스처 생성 실패 시 기존 단색 폴백
+  end;
+
+  Canvas.StrokeRound(Result, 18, $FFE8C868, 2.5);   // 부드러운 금색 테두리(액자 느낌으로 살짝 두껍게)
+  Canvas.StrokeRound(RectF(Result.Left + 4, Result.Top + 4, Result.Right - 4, Result.Bottom - 4), 14, $30E8C868, 1);   // 안쪽 은은한 이너라인
   if ATitle <> '' then
   begin
     DrawLabel(RectF(Result.Left, Result.Top + 16, Result.Right, Result.Top + 50), ATitle, TAlphaColors.Gold, 22);

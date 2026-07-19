@@ -42,5 +42,10 @@ Get-ChildItem -Path "$Root\bin\assets" -Recurse -Directory -ErrorAction Silently
   Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 if (Test-Path "$Root\bin\assets\hwatu") { Remove-Item -Recurse -Force "$Root\bin\assets\hwatu" }
 
+# 4) 도움말 문서(사용설명서·고스톱룰 HTML) 동기화 — 타이틀 화면 버튼이 exe 기준 help\로 연다
+robocopy "$Root\help" "$Root\bin\help" /MIR /NJH /NJS /NDL /NFL /NP | Out-Null
+if ($LASTEXITCODE -ge 8) { throw 'help 복사(robocopy) 실패' }
+$global:LASTEXITCODE = 0
+
 Write-Host ''
-Write-Host '빌드 완료: bin\Gostop.exe (+ bin\assets 동기화)' -ForegroundColor Green
+Write-Host '빌드 완료: bin\Gostop.exe (+ bin\assets, bin\help 동기화)' -ForegroundColor Green

@@ -94,6 +94,7 @@ type
 
     // 일시정지(스페이스바) — 모든 진행 타이머가 이 플래그를 확인해 멈춘다
     FPaused: Boolean;
+    FAutoPlay: Boolean;   // 이번 판 한정 — 켜져 있으면 내 턴도 AI가 대신 진행
 
     // 하단 컨트롤 바(볼륨·음소거·게임속도) + 타이틀 메뉴 — 유튜브식 호버 표시
     FGameSpeed: Single;        // 애니·AI 대기 속도 배율(0.5~2.0)
@@ -103,11 +104,20 @@ type
     FMuteRect: TRectF;
     FVolTrackRect: TRectF;
     FSpeedRect: TRectF;        // 속도 슬라이더 히트 영역
+    FBtnPauseBar: TRectF;      // 하단 컨트롤 바의 일시정지/재개 버튼
+    FBtnAutoBar: TRectF;       // 하단 컨트롤 바의 자동(이번 판 AI 대신) 버튼
     FBtnMenuNew: TRectF;        // 타이틀 '새게임' 버튼
     FBtnMenuExit: TRectF;
     FBtnMenuContinue: TRectF;  // 타이틀 '이어서 하기' 버튼(저장 파일 없으면 비활성 표시)
+    FBtnMenuManual: TRectF;    // 타이틀 '사용설명서' 버튼(help\ 문서를 브라우저로 열기)
+    FBtnMenuRules: TRectF;     // 타이틀 '고스톱룰' 버튼(help\ 문서를 브라우저로 열기)
+    FBtnMenuInfo: TRectF;      // 타이틀 '프로그램정보' 버튼
     FCreditRect: TRectF;       // 우하단 제작자 크레딧(클릭=GitHub)
     FOnExitRequest: TNotifyEvent;
+
+    // 프로그램 정보 다이얼로그(타이틀 화면 전용 오버레이)
+    FInfoOpen: Boolean;
+    FBtnInfoClose: TRectF;
 
     // 게임 룰·플레이어 설정('새게임' 다이얼로그 1단계: 인원수+룰+닉네임+아바타, INI 유지)
     FConfig: TGameConfig;        // 게임 룰·플레이어 설정(피박/광박/고박/보너스/금액/시드/난이도/닉네임)
@@ -294,7 +304,7 @@ type
     FTurnEvents: TList<TPlayEvent>;
     FEffectText: string;
     FEffectTimer: TTimer;
-    // 한 턴에 이벤트가 여러 개 겹치면(예: 보너스패로 "한번 더~" 뜬 뒤 다시 뒤집어 뻑 발생) 한꺼번에
+    // 한 턴에 이벤트가 여러 개 겹치면(예: 보너스패로 "한장 더~" 뜬 뒤 다시 뒤집어 뻑 발생) 한꺼번에
     // 합쳐 보여주지 않고 순서대로 하나씩, 사이에 짧은 공백을 두고 보여준다
     FEffectQueue: TArray<string>;
     FEffectQueueIdx: Integer;
@@ -437,6 +447,8 @@ type
     procedure PaintGame;
     procedure DrawPauseOverlay;
     procedure DrawTitleMenu;
+    procedure DrawProgramInfo;
+    procedure OpenHelpDoc(const AFileName: string);
     procedure DrawSettings;
     procedure DrawCfgToggle(const ARect: TRectF; const AOn: Boolean);
     procedure DrawCardShell(const ARect: TRectF; const ASelected: Boolean);
@@ -507,6 +519,7 @@ type
     procedure MouseDownSettingsDialog(const LPoint: TPointF);
     procedure MouseDownMatchSetupDialog(const LPoint: TPointF);
     procedure MouseDownTitleButtons(const LPoint: TPointF);
+    procedure MouseDownProgramInfo(const LPoint: TPointF);
     procedure MouseDownAvatarPicker(const LPoint: TPointF);
     procedure MouseDownSeonPick(const LPoint: TPointF);
     procedure MouseDownBonusDraw(const LPoint: TPointF);
@@ -538,6 +551,8 @@ type
     procedure HumanStop;
     /// <summary>일시정지 상태를 켜고 끕니다(스페이스바 등 외부 단축키에서 호출).</summary>
     procedure TogglePause;
+    /// <summary>이번 판 한정 자동 진행(내 턴도 AI가 대신 결정)을 켜고 끕니다.</summary>
+    procedure ToggleAutoPlay;
     /// <summary>현재 텍스트 입력(닉네임 편집 등)이 포커스를 갖고 있는지 — 단축키가 타이핑을 가로채지 않도록.</summary>
     function IsTextInputActive: Boolean;
 
@@ -801,7 +816,7 @@ begin
       begin
         Result := '총통!';
       end;
-    // pekBonusCapture는 배너 없음 — 뒤집기 중 조커는 "한번 더~"가 즉시 뜨고,
+    // pekBonusCapture는 배너 없음 — 뒤집기 중 조커는 "한장 더~"가 즉시 뜨고,
     // 손에서 낸 조커는 뒷패 고르기 다이얼로그가 떠서 별도 배너가 중복·잉여가 됨
     pekGo:
       begin
@@ -1192,30 +1207,54 @@ begin
   end;
 end;
 
-// 말번(마지막 차례) 물리 위치. 선 다음 반시계로 마지막 = 논리 좌석 (N-1)
+// 말번(마지막 차례) 물리 위치: 이번 판 선(FNextStartPos) 바로 앞(반시계 역방향) 좌석 = 한 바�퀴 돌아
+// 선에게 넘어가기 직전 마지막으로 도는 사람. 인원수별 활성 좌석 순환(반시계: 위→왼쪽→아래→오른쪽,
+// 2인은 왼쪽 자리를 건너뜀)에서 선의 바로 이전 자리를 찾는다.
+// 주의: PhysicalPos(FPlayerCount - 1)로 계산하던 이전 방식은 2/3인에서 PhysicalPos가 매치 시작 시
+// 고정된 FRowPos(=항상 사람이 마지막 행)만 참조해, 실제 이번 판 선이 누구든 상관없이 항상 사람
+// 좌석을 말번으로 잘못 골랐다(맞고에서 사람이 선이어도 기리 화면에 사람이 뽑히던 버그).
 function TGostopBoard.MalbeonPos: TSeatPos;
 begin
-  if FPlayerCount = 4 then
-  begin
-    Result := TSeatPos((Ord(FNextStartPos) + 3) mod 4);
-  end
+  var LCycle: TArray<TSeatPos>;
+  case FPlayerCount of
+    2:
+      begin
+        LCycle := [spTop, spBottom];
+      end;
+    3:
+      begin
+        LCycle := [spTop, spLeft, spBottom];
+      end;
   else
-  begin
-    Result := PhysicalPos(FPlayerCount - 1);
+    begin
+      LCycle := [spTop, spLeft, spBottom, spRight];
+    end;
   end;
+
+  var LSeonIdx := 0;
+  for var I := 0 to High(LCycle) do
+  begin
+    if LCycle[I] = FNextStartPos then
+    begin
+      LSeonIdx := I;
+      Break;
+    end;
+  end;
+
+  Result := LCycle[(LSeonIdx - 1 + Length(LCycle)) mod Length(LCycle)];
 end;
 
-// 기리: 딜 직전 말번에게 덱 커팅 권리. 실제로 원치 않는 경우도 있으므로 60% 확률로만 기회가
-// 주어지고(그 외엔 그대로 진행), 기회가 생기면 말번이 사람이든 AI든 화면에 부채꼴로 펼쳐 보여준다.
-// 사람은 직접 클릭해서 컷/퉁을 고르고, AI(또는 관전)는 잠시 보여준 뒤 자동으로 결정한다.
+// 기리: 딜 직전 말번에게 덱 커팅 권리. 기리 자체는 매번 실행되고(카드 장수가 너무 적을 때만 예외),
+// 말번이 사람이든 AI든 화면에 부채꼴로 펼쳐 보여준다. 사람은 직접 클릭해서 컷/퉁을 고르고,
+// AI(또는 관전)는 잠시 보여준 뒤 자동으로 결정한다(그 결정 확률은 GiriAiTimerTick 참조 — 컷 60%/퉁 40%).
 procedure TGostopBoard.RequestGiri(const ADeck: TDeck; const AProceed: TProc);
 begin
   FGiriDeck := ADeck;
   FGiriProceed := AProceed;
 
-  if (ADeck.Count <= 10) or (Random(100) >= 60) then
+  if ADeck.Count <= 10 then
   begin
-    ResolveGiri(-1);   // 기회가 없으면 그대로(퉁) 진행
+    ResolveGiri(-1);   // 컷할 여지가 너무 적으면 그대로(퉁) 진행
     Exit;
   end;
 
@@ -1275,8 +1314,9 @@ begin
   FGiriAiTimer.Enabled := False;
   FHoverGiri := -1;
 
+  // 컷 60% / 퉁 40%
   var LCut := -1;
-  if Random(2) = 0 then
+  if Random(100) < 60 then
   begin
     LCut := 4 + Random(FGiriDeck.Count - 8);
   end;
@@ -2705,6 +2745,8 @@ begin
         Break;
       end;
     end;
+
+    FAutoPlay := False;   // 자동 진행은 이번 판 한정 — 새 판마다 꺼진 채로 시작(사람 자리는 위에서 이미 nil)
   end;
 
   // 피박 기준(피값): 2인 맞고 7 이하, 3인 이상 5 이하
@@ -2738,7 +2780,11 @@ begin
   if AFreshDeal then
   begin
     FEngine.ApplyFloorBonus;   // 바닥에 깔린 보너스패는 선이 획득하고 뒷패에서 보충
-    FEngine.ApplyHandChongtong;
+    if not FEngine.ApplyFloorChongtong then   // 바닥에 처음부터 같은 월 4장이면 선 즉시 승리
+    begin
+      FEngine.ApplyHandChongtong;
+      FEngine.ApplyFloorBbeok;   // 바닥에 처음부터 같은 월 3장이면 뻑 더미로 등록
+    end;
     FAwaitingGoStop := False;
     TGostopAudio.Instance.Play('card_deal');
   end
@@ -3051,6 +3097,13 @@ begin
     end;
   end
   else
+  if (FGame.Current = FHumanIndex) and FAutoPlay then
+  begin
+    // 자동 진행: 내 턴이어도 AI 에이전트가 대신 결정하도록 AI 타이머를 그대로 돌린다
+    FStatus := '자동 진행 중...';
+    FAiTimer.Enabled := True;
+  end
+  else
   if FGame.Current = FHumanIndex then
   begin
     FAiTimer.Enabled := False;
@@ -3117,7 +3170,8 @@ begin
     Exit;
   end;
 
-  if (FGame = nil) or (FGame.Phase = gpFinished) or (FGame.Current = FHumanIndex) then
+  if (FGame = nil) or (FGame.Phase = gpFinished)
+    or ((FGame.Current = FHumanIndex) and not FAutoPlay) then
   begin
     FAiTimer.Enabled := False;
     Exit;
@@ -3925,6 +3979,8 @@ begin
     FMuteRect := TRectF.Empty;
     FVolTrackRect := TRectF.Empty;
     FSpeedRect := TRectF.Empty;
+    FBtnPauseBar := TRectF.Empty;
+    FBtnAutoBar := TRectF.Empty;
     Exit;
   end;
 
@@ -3932,13 +3988,63 @@ begin
   var LBarH := 32.0;
   var LMidX := Width / 2;
   var LTop := Height - LBarH - 6;
-  var LBar := RectF(LMidX - 195, LTop, LMidX + 195, LTop + LBarH);
+  var LBar := RectF(LMidX - 280, LTop, LMidX + 280, LTop + LBarH);
   var LCY := (LBar.Top + LBar.Bottom) / 2;
 
   Canvas.FillRound(LBar, 15, $C0000000);
 
+  // 일시정지/재개 버튼(스페이스바와 동일 동작) — 아이콘 + 설명 텍스트(잘리지 않게 넉넉한 폭)
+  FBtnPauseBar := RectF(LBar.Left + 8, LBar.Top + 3, LBar.Left + 106, LBar.Bottom - 3);
+  Canvas.FillRound(FBtnPauseBar, 6, IfThen(IsHot(FBtnPauseBar), $50FFFFFF, $30FFFFFF));
+  if FPaused then
+  begin
+    // 재생 삼각형(재개)
+    var LTri: TPolygon;
+    SetLength(LTri, 3);
+    LTri[0] := PointF(FBtnPauseBar.Left + 12, LCY - 7);
+    LTri[1] := PointF(FBtnPauseBar.Left + 12, LCY + 7);
+    LTri[2] := PointF(FBtnPauseBar.Left + 22, LCY);
+    Canvas.Fill.Color := $FF80CBC4;
+    Canvas.FillPolygon(LTri, 1);
+    DrawLabel(RectF(FBtnPauseBar.Left + 26, LBar.Top, FBtnPauseBar.Right - 2, LBar.Bottom), '재개', TAlphaColors.White, 12.5);
+  end
+  else
+  begin
+    // 일시정지 막대 두 개
+    Canvas.Fill.Color := $FFFFD54A;
+    Canvas.FillRect(RectF(FBtnPauseBar.Left + 12, LCY - 7, FBtnPauseBar.Left + 16, LCY + 7), 1, 1, [], 1);
+    Canvas.FillRect(RectF(FBtnPauseBar.Left + 19, LCY - 7, FBtnPauseBar.Left + 23, LCY + 7), 1, 1, [], 1);
+    DrawLabel(RectF(FBtnPauseBar.Left + 26, LBar.Top, FBtnPauseBar.Right - 2, LBar.Bottom), '일시정지', TAlphaColors.White, 12.5);
+  end;
+
+  // 자동 진행 버튼(이번 판 한정 — 내 턴도 AI가 대신 결정) — 사람이 있는 판에서만 표시.
+  // 문구는 항상 "자동"으로 고정(켜짐 여부는 색으로만 구분)해 텍스트 폭 걱정 없이 확실히 표시되게 한다
+  var LAfterAuto := FBtnPauseBar;
+  if FHumanIndex >= 0 then
+  begin
+    FBtnAutoBar := RectF(FBtnPauseBar.Right + 8, LBar.Top + 3, FBtnPauseBar.Right + 66, LBar.Bottom - 3);
+    if FAutoPlay then
+    begin
+      Canvas.FillRound(FBtnAutoBar, 6, $FF2E7D32);
+    end
+    else
+    begin
+      Canvas.FillRound(FBtnAutoBar, 6, IfThen(IsHot(FBtnAutoBar), $50FFFFFF, $30FFFFFF));
+    end;
+
+    DrawLabel(FBtnAutoBar, '자동', TAlphaColors.White, 12.5);
+    LAfterAuto := FBtnAutoBar;
+  end
+  else
+  begin
+    FBtnAutoBar := TRectF.Empty;
+  end;
+
+  // "소리" 설명 라벨(속도 라벨과 동일 패턴)
+  DrawLabel(RectF(LAfterAuto.Right + 8, LBar.Top, LAfterAuto.Right + 40, LBar.Bottom), '소리', $FFD8E0D0, 12);
+
   // 스피커 아이콘(클릭=음소거 토글)
-  FMuteRect := RectF(LBar.Left + 10, LBar.Top + 3, LBar.Left + 38, LBar.Bottom - 3);
+  FMuteRect := RectF(LAfterAuto.Right + 42, LBar.Top + 3, LAfterAuto.Right + 70, LBar.Bottom - 3);
   Canvas.Fill.Color := TAlphaColors.White;
   Canvas.FillRect(RectF(FMuteRect.Left + 2, LCY - 4, FMuteRect.Left + 8, LCY + 4), 1, 1,
     [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
@@ -5030,12 +5136,12 @@ begin
   TGostopFonts.Apply(Canvas, 56);
   Canvas.Fill.Kind := TBrushKind.Solid;
   Canvas.Fill.Color := $C0000000;
-  Canvas.FillText(RectF(3, Height * 0.40 + 3, Width + 3, Height * 0.40 + 75), '고스톱',
+  Canvas.FillText(RectF(3, Height * 0.40 + 3, Width + 3, Height * 0.40 + 75), '루미 고스톱',
     False, 1, [], TTextAlign.Center, TTextAlign.Center);
   Canvas.Fill.Color := TAlphaColors.Gold;
-  Canvas.FillText(RectF(0, Height * 0.40, Width, Height * 0.40 + 72), '고스톱',
+  Canvas.FillText(RectF(0, Height * 0.40, Width, Height * 0.40 + 72), '루미 고스톱',
     False, 1, [], TTextAlign.Center, TTextAlign.Center);
-  DrawLabel(RectF(0, Height * 0.40 + 74, Width, Height * 0.40 + 100), '- 밤일낮장 · 정통 맞고 -', $FFD8E0D0, 15);
+  DrawLabel(RectF(0, Height * 0.40 + 74, Width, Height * 0.40 + 100), '- 둘 부터 넷 까지. 정통 고스톱 -', $FFD8E0D0, 15);
 
   var LStatParts: TArray<string> := nil;
   if FConfig.KillCount > 0 then
@@ -5054,17 +5160,72 @@ begin
       string.Join('   ·   ', LStatParts), $FFFFD54A, 13);
   end;
 
-  // 메뉴 버튼 3개: 이어하기 · 새게임 · 끝내기
+  // 메뉴 버튼 2행 3열(전부 같은 크기): 1행=이어하기·새게임·끝내기, 2행=사용설명서·고스톱룰·프로그램정보
   var LBW := 170.0;
   var LBH := 56.0;
   var LGap := 24.0;
+  var LRowGap := 16.0;
   var LBY := Height * 0.62;
+  var LBY2 := LBY + LBH + LRowGap;
   var LHasSave := TGostopSaveGame.Exists;
 
   FBtnMenuContinue := DrawStdButton(RectF(LMidX - LBW * 1.5 - LGap, LBY, LMidX - LBW * 0.5 - LGap, LBY + LBH),
     '이어하기', dbkAccent, LHasSave, 19);
   FBtnMenuNew := DrawStdButton(RectF(LMidX - LBW * 0.5, LBY, LMidX + LBW * 0.5, LBY + LBH), '새게임', dbkPrimary, True, 19);
   FBtnMenuExit := DrawStdButton(RectF(LMidX + LBW * 0.5 + LGap, LBY, LMidX + LBW * 1.5 + LGap, LBY + LBH), '끝내기', dbkDanger, True, 19);
+
+  FBtnMenuManual := DrawStdButton(RectF(LMidX - LBW * 1.5 - LGap, LBY2, LMidX - LBW * 0.5 - LGap, LBY2 + LBH),
+    '사용설명서', dbkNeutral, True, 16);
+  FBtnMenuRules := DrawStdButton(RectF(LMidX - LBW * 0.5, LBY2, LMidX + LBW * 0.5, LBY2 + LBH), '고스톱룰', dbkNeutral, True, 16);
+  FBtnMenuInfo := DrawStdButton(RectF(LMidX + LBW * 0.5 + LGap, LBY2, LMidX + LBW * 1.5 + LGap, LBY2 + LBH), '프로그램정보', dbkNeutral, True, 16);
+end;
+
+// 타이틀 화면 '프로그램정보' 버튼의 오버레이 다이얼로그: 버전 + 오픈소스 출처 + 저작권
+procedure TGostopBoard.DrawProgramInfo;
+begin
+  var LPanel := DrawStdDialog('프로그램 정보', 480, 360);
+  var LY := LPanel.Top + 66;
+
+  DrawLabel(RectF(LPanel.Left, LY, LPanel.Right, LY + 28), '루미고스톱 v1.00', TAlphaColors.Gold, 18);
+  LY := LY + 40;
+
+  Canvas.Fill.Kind := TBrushKind.Solid;
+  Canvas.Fill.Color := $FFE2C674;
+  TGostopFonts.Apply(Canvas, 14);
+  Canvas.FillText(RectF(LPanel.Left + 28, LY, LPanel.Right - 28, LY + 20), '오픈소스',
+    False, 1, [], TTextAlign.Leading, TTextAlign.Center);
+  LY := LY + 28;
+
+  // 이름(위 줄) · 출처(아래 줄, 들여쓰기+옅은 색) 두 줄로 표시
+  var LOsNames: TArray<string> := ['화투 카드 이미지', '효과음'];
+  var LOsSources: TArray<string> := [
+    'Wikimedia Commons "Category:Hwatu" (CC BY-SA 4.0)',
+    'Kenney.nl Casino / Interface / Impact Audio (CC0)'
+  ];
+
+  for var I := 0 to High(LOsNames) do
+  begin
+    Canvas.Fill.Kind := TBrushKind.Solid;
+    Canvas.Fill.Color := $FFEFEFE0;
+    TGostopFonts.Apply(Canvas, 12.5);
+    Canvas.FillText(RectF(LPanel.Left + 28, LY, LPanel.Right - 28, LY + 18), '- ' + LOsNames[I],
+      False, 1, [], TTextAlign.Leading, TTextAlign.Leading);
+    LY := LY + 20;
+
+    Canvas.Fill.Color := $FF8A968A;
+    TGostopFonts.Apply(Canvas, 11);
+    Canvas.FillText(RectF(LPanel.Left + 42, LY, LPanel.Right - 28, LY + 32), LOsSources[I],
+      True, 1, [], TTextAlign.Leading, TTextAlign.Leading);
+    LY := LY + 36;
+  end;
+
+  LY := LY + 8;
+  DrawLabel(RectF(LPanel.Left, LY, LPanel.Right, LY + 20), '(c) 2024-2026 copyright in fullbit computing.', $FF8A968A, 12);
+
+  FBtnInfoClose := DrawStdButton(RectF(LPanel.Left + LPanel.Width / 2 - 70, LPanel.Bottom - 54,
+    LPanel.Left + LPanel.Width / 2 + 70, LPanel.Bottom - 16), '닫기', dbkNeutral);
+
+  EndStdDialog;
 end;
 
 // 참여 자리의 정보 패널 일괄 그리기(선 뽑기·딜·플레이 공용)
@@ -5190,17 +5351,29 @@ begin
   Canvas.FillText(RectF(LIL, LIT + 0, LIR - 2, LIT + 20), LLabel,
     False, 1, [], TTextAlign.Leading, TTextAlign.Center);
 
-  // 2) 보유머니
+  // 2) 보유머니 — 우측 정렬
   Canvas.Fill.Color := TAlphaColors.White;
   TGostopFonts.Apply(Canvas, 13);
-  Canvas.FillText(RectF(LIL, LIT + 21, LIR, LIT + 39),
-    Format('%s원', [FormatFloat('#,##0', FMoney[APos])]), False, 1, [], TTextAlign.Leading, TTextAlign.Center);
+  Canvas.FillText(RectF(LIL, LIT + 21, LIR - 2, LIT + 39),
+    Format('%s원', [FormatFloat('#,##0', FMoney[APos])]), False, 1, [], TTextAlign.Trailing, TTextAlign.Center);
 
-  // 3) 전적 (운 별점은 숨김 — 내부 로직으로만 작동)
+  // 3) 전적 — 승률(%) 표시, 우측 정렬 (운 별점은 숨김 — 내부 로직으로만 작동)
+  var LTotalGames := FWins[APos] + FLosses[APos];
+  var LRecordText: string;
+  if LTotalGames > 0 then
+  begin
+    var LWinRate := Round(FWins[APos] / LTotalGames * 100);
+    LRecordText := Format('%d승 %d패 (%d%%)', [FWins[APos], FLosses[APos], LWinRate]);
+  end
+  else
+  begin
+    LRecordText := Format('%d승 %d패', [FWins[APos], FLosses[APos]]);
+  end;
+
   Canvas.Fill.Color := $FFB8C4B8;
   TGostopFonts.Apply(Canvas, 11);
-  Canvas.FillText(RectF(LIL, LIT + 40, LIR, LIT + 55),
-    Format('%d승 %d패', [FWins[APos], FLosses[APos]]), False, 1, [], TTextAlign.Leading, TTextAlign.Center);
+  Canvas.FillText(RectF(LIL, LIT + 40, LIR - 2, LIT + 55),
+    LRecordText, False, 1, [], TTextAlign.Trailing, TTextAlign.Center);
 
   // 4) 이번 게임 정보: 점수·고·흔들 배지 / 관전 / 게임 전엔 생략
   if (FGame <> nil) and (LIdx < 0) then
@@ -6504,6 +6677,10 @@ begin
     else
     begin
       DrawTitleMenu;
+      if FInfoOpen then
+      begin
+        DrawProgramInfo;
+      end;
     end;
 
     Exit;
@@ -6607,6 +6784,7 @@ begin
   if FPaused then
   begin
     DrawPauseOverlay;
+    DrawControlBar;   // 딤 오버레이 위에 다시 그려 재개 버튼이 가려지지 않게 함
   end;
 end;
 
@@ -6614,7 +6792,7 @@ procedure TGostopBoard.DrawPauseOverlay;
 begin
   Canvas.FillRound(LocalRect, 0, $A0000000);
   DrawLabel(RectF(0, Height * 0.44, Width, Height * 0.52), '일시정지', TAlphaColors.Gold, 40);
-  DrawLabel(RectF(0, Height * 0.52, Width, Height * 0.57), '스페이스바를 눌러 재개', TAlphaColors.White, 18);
+  DrawLabel(RectF(0, Height * 0.52, Width, Height * 0.57), '스페이스바 또는 하단 재개 버튼을 눌러 재개', TAlphaColors.White, 18);
 end;
 
 // 스페이스바 등 외부 단축키에서 호출 — 일시정지 상태를 켜고 끈다
@@ -6622,6 +6800,39 @@ procedure TGostopBoard.TogglePause;
 begin
   FPaused := not FPaused;
   TGostopAudio.Instance.Play('ui_click');
+  Repaint;
+end;
+
+// 이번 판 한정 자동 진행 토글. 켜면 내 자리에도 임시 AI 에이전트를 붙여 AiTimerTick이 대신 진행하게
+// 하고, 끄면 그 에이전트를 떼어내 다시 사람이 직접 조작한다. 다음 딜(새 판)에서는 항상 꺼진 채로 시작.
+procedure TGostopBoard.ToggleAutoPlay;
+begin
+  FAutoPlay := not FAutoPlay;
+  TGostopAudio.Instance.Play('ui_click');
+
+  if (FHumanIndex >= 0) and (Length(FAgents) > FHumanIndex) then
+  begin
+    if FAutoPlay then
+    begin
+      if not Assigned(FAgents[FHumanIndex]) then
+      begin
+        var LAi := TAiPlayer.Create(FAiSkill, UInt64(424242424242));
+        FAiObjects.Add(LAi);
+        FAgents[FHumanIndex] := LAi;
+      end;
+
+      // 지금 마침 내 턴이면 곧바로 진행되게 트리거
+      if (FGame <> nil) and (FGame.Current = FHumanIndex) and (not Assigned(FDisplay)) then
+      begin
+        FAiTimer.Enabled := True;
+      end;
+    end
+    else
+    begin
+      FAgents[FHumanIndex] := nil;
+    end;
+  end;
+
   Repaint;
 end;
 
@@ -7034,7 +7245,7 @@ procedure TGostopBoard.AnimApplyStageStart(const AStage: Integer);
 begin
   // 뻑·따닥 등 효과 배너는 그 결과가 실제로 보이는 단계가 시작될 때 띄운다(StartTurnAnimation에서 계산한 FEffectStage).
   // 단, 보너스패로 여러 장을 이어 뒤집는 중이면(뒤집기 단계 시작 시점엔 아직 결과가 나온 게 아니라
-  // "한번 더~"만 뜨는 상태) — 실제 결과 카드(마지막 장)의 구간이 시작될 때 AnimTick에서 대신 띄운다.
+  // "한장 더~"만 뜨는 상태) — 실제 결과 카드(마지막 장)의 구간이 시작될 때 AnimTick에서 대신 띄운다.
   var LDeferToLastDraw := (AStage = 2) and (Length(FAnimDrawn) > 1);
   if (AStage = FEffectStage) and (not LDeferToLastDraw) then
   begin
@@ -7105,10 +7316,10 @@ begin
         TGostopAudio.Instance.Play('card_flip');
         FAnimDrawSoundIdx := 0;
 
-        // 첫 장부터 보너스패면 곧바로 "한번 더~" 안내(같은 월 뒤집기가 이어짐을 알림)
+        // 첫 장부터 보너스패면 곧바로 "한장 더~" 안내(같은 월 뒤집기가 이어짐을 알림)
         if (Length(FAnimDrawn) > 0) and (FAnimDrawn[0].Kind = hkBonus) then
         begin
-          QueueEffect('한번 더~');
+          QueueEffect('한장 더~');
         end;
 
         // 뒷패에서 들어올림(놓기와 동일 처리)
@@ -7354,7 +7565,7 @@ begin
 end;
 
 // 보너스패로 여러 장을 순서대로 뒤집을 때 카드별 시간 구간을 계산한다. 보너스패는 착지 후
-// BONUS_HOLD_MS만큼 그대로 멈춰 있어("한번 더~" 등 안내를 읽을 시간을 줌) 다음 장이 바로
+// BONUS_HOLD_MS만큼 그대로 멈춰 있어("한장 더~" 등 안내를 읽을 시간을 줌) 다음 장이 바로
 // 이어 날아가지 않게 한다 — 후속이 있는 연출이 너무 빨리 지나가 버리는 문제 방지.
 // AWinStart/AWinEnd = 전체(0~1) 중 그 카드의 구간, AFlyEnd = 그중 실제 날아가는(착지까지) 부분의 끝.
 procedure TGostopBoard.ComputeDrawWindows(out AWinStart, AFlyEnd, AWinEnd: TArray<Single>; out ATotalMs: Single);
@@ -7442,7 +7653,7 @@ begin
   FAnimT := FAnimT + FAnimTimer.Interval / LDur * FGameSpeed;
 
   // 보너스패로 여러 장을 순서대로 뒤집는 중이면, 새 카드의 구간에 들어설 때마다 뒤집기 소리 재생
-  // + 그 카드도 보너스패면 "한번 더~" 안내를 다시 띄운다(또 이어서 뒤집힘을 알림)
+  // + 그 카드도 보너스패면 "한장 더~" 안내를 다시 띄운다(또 이어서 뒤집힘을 알림)
   if (FAnimStage = 2) and (Length(FAnimDrawn) > 1) then
   begin
     var LWinIdx := 0;
@@ -7460,11 +7671,11 @@ begin
       TGostopAudio.Instance.Play('card_flip');
       if FAnimDrawn[LWinIdx].Kind = hkBonus then
       begin
-        QueueEffect('한번 더~');
+        QueueEffect('한장 더~');
       end;
 
       // 마지막 장(실제 결과가 나오는 카드)의 구간이 시작되면, 그제서야 이번 턴의 결과 배너(뻑! 등)를
-      // 큐에 올린다 — "한번 더~"가 먼저 다 보인 뒤 이어서 결과 배너가 뜸(AnimApplyStageStart에서 미룸)
+      // 큐에 올린다 — "한장 더~"가 먼저 다 보인 뒤 이어서 결과 배너가 뜸(AnimApplyStageStart에서 미룸)
       if (LWinIdx = High(FAnimDrawn)) and (FAnimStage = FEffectStage) then
       begin
         CollectTurnEffects;
@@ -7699,14 +7910,21 @@ end;
 procedure TGostopBoard.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Single);
 begin
   inherited;
-  if FPaused then
-  begin
-    Exit;
-  end;
-
   FMousePos := PointF(X, Y);
   FMouseDown := True;
   var LPoint := PointF(X, Y);
+
+  // 일시정지 중엔 재개 버튼만 반응(다른 조작은 전부 무시) — 이 체크가 아래 FPaused 전체 차단보다 먼저 와야
+  // 일시정지 상태에서도 재개 버튼을 누를 수 있다
+  if FPaused then
+  begin
+    if FBtnPauseBar.Contains(LPoint) then
+    begin
+      TogglePause;
+    end;
+
+    Exit;
+  end;
 
   // 기리(말번 커팅): 카드 클릭=그 위치 컷 / 퉁=그대로
   if FGiriPhase then
@@ -7737,7 +7955,19 @@ begin
     Exit;
   end;
 
-  // 하단 컨트롤 바(볼륨/음소거/속도) — 어떤 화면·상태에서도 동작
+  // 하단 컨트롤 바(일시정지/자동/볼륨/음소거/속도) — 어떤 화면·상태에서도 동작
+  if FBtnPauseBar.Contains(LPoint) then
+  begin
+    TogglePause;
+    Exit;
+  end;
+
+  if FBtnAutoBar.Contains(LPoint) then
+  begin
+    ToggleAutoPlay;
+    Exit;
+  end;
+
   if FMuteRect.Contains(LPoint) then
   begin
     TGostopAudio.Instance.Muted := not TGostopAudio.Instance.Muted;
@@ -7763,6 +7993,12 @@ begin
 
   // 애니메이션 진행 중엔 그 외 입력 무시(턴 애니·딜 애니·오링 좌석 교체 애니)
   if Assigned(FDisplay) or FDealing or FShuffling or (Length(FReplacingSeats) > 0) then
+  begin
+    Exit;
+  end;
+
+  // 자동 진행 중(내 턴을 AI가 대신하는 동안)엔 판 자체에 대한 클릭은 무시(컨트롤 바는 위에서 이미 처리됨)
+  if FAutoPlay and (FGame <> nil) and (FGame.Current = FHumanIndex) then
   begin
     Exit;
   end;
@@ -7905,9 +8141,15 @@ begin
   end;
 end;
 
-// 타이틀 화면(게임 없음) 클릭 디스패치: 설정창 → 대전설정 다이얼로그 → 타이틀 버튼 순
+// 타이틀 화면(게임 없음) 클릭 디스패치: 프로그램정보 → 설정창 → 대전설정 다이얼로그 → 타이틀 버튼 순
 procedure TGostopBoard.MouseDownTitleArea(const LPoint: TPointF);
 begin
+  if FInfoOpen then
+  begin
+    MouseDownProgramInfo(LPoint);
+    Exit;
+  end;
+
   if FSettingsOpen then
   begin
     MouseDownSettingsDialog(LPoint);
@@ -8097,7 +8339,50 @@ begin
   if FBtnMenuExit.Contains(LPoint) and Assigned(FOnExitRequest) then
   begin
     FOnExitRequest(Self);
+  end
+  else
+  if FBtnMenuManual.Contains(LPoint) then
+  begin
+    TGostopAudio.Instance.Play('ui_click');
+    OpenHelpDoc('gostop-manual.html');
+  end
+  else
+  if FBtnMenuRules.Contains(LPoint) then
+  begin
+    TGostopAudio.Instance.Play('ui_click');
+    OpenHelpDoc('gostop-guide.html');
+  end
+  else
+  if FBtnMenuInfo.Contains(LPoint) then
+  begin
+    TGostopAudio.Instance.Play('ui_click');
+    FInfoOpen := True;
+    Repaint;
   end;
+end;
+
+procedure TGostopBoard.MouseDownProgramInfo(const LPoint: TPointF);
+begin
+  if FBtnInfoClose.Contains(LPoint) then
+  begin
+    TGostopAudio.Instance.Play('ui_click');
+    FInfoOpen := False;
+    Repaint;
+  end;
+end;
+
+// help\ 폴더의 문서(사용설명서·고스톱룰)를 exe 기준 상대경로로 찾아 기본 브라우저로 연다
+procedure TGostopBoard.OpenHelpDoc(const AFileName: string);
+begin
+  var LPath := TPath.Combine(TPath.Combine(TPath.GetDirectoryName(ParamStr(0)), 'help'), AFileName);
+  if not TFile.Exists(LPath) then
+  begin
+    FStatus := Format('문서를 찾을 수 없습니다: help\%s', [AFileName]);
+    Repaint;
+    Exit;
+  end;
+
+  Winapi.ShellAPI.ShellExecute(0, 'open', PChar(LPath), nil, nil, SW_SHOWNORMAL);
 end;
 
 procedure TGostopBoard.MouseDownAvatarPicker(const LPoint: TPointF);

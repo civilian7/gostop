@@ -258,10 +258,22 @@ type
     function ScoreOf(const APlayerIndex: Integer): TScoreBreakdown;
 
     /// <summary>
-    ///   딜 직후 손패 총통(같은 월 4장)을 검사해, 있으면 그 판을 무효(승자 없음)로 즉시 종료합니다(자동 처리용).
+    ///   딜 직후 손패 총통(같은 월 4장)을 검사해, 있으면 그 사람의 즉시 승리(기본 점수)로 종료합니다(자동 처리용).
     /// </summary>
     /// <returns>총통으로 종료되면 True.</returns>
     function ApplyHandChongtong: Boolean;
+    /// <summary>
+    ///   딜 직후 바닥에 처음부터 같은 월 4장이 깔려 있으면(바닥 총통), 선(현재 차례)의 즉시 승리(기본
+    ///   점수)로 종료합니다(자동 처리용). 손패 총통과 정산 규칙이 동일합니다.
+    /// </summary>
+    /// <returns>바닥 총통으로 종료되면 True.</returns>
+    function ApplyFloorChongtong: Boolean;
+    /// <summary>
+    ///   딜 직후 바닥에 처음부터 같은 월 3장이 깔려 있으면, 나중에 그 월을 먹을 때도 뻑처럼(피 뺏기)
+    ///   처리되도록 뻑 더미로 등록합니다. 특정 플레이어가 만든 게 아니므로 창조자 없이(-1) 등록되어,
+    ///   나중에 누가 먹어도 자뻑이 아니라 항상 "뻑 회수"(상대 전원에게서 피 1장씩)로 처리됩니다.
+    /// </summary>
+    procedure ApplyFloorBbeok;
     /// <summary>
     ///   딜 직후 바닥에 깔린 보너스패를 선(현재 차례)이 자동 획득하고, 그 장수만큼 뒷패에서
     ///   일반패를 뽑아 바닥을 채웁니다(보충 중 나온 보너스패도 선이 획득). 딜 후 1회 호출.
@@ -702,9 +714,9 @@ begin
   end
   else
   begin
-    // 남의 뻑을 먹음 → 뻑을 싼 사람에게서 피 1장
+    // 남의 뻑을 먹음 → 뻑을 싼 사람뿐 아니라 상대 전원에게서 피 1장씩
     AddEvent(pekPiSteal, FState.Current, AMonth, Format('%s 뻑 회수 (%d월)', [LName, AMonth]));
-    StealOnePi(FState.Current, LCreator);
+    StealPiFromOthers(FState.Current);
   end;
 end;
 
@@ -740,12 +752,70 @@ begin
   end;
 end;
 
+// 바닥의 월별(1~12) 장수를 센다(보너스패는 월 개념이 없으므로 제외).
+function CountFloorMonths(const AState: TGameState): TArray<Integer>;
+begin
+  SetLength(Result, 13);   // 1..12 사용, 0번은 미사용
+  for var LCard in AState.Floor do
+  begin
+    if (LCard.Month >= 1) and (LCard.Month <= 12) then
+    begin
+      Inc(Result[LCard.Month]);
+    end;
+  end;
+end;
+
+function TTurnEngine.ApplyFloorChongtong: Boolean;
+begin
+  // 딜 직후(플레이 시작 전) 바닥에 처음부터 같은 월 4장이 깔려 있으면 — 손패 총통과 동일하게
+  // 선(현재 차례)의 즉시 승리(고정 점수)로 그 판을 끝낸다.
+  Result := False;
+  if (FState.Phase <> gpPlaying) or (FState.PlayCount > 0) then
+  begin
+    Exit;
+  end;
+
+  var LCounts := CountFloorMonths(FState);
+  for var M := 1 to 12 do
+  begin
+    if LCounts[M] >= 4 then
+    begin
+      FState.Phase := gpFinished;
+      FState.Winner := FState.Current;
+      AddEvent(pekChongtong, FState.Current, M,
+        Format('바닥에 %d월 4장 총통! %s(선) 즉시 승리', [M, FState.CurrentPlayer.Name]));
+      Exit(True);
+    end;
+  end;
+end;
+
+procedure TTurnEngine.ApplyFloorBbeok;
+begin
+  // 딜 직후(플레이 시작 전) 바닥에 처음부터 같은 월 3장이 깔려 있으면, 나중에 그 월의 마지막 한 장이
+  // 나올 때 뻑처럼(피 뺏기) 처리되도록 뻑 더미로 등록해 둔다. 창조자가 없으므로(-1) 이후 누가 먹어도
+  // 자뻑이 아니라 항상 "뻑 회수"(상대 전원 1장씩)로 처리된다.
+  if (FState.Phase <> gpPlaying) or (FState.PlayCount > 0) then
+  begin
+    Exit;
+  end;
+
+  var LCounts := CountFloorMonths(FState);
+  for var M := 1 to 12 do
+  begin
+    if (LCounts[M] = 3) and (not FState.BbeokCreator.ContainsKey(M)) then
+    begin
+      FState.BbeokCreator.AddOrSetValue(M, -1);
+      AddEvent(pekBbeok, -1, M, Format('바닥에 %d월 3장이 겹쳐 뻑으로 쌓임', [M]));
+    end;
+  end;
+end;
+
 procedure TTurnEngine.ResolveThreePileSteal(const AMonth: Integer);
 begin
   // 바닥 같은 월 3장을 한 번에 먹은 경우의 피 처리.
   if FState.BbeokCreator.ContainsKey(AMonth) then
   begin
-    // 뻑 더미였으면 뻑 회수 규칙(자뻑=상대 전원, 남의 뻑=생성자에게서 1장)
+    // 뻑 더미였으면 뻑 회수 규칙(자뻑=상대 전원 2장씩, 남의 뻑=상대 전원 1장씩)
     ResolveBbeokCapture(AMonth);
   end
   else

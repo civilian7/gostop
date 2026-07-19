@@ -294,6 +294,11 @@ type
     FTurnEvents: TList<TPlayEvent>;
     FEffectText: string;
     FEffectTimer: TTimer;
+    // 한 턴에 이벤트가 여러 개 겹치면(예: 보너스패로 "한번 더~" 뜬 뒤 다시 뒤집어 뻑 발생) 한꺼번에
+    // 합쳐 보여주지 않고 순서대로 하나씩, 사이에 짧은 공백을 두고 보여준다
+    FEffectQueue: TArray<string>;
+    FEffectQueueIdx: Integer;
+    FEffectGap: Boolean;
     FTurnSpecialKind: TPlayEventKind;   // 이번 턴 대표 특수 이벤트(먹기 단계에 재생)
     FTurnSpecialPri: Integer;
     FAngrySeats: set of TSeatPos;       // 피를 뺏겨 화난 표정으로 보일 좌석(3초 후 원복)
@@ -396,6 +401,8 @@ type
     procedure EffectTimerTick(Sender: TObject);
     procedure AngryTimerTick(Sender: TObject);
     procedure CollectTurnEffects;
+    procedure QueueEffect(const AText: string);
+    procedure ShowNextQueuedEffect;
     procedure PlayTurnSound;
     function CapturedAnchor(const AActor: Integer): TPointF;
     function FloorMatchOrdinal(const AFloorIndex, AMonth: Integer): Integer;
@@ -989,6 +996,13 @@ begin
   // 잔상·스테일 상태 리셋(타이틀 복귀 시 배너·고/스톱 플래그 잔존 방지)
   FAwaitingGoStop := False;
   FEffectText := '';
+  FEffectQueue := nil;
+  FEffectQueueIdx := 0;
+  FEffectGap := False;
+  if Assigned(FEffectTimer) then
+  begin
+    FEffectTimer.Enabled := False;
+  end;
   FAngrySeats := [];
   FSpeechText := '';
   if Assigned(FSpeechTimer) then
@@ -2466,9 +2480,7 @@ begin
           // 연사: 사람이 비-말번(P2/P3)인데 직전 게임에 포기했으면 이번엔 포기 불가 → 강제 참가
           if FGaveUpLast[spBottom] then
           begin
-            FEffectText := '연사! — 연속 포기 불가, 참가합니다';
-            FEffectTimer.Enabled := False;
-            FEffectTimer.Enabled := True;
+            QueueEffect('연사! — 연속 포기 불가, 참가합니다');
             var LP4Sell := TFourPlayer.GwangCount(FTable4.Hand(3), CfgScore) > 0;
             ResolveNegotiation(False, False, LP4Sell);   // 강제 참가
             Exit;
@@ -6250,16 +6262,14 @@ begin
   case LDecision.Outcome of
     soNagari:
       begin
-        FEffectText := '쇼당 — 둘 다 수락! 나가리';
-        FEffectTimer.Enabled := False;
-        FEffectTimer.Enabled := True;
+        QueueEffect('쇼당 — 둘 다 수락! 나가리');
         FEngine.DeclareNagari;
         AfterAction;
         Exit;
       end;
     soContinue:
       begin
-        FEffectText := '쇼당 — 둘 다 거절, 계속 진행';
+        QueueEffect('쇼당 — 둘 다 거절, 계속 진행');
       end;
   else
     begin
@@ -6268,13 +6278,10 @@ begin
       FShodangCaller := LDecision.Caller;
       FShodangAccepter := LDecision.Accepter;
       FShodangDecliner := LDecision.Decliner;
-      FEffectText := Format('쇼당! %s 수락 — %s 독박',
-        [FGame.Player(LDecision.Accepter).Name, FGame.Player(LDecision.Decliner).Name]);
+      QueueEffect(Format('쇼당! %s 수락 — %s 독박',
+        [FGame.Player(LDecision.Accepter).Name, FGame.Player(LDecision.Decliner).Name]));
     end;
   end;
-
-  FEffectTimer.Enabled := False;
-  FEffectTimer.Enabled := True;
 
   // 계속 진행: 호출자가 AI면 그 AI가 카드를 내야 함
   if ACaller <> FHumanIndex then
@@ -6649,7 +6656,8 @@ end;
 
 procedure TGostopBoard.CollectTurnEffects;
 begin
-  var LText := '';
+  // 한 턴에 이벤트가 여럿이면(예: 따닥+뻑) 한 줄로 합쳐 동시에 보여주지 않고, QueueEffect로 하나씩
+  // 순서대로 넣어 각 이벤트가 사이 공백을 두고 구분되어 보이게 한다
   var LSeen := TDictionary<string, Boolean>.Create;
   try
     for var LEvt in FTurnEvents do
@@ -6658,23 +6666,11 @@ begin
       if (LLabel <> '') and (not LSeen.ContainsKey(LLabel)) then
       begin
         LSeen.Add(LLabel, True);
-        if LText <> '' then
-        begin
-          LText := LText + '    ';
-        end;
-
-        LText := LText + LLabel;
+        QueueEffect(LLabel);
       end;
     end;
   finally
     LSeen.Free;
-  end;
-
-  FEffectText := LText;
-  if FEffectText <> '' then
-  begin
-    FEffectTimer.Enabled := False;
-    FEffectTimer.Enabled := True;   // 표시 시간 리셋
   end;
 
   // 피 뺏김: 뺏긴 좌석을 3초간 화난 표정으로(자뻑·뻑 회수·3장 쓸어먹기 등 모든 pekPiSteal 공통)
@@ -6695,6 +6691,45 @@ begin
   end;
 end;
 
+const
+  EFFECT_SHOW_MS = 1500;
+  EFFECT_GAP_MS = 300;
+
+procedure TGostopBoard.QueueEffect(const AText: string);
+begin
+  if AText = '' then
+  begin
+    Exit;
+  end;
+
+  // 지금 아무것도 표시/대기 중이 아니면(빈 큐 + 타이머 꺼짐) 바로 시작, 아니면 큐에 쌓아 순서를 지킴
+  var LWasIdle := (FEffectText = '') and (not FEffectGap) and (not FEffectTimer.Enabled);
+  SetLength(FEffectQueue, Length(FEffectQueue) + 1);
+  FEffectQueue[High(FEffectQueue)] := AText;
+  if LWasIdle then
+  begin
+    ShowNextQueuedEffect;
+  end;
+end;
+
+procedure TGostopBoard.ShowNextQueuedEffect;
+begin
+  if FEffectQueueIdx > High(FEffectQueue) then
+  begin
+    FEffectText := '';
+    FEffectQueue := nil;
+    FEffectQueueIdx := 0;
+    Exit;
+  end;
+
+  FEffectText := FEffectQueue[FEffectQueueIdx];
+  Inc(FEffectQueueIdx);
+  FEffectGap := False;
+  FEffectTimer.Interval := EFFECT_SHOW_MS;
+  FEffectTimer.Enabled := False;
+  FEffectTimer.Enabled := True;
+end;
+
 procedure TGostopBoard.EffectTimerTick(Sender: TObject);
 begin
   if FPaused then
@@ -6703,7 +6738,29 @@ begin
   end;
 
   FEffectTimer.Enabled := False;
-  FEffectText := '';
+
+  if FEffectGap then
+  begin
+    // 공백 구간이 끝났으면 다음 이벤트 배너를 이어서 표시
+    ShowNextQueuedEffect;
+  end
+  else
+  begin
+    FEffectText := '';
+    if FEffectQueueIdx <= High(FEffectQueue) then
+    begin
+      // 보여줄 배너가 더 있으면 곧바로 잇지 않고 짧은 공백을 둬 서로 다른 이벤트임을 알 수 있게 한다
+      FEffectGap := True;
+      FEffectTimer.Interval := EFFECT_GAP_MS;
+      FEffectTimer.Enabled := True;
+    end
+    else
+    begin
+      FEffectQueue := nil;
+      FEffectQueueIdx := 0;
+    end;
+  end;
+
   Repaint;
 end;
 
@@ -6946,8 +7003,11 @@ end;
 
 procedure TGostopBoard.AnimApplyStageStart(const AStage: Integer);
 begin
-  // 뻑·따닥 등 효과 배너는 그 결과가 실제로 보이는 단계가 시작될 때 띄운다(StartTurnAnimation에서 계산한 FEffectStage)
-  if AStage = FEffectStage then
+  // 뻑·따닥 등 효과 배너는 그 결과가 실제로 보이는 단계가 시작될 때 띄운다(StartTurnAnimation에서 계산한 FEffectStage).
+  // 단, 보너스패로 여러 장을 이어 뒤집는 중이면(뒤집기 단계 시작 시점엔 아직 결과가 나온 게 아니라
+  // "한번 더~"만 뜨는 상태) — 실제 결과 카드(마지막 장)의 구간이 시작될 때 AnimTick에서 대신 띄운다.
+  var LDeferToLastDraw := (AStage = 2) and (Length(FAnimDrawn) > 1);
+  if (AStage = FEffectStage) and (not LDeferToLastDraw) then
   begin
     CollectTurnEffects;
   end;
@@ -7019,9 +7079,7 @@ begin
         // 첫 장부터 보너스패면 곧바로 "한번 더~" 안내(같은 월 뒤집기가 이어짐을 알림)
         if (Length(FAnimDrawn) > 0) and (FAnimDrawn[0].Kind = hkBonus) then
         begin
-          FEffectText := '한번 더~';
-          FEffectTimer.Enabled := False;
-          FEffectTimer.Enabled := True;
+          QueueEffect('한번 더~');
         end;
 
         // 뒷패에서 들어올림(놓기와 동일 처리)
@@ -7373,9 +7431,14 @@ begin
       TGostopAudio.Instance.Play('card_flip');
       if FAnimDrawn[LWinIdx].Kind = hkBonus then
       begin
-        FEffectText := '한번 더~';
-        FEffectTimer.Enabled := False;
-        FEffectTimer.Enabled := True;
+        QueueEffect('한번 더~');
+      end;
+
+      // 마지막 장(실제 결과가 나오는 카드)의 구간이 시작되면, 그제서야 이번 턴의 결과 배너(뻑! 등)를
+      // 큐에 올린다 — "한번 더~"가 먼저 다 보인 뒤 이어서 결과 배너가 뜸(AnimApplyStageStart에서 미룸)
+      if (LWinIdx = High(FAnimDrawn)) and (FAnimStage = FEffectStage) then
+      begin
+        CollectTurnEffects;
       end;
     end;
   end;

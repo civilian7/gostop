@@ -119,6 +119,15 @@ type
     /// <param name="AOptions">점수 규칙 옵션.</param>
     class function Evaluate(const ACaptured: array of THwatuCard; const AOptions: TScoreOptions): TScoreBreakdown; overload; static;
     /// <summary>
+    ///   패자 관점으로 족보 내역을 계산합니다. 소유 국진이 있으면 <see cref="Evaluate"/>처럼
+    ///   총점이 아니라 "피박을 면하는지"를 우선 기준으로 열끗/쌍피 해석을 고릅니다(패자의 총점 자체는
+    ///   정산에 쓰이지 않고 피값·광 장수·열끗 장수 문턱만 쓰이므로, 점수보다 피박 회피가 항상 유리함).
+    ///   피박 회피 여부가 두 해석에서 같으면(둘 다 면함/둘 다 못 면함) 그때는 총점이 높은 쪽을 고릅니다.
+    /// </summary>
+    /// <param name="ACaptured">플레이어가 먹은 카드 리스트.</param>
+    /// <param name="AOptions">점수 규칙 옵션.</param>
+    class function EvaluateAsLoser(const ACaptured: TList<THwatuCard>; const AOptions: TScoreOptions): TScoreBreakdown; static;
+    /// <summary>
     ///   승자가 한 패자로부터 받을 점수를 고·흔들기·피박·광박을 반영해 정산합니다.
     /// </summary>
     /// <param name="AWinner">승자 족보 내역.</param>
@@ -342,6 +351,48 @@ begin
 
       Break;
     end;
+  end;
+end;
+
+// 이 피값이면 피박을 면하는지(0장이면 면제, 기준 초과면 면제 — Settle의 피박 판정과 동일 기준)
+function IsPibakSafe(const AJunkValue: Integer; const AOptions: TScoreOptions): Boolean;
+begin
+  Result := (AJunkValue = 0) or (AJunkValue > AOptions.PibakMaxJunk);
+end;
+
+class function TScorer.EvaluateAsLoser(const ACaptured: TList<THwatuCard>; const AOptions: TScoreOptions): TScoreBreakdown;
+begin
+  Result := DoEvaluate(ACaptured, AOptions, False);
+
+  var LHasOwnedGukjin := False;
+  for var LCard in ACaptured do
+  begin
+    if LCard.IsGukjin and (not LCard.GivenAsPi) then
+    begin
+      LHasOwnedGukjin := True;
+      Break;
+    end;
+  end;
+
+  if not LHasOwnedGukjin then
+  begin
+    Exit;
+  end;
+
+  var LAsPi := DoEvaluate(ACaptured, AOptions, True);
+  var LAnimalSafe := IsPibakSafe(Result.JunkValue, AOptions);
+  var LPiSafe := IsPibakSafe(LAsPi.JunkValue, AOptions);
+
+  if LPiSafe and (not LAnimalSafe) then
+  begin
+    // 쌍피로 봐야만 피박을 면함 → 총점이 낮아져도 그쪽을 선택(패자 총점은 정산에 안 쓰임)
+    Result := LAsPi;
+  end
+  else
+  if (LAnimalSafe = LPiSafe) and (LAsPi.Total > Result.Total) then
+  begin
+    // 피박 면부가 두 해석에서 같으면(둘 다 면하거나 둘 다 못 면하거나) 그때는 총점 높은 쪽
+    Result := LAsPi;
   end;
 end;
 

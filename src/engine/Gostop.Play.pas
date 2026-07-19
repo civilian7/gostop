@@ -1429,7 +1429,8 @@ begin
       Continue;
     end;
 
-    var LLoserBreak := TScorer.Evaluate(FState.Player(P).Captured, FRules.Score);
+    // 패자는 총점이 정산에 안 쓰이므로, 국진을 열끗/쌍피 중 총점이 아니라 피박 회피 우선으로 해석
+    var LLoserBreak := TScorer.EvaluateAsLoser(FState.Player(P).Captured, LScoreOpt);
     var LSettle := TScorer.Settle(LWinBreak, LLoserBreak, LWinnerP.GoCount, LWinnerP.ShakeCount, LScoreOpt);
     Result[P].Net := -LSettle.Points;
     Result[P].Pibak := LSettle.Pibak;

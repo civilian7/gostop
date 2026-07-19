@@ -193,7 +193,7 @@ begin
 end;
 
 // 먹은 패의 족보 점수를 단일-패스로 계산(내부용).
-// 국진: 피로 받은 것(GivenAsPi)은 항상 쌍피. 직접 소유분은 AGukjinAsPi에 따라 열끗/쌍피로 계산한다.
+// 국진: 쌍피 전환권을 잃은(GukjinLocked) 국진은 항상 열끗. 그 외 소유 국진은 AGukjinAsPi에 따라 열끗/쌍피로 계산한다.
 function DoEvaluate(const ACaptured: TList<THwatuCard>; const AOptions: TScoreOptions;
   const AGukjinAsPi: Boolean): TScoreBreakdown;
 var
@@ -225,8 +225,8 @@ begin
 
       hkAnimal:
         begin
-          // 피로 받은 국진은 항상 쌍피. 소유 국진은 호출자가 정한 해석(AGukjinAsPi)을 따른다
-          if LCard.IsGukjin and (LCard.GivenAsPi or AGukjinAsPi) then
+          // 쌍피 전환권을 잃은 국진은 항상 열끗. 그 외 소유 국진은 호출자가 정한 해석(AGukjinAsPi)을 따른다
+          if LCard.IsGukjin and (not LCard.GukjinLocked) and AGukjinAsPi then
           begin
             Inc(Result.JunkValue, 2);
           end
@@ -336,12 +336,12 @@ end;
 
 class function TScorer.Evaluate(const ACaptured: TList<THwatuCard>; const AOptions: TScoreOptions): TScoreBreakdown;
 begin
-  // 기본: 소유 국진은 열끗으로 계산. 소유 국진이 있으면 쌍피 해석도 계산해 유리한 쪽을 자동 선택한다.
-  // (피로 받은 국진은 두 해석 모두에서 항상 쌍피)
+  // 기본: 소유 국진은 열끗으로 계산. 전환권이 남은 소유 국진이 있으면 쌍피 해석도 계산해 유리한 쪽을 자동 선택한다.
+  // (쌍피 전환권을 잃은 국진은 두 해석 모두에서 항상 열끗)
   Result := DoEvaluate(ACaptured, AOptions, False);
   for var LCard in ACaptured do
   begin
-    if LCard.IsGukjin and (not LCard.GivenAsPi) then
+    if LCard.IsGukjin and (not LCard.GukjinLocked) then
     begin
       var LAsPi := DoEvaluate(ACaptured, AOptions, True);
       if LAsPi.Total > Result.Total then
@@ -367,7 +367,7 @@ begin
   var LHasOwnedGukjin := False;
   for var LCard in ACaptured do
   begin
-    if LCard.IsGukjin and (not LCard.GivenAsPi) then
+    if LCard.IsGukjin and (not LCard.GukjinLocked) then
     begin
       LHasOwnedGukjin := True;
       Break;

@@ -13,7 +13,7 @@ type
   /// <summary>저장된 카드 1장(에셋 ID + 런타임 상태 플래그).</summary>
   TSaveCard = record
     AssetId: string;
-    GivenAsPi: Boolean;
+    GukjinLocked: Boolean;
   end;
 
   /// <summary>저장된 좌석(자리) 1곳의 매치 진행 정보.</summary>
@@ -136,7 +136,7 @@ end;
 function CardToSave(const ACard: THwatuCard): TSaveCard;
 begin
   Result.AssetId := ACard.AssetId;
-  Result.GivenAsPi := ACard.GivenAsPi;
+  Result.GukjinLocked := ACard.GukjinLocked;
 end;
 
 function CardFromSave(const ASaved: TSaveCard): THwatuCard;
@@ -147,7 +147,7 @@ begin
     raise EHwatuError.CreateFmt('저장 파일의 카드 ID를 찾을 수 없습니다: %s', [ASaved.AssetId]);
   end;
 
-  Result.GivenAsPi := ASaved.GivenAsPi;
+  Result.GukjinLocked := ASaved.GukjinLocked;
 end;
 
 function CardArrayToJson(const ACards: TArray<TSaveCard>): TJSONArray;
@@ -157,7 +157,7 @@ begin
   begin
     var LObj := TJSONObject.Create;
     LObj.AddPair('id', LCard.AssetId);
-    LObj.AddPair('pi', TJSONBool.Create(LCard.GivenAsPi));
+    LObj.AddPair('gukjinLocked', TJSONBool.Create(LCard.GukjinLocked));
     Result.AddElement(LObj);
   end;
 end;
@@ -175,7 +175,7 @@ begin
   begin
     var LObj := AArr.Items[I] as TJSONObject;
     Result[I].AssetId := LObj.GetValue<string>('id', '');
-    Result[I].GivenAsPi := LObj.GetValue<Boolean>('pi', False);
+    Result[I].GukjinLocked := LObj.GetValue<Boolean>('gukjinLocked', False);
   end;
 end;
 

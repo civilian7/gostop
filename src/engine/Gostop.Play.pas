@@ -637,46 +637,31 @@ begin
     end;
   end;
 
-  // 넘길 국진이면 이 값이 True (넘어간 국진만 쌍피로 계산됨)
-  var LGivingGukjin := False;
+  // 낼 일반 피가 하나도 없으면 국진도 넘기지 않는다 — 대신 소유한 국진(있다면)은 이 판 동안
+  // 열끗↔쌍피 전환권을 영구히 잃고 항상 열끗으로만 계산된다.
   if LBestIdx < 0 then
   begin
-    // 일반 피/쌍피가 하나도 없으면 국진을 쌍피 대용으로 넘긴다.
     for var I := 0 to LVictim.Captured.Count - 1 do
     begin
-      if LVictim.Captured[I].IsGukjin then
+      if LVictim.Captured[I].IsGukjin and (not LVictim.Captured[I].GukjinLocked) then
       begin
-        LBestIdx := I;
-        LGivingGukjin := True;
+        var LGukjin := LVictim.Captured[I];
+        LGukjin.GukjinLocked := True;
+        LVictim.Captured[I] := LGukjin;
+        AddEvent(pekPiSteal, AWinnerIndex, 0,
+          Format('%s: 낼 피가 없어 국진이 열끗 고정(쌍피 전환 불가)', [LVictim.Name]), AVictimIndex);
         Break;
       end;
     end;
-  end;
 
-  // 넘길 피(또는 국진)가 전혀 없으면 아무것도 받지 않는다.
-  if LBestIdx < 0 then
-  begin
     Exit(False);
   end;
 
   var LWinner := FState.Player(AWinnerIndex);
   var LPi := LVictim.Captured[LBestIdx];
-  if LGivingGukjin then
-  begin
-    LPi.GivenAsPi := True;   // 넘어간 국진은 이제부터 쌍피로 계산된다
-  end;
-
   LVictim.Captured.Delete(LBestIdx);
   LWinner.Captured.Add(LPi);
-  if LGivingGukjin then
-  begin
-    AddEvent(pekPiSteal, AWinnerIndex, 0, Format('%s ← %s 국진(쌍피 대용) 1장', [LWinner.Name, LVictim.Name]), AVictimIndex);
-  end
-  else
-  begin
-    AddEvent(pekPiSteal, AWinnerIndex, 0, Format('%s ← %s 피 1장', [LWinner.Name, LVictim.Name]), AVictimIndex);
-  end;
-
+  AddEvent(pekPiSteal, AWinnerIndex, 0, Format('%s ← %s 피 1장', [LWinner.Name, LVictim.Name]), AVictimIndex);
   Result := True;
 end;
 
@@ -1103,8 +1088,8 @@ begin
         FFlipBonus := nil;
       end;
 
-      // 연뻑: 이미 다른 뻑 더미가 남아 있는 상태에서 또 뻑
-      if FState.BbeokCreator.Count > 0 then
+      // 연뻑: 이 플레이어가 자기 두 번째 뻑을 낸 경우(증가 전 BbeokCount=1 → 이번이 2번째)
+      if LPlayer.BbeokCount = 1 then
       begin
         AddEvent(pekYeonbbeok, FState.Current, LMonth, Format('%s 연뻑!', [LPlayer.Name]));
       end;

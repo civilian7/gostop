@@ -6,32 +6,32 @@ interface
 uses
   System.SysUtils,
   System.Types,
-  System.IOUtils,
+  System.Classes,
   System.Generics.Collections,
+  Winapi.Windows,
   FMX.Graphics,
   Gostop.Cards;
 {$ENDREGION}
 
 type
   /// <summary>
-  ///   화투 카드 앞면·뒷면 PNG 이미지를 FMX <c>TBitmap</c>으로 로드해 캐싱하는 클래스.
-  ///   앞면은 에셋 ID, 뒷면은 색상 이름(red/blue/green/purple/black)으로 지연 로딩·재사용한다.
+  ///   화투 카드 앞면·뒷면 이미지를 FMX <c>TBitmap</c>으로 로드해 캐싱하는 클래스.
+  ///   이미지는 exe에 리소스(RCDATA)로 내장되어 있어 외부 파일에 의존하지 않는다
+  ///   (리소스 이름 = 에셋 ID를 대문자로 바꾼 것, Gostop.rc 참고).
+  ///   앞면은 에셋 ID, 뒷면은 색상 이름(red)으로 지연 로딩·재사용한다.
   ///   로드된 모든 비트맵의 수명은 이 캐시가 소유한다.
   /// </summary>
   TCardImageCache = class
   private
-    FPngDir: string;
     FFronts: TObjectDictionary<string, TBitmap>;
     FBacks: TObjectDictionary<string, TBitmap>;
     FScaled: TObjectDictionary<string, TBitmap>;
-    function LoadBitmap(const AFileName: string): TBitmap;
+    function LoadBitmap(const AResName: string): TBitmap;
     function ResizeStep(const ASource: TBitmap; const AWidth, AHeight: Integer): TBitmap;
     function HighQualityScale(const ASource: TBitmap; const AWidth, AHeight: Integer): TBitmap;
     function ScaledOf(const AKey: string; const ASource: TBitmap; const AWidth, AHeight: Integer): TBitmap;
   public
-    /// <summary>PNG 폴더 경로를 지정해 캐시를 생성합니다.</summary>
-    /// <param name="APngDir">카드 PNG가 들어 있는 폴더(예: assets\hwatu).</param>
-    constructor Create(const APngDir: string);
+    constructor Create;
     destructor Destroy; override;
 
     /// <summary>에셋 ID에 해당하는 앞면 비트맵을 반환합니다(없으면 로드 후 캐싱).</summary>
@@ -66,17 +66,14 @@ type
 
     /// <summary>현재 로드된 앞면 이미지 수.</summary>
     function LoadedFrontCount: Integer;
-    /// <summary>PNG 폴더 경로.</summary>
-    property PngDir: string read FPngDir;
   end;
 
 implementation
 
 {$REGION 'TCardImageCache'}
-constructor TCardImageCache.Create(const APngDir: string);
+constructor TCardImageCache.Create;
 begin
   inherited Create;
-  FPngDir := APngDir;
   FFronts := TObjectDictionary<string, TBitmap>.Create([doOwnsValues]);
   FBacks := TObjectDictionary<string, TBitmap>.Create([doOwnsValues]);
   FScaled := TObjectDictionary<string, TBitmap>.Create([doOwnsValues]);
@@ -90,22 +87,28 @@ begin
   inherited Destroy;
 end;
 
-function TCardImageCache.LoadBitmap(const AFileName: string): TBitmap;
+function TCardImageCache.LoadBitmap(const AResName: string): TBitmap;
 begin
-  if not TFile.Exists(AFileName) then
+  var LResName := UpperCase(AResName);
+  if FindResource(HInstance, PChar(LResName), RT_RCDATA) = 0 then
   begin
-    raise EHwatuError.CreateFmt('카드 이미지 파일을 찾을 수 없습니다: %s', [AFileName]);
+    raise EHwatuError.CreateFmt('카드 이미지 리소스를 찾을 수 없습니다: %s', [LResName]);
   end;
 
-  Result := TBitmap.Create;
+  var LStream := TResourceStream.Create(HInstance, LResName, RT_RCDATA);
   try
-    Result.LoadFromFile(AFileName);
-  except
-    on E: Exception do
-    begin
-      Result.Free;
-      raise EHwatuError.CreateFmt('카드 이미지 로드 실패: %s (%s: %s)', [AFileName, E.ClassName, E.Message]);
+    Result := TBitmap.Create;
+    try
+      Result.LoadFromStream(LStream);
+    except
+      on E: Exception do
+      begin
+        Result.Free;
+        raise EHwatuError.CreateFmt('카드 이미지 로드 실패: %s (%s: %s)', [LResName, E.ClassName, E.Message]);
+      end;
     end;
+  finally
+    LStream.Free;
   end;
 end;
 
@@ -113,7 +116,7 @@ function TCardImageCache.Front(const AAssetId: string): TBitmap;
 begin
   if not FFronts.TryGetValue(AAssetId, Result) then
   begin
-    Result := LoadBitmap(TPath.Combine(FPngDir, AAssetId + '.png'));
+    Result := LoadBitmap(AAssetId);
     FFronts.Add(AAssetId, Result);
   end;
 end;
@@ -123,7 +126,7 @@ begin
   var LKey := 'back_' + AName;
   if not FBacks.TryGetValue(LKey, Result) then
   begin
-    Result := LoadBitmap(TPath.Combine(FPngDir, LKey + '.png'));
+    Result := LoadBitmap(LKey);
     FBacks.Add(LKey, Result);
   end;
 end;

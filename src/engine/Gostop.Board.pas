@@ -805,7 +805,7 @@ begin
   FFloorRects := TList<TRectF>.Create;
   FFloorIndexMap := TList<Integer>.Create;
   FAiObjects := TObjectList<TAiPlayer>.Create(True);
-  FImages := TCardImageCache.Create(THwatuAssets.PngDir);
+  FImages := TCardImageCache.Create;
   FAiTimer := TTimer.Create(Self);
   FAiTimer.Interval := 650;
   FAiTimer.Enabled := False;

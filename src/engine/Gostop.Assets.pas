@@ -21,9 +21,6 @@ type
     /// </summary>
     /// <param name="AStartDir">탐색 시작 폴더. 빈 문자열이면 실행 파일 폴더에서 시작.</param>
     class function FindRoot(const AStartDir: string = ''): string; static;
-    /// <summary>PNG 카드 이미지 폴더(<c>assets\hwatu</c>, FindRoot 결과와 동일) 경로를 반환합니다. 못 찾으면 빈 문자열.</summary>
-    /// <param name="ARoot">에셋 루트. 빈 문자열이면 <see cref="FindRoot"/>로 자동 탐색.</param>
-    class function PngDir(const ARoot: string = ''): string; static;
     /// <summary>SVG 카드 이미지 폴더(<c>assets\hwatu\svg</c>) 경로를 반환합니다. 못 찾으면 빈 문자열.</summary>
     /// <param name="ARoot">에셋 루트. 빈 문자열이면 <see cref="FindRoot"/>로 자동 탐색.</param>
     class function SvgDir(const ARoot: string = ''): string; static;
@@ -71,18 +68,6 @@ begin
   end;
 
   Result := '';
-end;
-
-class function THwatuAssets.PngDir(const ARoot: string): string;
-begin
-  var LRoot := ARoot;
-  if LRoot = '' then
-  begin
-    LRoot := FindRoot;
-  end;
-
-  // PNG 카드 이미지는 hwatu 폴더 바로 아래(불필요한 png 하위폴더 없이)
-  Result := LRoot;
 end;
 
 class function THwatuAssets.SvgDir(const ARoot: string): string;

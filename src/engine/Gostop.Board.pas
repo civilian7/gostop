@@ -4435,7 +4435,7 @@ begin
 
   Canvas.FillRound(LPanel, 14, $F02E3A2E);
   Canvas.StrokeRound(LPanel, 14, $FFFFD54A, 2);
-  DrawLabel(RectF(LPanel.Left, LPanel.Top + 12, LPanel.Right, LPanel.Top + 46), '새 게임', TAlphaColors.Gold, 22);
+  DrawLabel(RectF(LPanel.Left, LPanel.Top + 12, LPanel.Right, LPanel.Top + 46), '새게임', TAlphaColors.Gold, 22);
 
   // 상단 카드 영역: 라벨 없이 화투 카드 삽화로 인원수(3장)·AI 난이도(4장)를 한 번에 보여줌.
   // 열 개수는 다르지만(3장/4장) 두 줄 모두 같은 전체 폭에 맞춰 카드 폭만 달라진다.

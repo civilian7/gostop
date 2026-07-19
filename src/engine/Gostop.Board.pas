@@ -32,6 +32,7 @@ uses
   Gostop.Settings,
   Gostop.Board.Layout,
   Gostop.Canvas.Helper,
+  Gostop.Fonts,
   Gostop.FourPlayer,
   Gostop.CardImages,
   Gostop.Audio,
@@ -2890,7 +2891,7 @@ procedure TGostopBoard.DrawLabel(const R: TRectF; const AText: string; const ACo
 begin
   Canvas.Fill.Kind := TBrushKind.Solid;
   Canvas.Fill.Color := AColor;
-  Canvas.Font.Size := ASize;
+  TGostopFonts.Apply(Canvas, ASize);
   Canvas.FillText(R, AText, False, 1, [], TTextAlign.Center, TTextAlign.Center);
 end;
 
@@ -3576,7 +3577,7 @@ begin
   FCreditRect := RectF(Width - 168, Height - 25, Width - 8, Height - 8);
   Canvas.Fill.Kind := TBrushKind.Solid;
   Canvas.Fill.Color := $A0FFE082;
-  Canvas.Font.Size := 12;
+  TGostopFonts.Apply(Canvas, 12);
   Canvas.FillText(FCreditRect, '@시골프로그래머', False, 1, [], TTextAlign.Trailing, TTextAlign.Center);
 
   // 컨트롤은 하단 호버 시에만(드래그 중엔 유지) 메시지 위로 표시
@@ -4047,7 +4048,7 @@ begin
   begin
     var LY := LRowsTop + I * LRowH;
     Canvas.Fill.Color := $FFE8EEE4;
-    Canvas.Font.Size := 16;
+    TGostopFonts.Apply(Canvas, 16);
     Canvas.FillText(RectF(LPanel.Left + 28, LY, LPanel.Left + 220, LY + LRowH - 8), LLabels[I],
       False, 1, [], TTextAlign.Leading, TTextAlign.Center);
 
@@ -4626,7 +4627,7 @@ begin
     // 이름(아바타 오른쪽 ~ 행 끝까지, 세로 중앙). AI는 모두 '새게임'에서 정한 동일 레벨이라
     // 좌석별 난이도 선택은 없음(휴먼만 다름)
     Canvas.Fill.Color := TAlphaColors.White;
-    Canvas.Font.Size := 16;
+    TGostopFonts.Apply(Canvas, 16);
     Canvas.FillText(RectF(LAv.Right + 14, LRow.Top, LRow.Right - 12, LRow.Bottom), LName,
       False, 1, [], TTextAlign.Leading, TTextAlign.Center);
   end;
@@ -4671,7 +4672,7 @@ begin
   DrawCardRotated(LMidX, LCY, LCW, LCH, 0, 'april_tane', False);
 
   // 타이틀(그림자 + 금색)
-  Canvas.Font.Size := 56;
+  TGostopFonts.Apply(Canvas, 56);
   Canvas.Fill.Kind := TBrushKind.Solid;
   Canvas.Fill.Color := $C0000000;
   Canvas.FillText(RectF(3, Height * 0.40 + 3, Width + 3, Height * 0.40 + 75), '고스톱',
@@ -4830,19 +4831,19 @@ begin
 
   // 1) 이름 — 전체 폭 사용(잘림 방지)
   Canvas.Fill.Color := TAlphaColors.White;
-  Canvas.Font.Size := 13;
+  TGostopFonts.Apply(Canvas, 13);
   Canvas.FillText(RectF(LIL, LIT + 0, LIR - 2, LIT + 20), LLabel,
     False, 1, [], TTextAlign.Leading, TTextAlign.Center);
 
   // 2) 보유머니
   Canvas.Fill.Color := TAlphaColors.White;
-  Canvas.Font.Size := 13;
+  TGostopFonts.Apply(Canvas, 13);
   Canvas.FillText(RectF(LIL, LIT + 21, LIR, LIT + 39),
     Format('%s원', [FormatFloat('#,##0', FMoney[APos])]), False, 1, [], TTextAlign.Leading, TTextAlign.Center);
 
   // 3) 전적 (운 별점은 숨김 — 내부 로직으로만 작동)
   Canvas.Fill.Color := $FFB8C4B8;
-  Canvas.Font.Size := 11;
+  TGostopFonts.Apply(Canvas, 11);
   Canvas.FillText(RectF(LIL, LIT + 40, LIR, LIT + 55),
     Format('%d승 %d패', [FWins[APos], FLosses[APos]]), False, 1, [], TTextAlign.Leading, TTextAlign.Center);
 
@@ -4850,7 +4851,7 @@ begin
   if (FGame <> nil) and (LIdx < 0) then
   begin
     Canvas.Fill.Color := $FF8A968A;
-    Canvas.Font.Size := 12;
+    TGostopFonts.Apply(Canvas, 12);
     Canvas.FillText(RectF(LIL, LIT + 57, LIR, LIT + 77), '관전',
       False, 1, [], TTextAlign.Leading, TTextAlign.Center);
     Exit;
@@ -5512,7 +5513,7 @@ begin
       var LBadgeH := 24.0;
       var LBadgeY := LY + (LRowH - LBadgeH) / 2;
       var LBadgeX := LTextLeft;
-      Canvas.Font.Size := 13;
+      TGostopFonts.Apply(Canvas, 13);
       for var LFlag in LRow.Flags do
       begin
         var LBadgeW := Canvas.TextWidth(LFlag) + 20;
@@ -5537,7 +5538,7 @@ begin
       end;
 
       Canvas.Fill.Color := LBalColor;
-      Canvas.Font.Size := LBalSize;
+      TGostopFonts.Apply(Canvas, LBalSize);
       Canvas.FillText(LBalR, Format('%s원', [FormatFloat('#,##0', LRow.BalanceAfter)]),
         False, 1, [], TTextAlign.Trailing, TTextAlign.Center);
 
@@ -5559,7 +5560,7 @@ begin
       end;
 
       Canvas.Fill.Color := LNetColor;
-      Canvas.Font.Size := 14;
+      TGostopFonts.Apply(Canvas, 14);
       Canvas.FillText(LNetR, Format('이번 판 %s%s원', [LNetSign, FormatFloat('#,##0', LRow.Amount)]),
         False, 1, [], TTextAlign.Trailing, TTextAlign.Center);
     end
@@ -5582,7 +5583,7 @@ begin
       var LScoreBadgeH := 24.0;
       var LScoreBadgeY := LY + LRowH + (SCORE_ROW_EXTRA_H - LScoreBadgeH) / 2;
       var LScoreBadgeX := LPanel.Left + 18;
-      Canvas.Font.Size := 13;
+      TGostopFonts.Apply(Canvas, 13);
       for var LPart in LRow.ScoreParts do
       begin
         var LScoreBadgeW := Canvas.TextWidth(LPart) + 20;
@@ -6331,7 +6332,7 @@ begin
   var LMidX := (LCen.Left + LCen.Right) / 2;
   var LMidY := (LCen.Top + LCen.Bottom) / 2;
 
-  Canvas.Font.Size := 42;
+  TGostopFonts.Apply(Canvas, 42);
   var LRectW := Canvas.TextWidth(FEffectText) + 56;
   var LRectH := 78.0;
   var LRect := RectF(LMidX - LRectW / 2, LMidY - LRectH / 2, LMidX + LRectW / 2, LMidY + LRectH / 2);
@@ -6410,7 +6411,7 @@ begin
     end;
   end;
 
-  Canvas.Font.Size := 14;
+  TGostopFonts.Apply(Canvas, 14);
   var LTextW := EnsureRange(Canvas.TextWidth(FSpeechText) + 30, 70, 200);
   var LTextH := 40.0;
 
@@ -6438,7 +6439,7 @@ begin
   Canvas.FillPolygon([LTailTip, LTailP1, LTailP2], 1);
 
   Canvas.Fill.Color := $FF3A2A18;
-  Canvas.Font.Size := 14;
+  TGostopFonts.Apply(Canvas, 14);
   Canvas.FillText(LR, FSpeechText, True, 1, [], TTextAlign.Center, TTextAlign.Center);
 end;
 

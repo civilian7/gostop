@@ -25,6 +25,7 @@ type
     Meongbak: Boolean;       // 멍박(열끗박)
     Gobak: Boolean;          // 고박(×2)
     Bonus: Boolean;          // 보너스패 3장 포함(끄면 순수 48장)
+    Speech: Boolean;         // 참가자 말풍선 표시(기본 켬)
     MoneyPerPoint: Integer;  // 점당 금액(사용자 설정 불가 — AiSkill로 자동 결정, SyncMoneyPerPoint 참조)
     SeedMoney: Integer;      // 시드머니(사용자 설정 불가 — 시스템 고정값)
     AiSkill: Integer;        // 게임 레벨(30/50/70/100 — 병아리/선수/타짜/신의손)
@@ -60,6 +61,7 @@ begin
   Meongbak := True;
   Gobak := True;
   Bonus := True;
+  Speech := True;
   SeedMoney := 1000000;   // 시스템 고정 시드머니(100만원)
   AiSkill := 70;
   SyncMoneyPerPoint;
@@ -158,6 +160,7 @@ begin
   Meongbak := AIni.ReadBool('Rules', 'Meongbak', Meongbak);
   Gobak := AIni.ReadBool('Rules', 'Gobak', Gobak);
   Bonus := AIni.ReadBool('Rules', 'Bonus', Bonus);
+  Speech := AIni.ReadBool('Rules', 'Speech', Speech);
   // MoneyPerPoint(AiSkill로 자동 유도)·SeedMoney(시스템 고정값)는 사용자 설정이 아니므로
   // INI에서 읽지 않는다(과거 저장된 값이 남아있어도 무시 — Reset의 기본값을 그대로 유지)
   AiSkill := AIni.ReadInteger('Rules', 'AiSkill', AiSkill);
@@ -173,6 +176,7 @@ begin
   AIni.WriteBool('Rules', 'Meongbak', Meongbak);
   AIni.WriteBool('Rules', 'Gobak', Gobak);
   AIni.WriteBool('Rules', 'Bonus', Bonus);
+  AIni.WriteBool('Rules', 'Speech', Speech);
   AIni.WriteInteger('Rules', 'AiSkill', AiSkill);
   AIni.WriteString('Player', 'Nickname', Nickname);
   AIni.WriteInteger('Player', 'KillCount', KillCount);

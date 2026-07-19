@@ -273,7 +273,7 @@ begin
     end;
   end;
 
-  // 총통 무효 판인지(나가리와 구분 — 판돈 이월 없음)
+  // 총통(즉시 승리) 판인지 — 안내 줄 표시용
   var LChongtong := False;
   for var LEvt in AGame.Events do
   begin
@@ -293,31 +293,29 @@ begin
       LRow.AvatarIdx := -1;
       LRow.IsWinner := False;
       LRow.HasAmount := False;
-      LRow.Text := '쓰리뻑! — 즉시 승리 (고정 점수)';
+      LRow.Text := '쓰리뻑! — 즉시 승리 (기본 점수)';
+      LRows.Add(LRow);
+    end;
+
+    if LChongtong and (AGame.Winner >= 0) then
+    begin
+      var LRow: TResultRow;
+      LRow.AvatarIdx := -1;
+      LRow.IsWinner := False;
+      LRow.HasAmount := False;
+      LRow.Text := '총통! — 즉시 승리 (기본 점수)';
       LRows.Add(LRow);
     end;
 
     if AGame.Winner < 0 then
     begin
-      var LMsg1, LMsg2: string;
-      if LChongtong then
-      begin
-        LMsg1 := '총통! — 무효 판';
-        LMsg2 := '다음 게임으로 넘어갑니다';
-      end
-      else
-      begin
-        LMsg1 := '나가리 (무승부)';
-        LMsg2 := Format('다음 판 판돈 ×%d!', [AInput.Stakes * 2]);
-      end;
-
       var LRow: TResultRow;
       LRow.AvatarIdx := -1;
       LRow.IsWinner := False;
       LRow.HasAmount := False;
-      LRow.Text := LMsg1;
+      LRow.Text := '나가리 (무승부)';
       LRows.Add(LRow);
-      LRow.Text := LMsg2;
+      LRow.Text := Format('다음 판 판돈 ×%d!', [AInput.Stakes * 2]);
       LRows.Add(LRow);
     end
     else
@@ -426,17 +424,10 @@ begin
     LStatusParts.Free;
   end;
 
-  // 판돈 배수 갱신: 나가리면 다음 판 ×2 이월(총통 무효 판은 그대로 유지), 승부가 나면 1로 복귀
+  // 판돈 배수 갱신: 나가리면 다음 판 ×2 이월, 승부가 나면(총통 즉시 승리 포함) 1로 복귀
   if AGame.Winner < 0 then
   begin
-    if LChongtong then
-    begin
-      Result.NewStakes := AInput.Stakes;
-    end
-    else
-    begin
-      Result.NewStakes := AInput.Stakes * 2;
-    end;
+    Result.NewStakes := AInput.Stakes * 2;
   end
   else
   begin

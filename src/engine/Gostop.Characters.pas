@@ -99,6 +99,64 @@ var
   GEntries: TArray<TCharacterEntry>;
   GLoaded: Boolean = False;
 
+// characters.json과 같은 폴더의 quotes.json이 있으면 캐릭터별 대사를 그 내용으로 교체한다(이름 매칭).
+// 대사를 별도 파일로 분리해 코드·캐릭터 정의를 건드리지 않고 대사만 편하게 늘리고 고칠 수 있게 함.
+// 파일이 없거나 손상되면 characters.json에 들어있는 기본 대사를 그대로 유지한다.
+procedure LoadQuotesOverride(const ACharsJsonPath: string);
+begin
+  var LPath := TPath.Combine(TPath.GetDirectoryName(ACharsJsonPath), 'quotes.json');
+  if not TFile.Exists(LPath) then
+  begin
+    Exit;
+  end;
+
+  try
+    var LText := TFile.ReadAllText(LPath, TEncoding.UTF8);
+    var LValue := TJSONObject.ParseJSONValue(LText);
+    try
+      if not (LValue is TJSONObject) then
+      begin
+        Exit;
+      end;
+
+      var LArr: TJSONArray;
+      if not TJSONObject(LValue).TryGetValue<TJSONArray>('characters', LArr) then
+      begin
+        Exit;
+      end;
+
+      for var I := 0 to LArr.Count - 1 do
+      begin
+        var LObj := LArr.Items[I] as TJSONObject;
+        var LName := LObj.GetValue<string>('name', '');
+        var LQuotesArr: TJSONArray;
+        if (LName = '') or (not LObj.TryGetValue<TJSONArray>('quotes', LQuotesArr)) then
+        begin
+          Continue;
+        end;
+
+        for var K := 0 to High(GEntries) do
+        begin
+          if GEntries[K].Name = LName then
+          begin
+            SetLength(GEntries[K].Quotes, LQuotesArr.Count);
+            for var Q := 0 to LQuotesArr.Count - 1 do
+            begin
+              GEntries[K].Quotes[Q] := LQuotesArr.Items[Q].Value;
+            end;
+
+            Break;
+          end;
+        end;
+      end;
+    finally
+      LValue.Free;
+    end;
+  except
+    // 손상된 quotes.json은 무시 — characters.json의 기본 대사 유지
+  end;
+end;
+
 // JSON에서 캐릭터 배열을 읽어 GEntries를 채운다. 파일이 없거나 파싱 실패하면 빈 배열로 남는다(정상 동작 — 모든
 // 조회 함수가 범위 밖 값에 대해 안전한 기본값을 반환하므로 게임은 계속 진행 가능).
 procedure EnsureLoaded;
@@ -181,6 +239,8 @@ begin
     // 손상된 JSON 등 — 빈 로스터로 안전 폴백(모든 조회 함수가 기본값 반환)
     SetLength(GEntries, 0);
   end;
+
+  LoadQuotesOverride(LPath);
 end;
 
 {$REGION 'TGostopCharacters'}

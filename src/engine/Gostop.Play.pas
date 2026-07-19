@@ -15,6 +15,7 @@ type
   TPlayEventKind = (
     pekPlace,       // 매칭 없이 바닥에 놓음
     pekCapture,     // 카드를 먹음
+    pekBonusCapture, // 보너스패(조커) 획득 — 손에서 내거나 뒤집어서
     pekBbeok,       // 뻑
     pekJabbeok,     // 자뻑(자기가 만든 뻑 더미를 자기가 먹음)
     pekYeonbbeok,   // 연뻑(뻑이 있는 상태에서 또 뻑)
@@ -532,9 +533,17 @@ end;
 
 procedure TTurnEngine.CaptureInto(const ACaptured: TList<THwatuCard>; const AIndices: TArray<Integer>; const AChoice: Integer);
 begin
-  if Length(AIndices) >= 3 then
+  if Length(AIndices) = 0 then
   begin
-    // 바닥에 3장(같은 월) → 모두 가져감. 높은 인덱스부터 삭제해 인덱스 유효성 유지.
+    Exit;
+  end;
+
+  // 바닥에 뻑 더미(이미 짝 없이 쌓여 대기 중인 패)가 있으면, 몇 장이든 선택 없이 전부 가져간다.
+  // "2장이면 하나만 고른다"는 선택 규칙은 뻑이 아닌 자연스러운 2장 매칭에만 적용한다.
+  var LMonth := FState.Floor[AIndices[0]].Month;
+  if (Length(AIndices) >= 3) or ((Length(AIndices) >= 2) and FState.BbeokCreator.ContainsKey(LMonth)) then
+  begin
+    // 바닥에 3장(같은 월) 또는 뻑 더미 전량 → 모두 가져감. 높은 인덱스부터 삭제해 인덱스 유효성 유지.
     for var K := High(AIndices) downto 0 do
     begin
       ACaptured.Add(FState.Floor[AIndices[K]]);
@@ -715,7 +724,7 @@ begin
       var LCard := FState.Floor[LIdx];
       FState.Floor.Delete(LIdx);
       FState.CurrentPlayer.Captured.Add(LCard);
-      AddEvent(pekCapture, FState.Current, 0, Format('%s 바닥 보너스패 획득(선)', [FState.CurrentPlayer.Name]));
+      AddEvent(pekBonusCapture, FState.Current, 0, Format('%s 바닥 보너스패 획득(선)', [FState.CurrentPlayer.Name]));
 
       // 뒷패에서 일반패 1장으로 바닥 보충(보충 중 보너스가 나오면 그것도 선이 획득)
       var LFill: THwatuCard;
@@ -811,7 +820,7 @@ begin
     begin
       APlayer.Captured.Add(LTop);
       FFlipBonus := FFlipBonus + [LTop];
-      AddEvent(pekCapture, FState.Current, 0, Format('%s 보너스패 획득(뒤집기)', [APlayer.Name]));
+      AddEvent(pekBonusCapture, FState.Current, 0, Format('%s 보너스패 획득(뒤집기)', [APlayer.Name]));
       Continue;
     end;
 
@@ -841,7 +850,7 @@ begin
     begin
       LCaptured.Add(LDraw);
       CaptureInto(LCaptured, LMatches, -1);
-      if Length(LMatches) >= 3 then
+      if (Length(LMatches) >= 3) or FState.BbeokCreator.ContainsKey(LDraw.Month) then
       begin
         ResolveThreePileSteal(LDraw.Month);
       end;
@@ -964,7 +973,7 @@ begin
     begin
       LPlayer.Captured.Add(LHand);
       FPendingBonus := FPendingBonus + [LHand];
-      AddEvent(pekCapture, FState.Current, 0, Format('%s 보너스패 획득', [LPlayer.Name]));
+      AddEvent(pekBonusCapture, FState.Current, 0, Format('%s 보너스패 획득', [LPlayer.Name]));
 
       // 선택 UI가 켜져 있으면 뒷패를 펼쳐 가져올 패를 고르게 멈춘다
       if FBonusDrawEnabled and (FState.Stock.Count > 0) then
@@ -1065,8 +1074,8 @@ begin
       LPlayedCaptured := True;
       LCaptured.Add(LHand);
       CaptureInto(LCaptured, LHandMatches, AFloorChoice);
-      // 바닥 3장을 먹었으면 뻑 회수 또는 자연 3장 쓸어먹기 피 처리
-      if Length(LHandMatches) >= 3 then
+      // 바닥 3장 이상 먹었거나 뻑 더미를 회수했으면 피 처리
+      if (Length(LHandMatches) >= 3) or FState.BbeokCreator.ContainsKey(LMonth) then
       begin
         ResolveThreePileSteal(LMonth);
       end;
@@ -1084,9 +1093,11 @@ begin
       end
       else
       if FFlipChoiceEnabled and (Length(LDrawMatches) = 2) and
-        (FState.Floor[LDrawMatches[0]].Kind <> FState.Floor[LDrawMatches[1]].Kind) then
+        (FState.Floor[LDrawMatches[0]].Kind <> FState.Floor[LDrawMatches[1]].Kind) and
+        (not FState.BbeokCreator.ContainsKey(LDraw.Month)) then
       begin
-        // 뒤집은 패가 바닥 2장(서로 다른 종류)과 매칭 → 가져갈 패 선택 대기
+        // 뒤집은 패가 바닥 2장(서로 다른 종류)과 매칭 → 가져갈 패 선택 대기.
+        // 단, 그 2장이 뻑 더미면 선택 없이 전부 가져가야 하므로(아래 else 분기) 여기서 제외한다.
         // 손패로 먹은 분은 먼저 획득더미로 이관하고 멈춘다
         if LCaptured.Count > 0 then
         begin
@@ -1109,7 +1120,7 @@ begin
       begin
         LCaptured.Add(LDraw);
         CaptureInto(LCaptured, LDrawMatches, -1);
-        if Length(LDrawMatches) >= 3 then
+        if (Length(LDrawMatches) >= 3) or FState.BbeokCreator.ContainsKey(LDraw.Month) then
         begin
           ResolveThreePileSteal(LDraw.Month);
         end;
@@ -1188,7 +1199,7 @@ begin
   begin
     // 보너스패를 집으면 그것도 즉시 획득하고, 뒷패가 남았으면 다시 고른다
     LPlayer.Captured.Add(LCard);
-    AddEvent(pekCapture, FState.Current, 0, Format('%s 보너스패 획득(뒷패)', [LPlayer.Name]));
+    AddEvent(pekBonusCapture, FState.Current, 0, Format('%s 보너스패 획득(뒷패)', [LPlayer.Name]));
     if FState.Stock.Count > 0 then
     begin
       Exit;
@@ -1216,8 +1227,15 @@ end;
 
 function TTurnEngine.ScoreAndFinish(const APlayer: TPlayer): Boolean;
 begin
+  // 고/스톱 선언 최소 점수: 2인 맞고는 7점, 3인 이상은 3점(쓰리뻑 고정 점수와 같은 기준)
+  var LMinScore := 3;
+  if FState.PlayerCount = 2 then
+  begin
+    LMinScore := 7;
+  end;
+
   var LScore := TScorer.Evaluate(APlayer.Captured, FRules.Score);
-  if (LScore.Total >= 3) and (LScore.Total > APlayer.LastGoScore) then
+  if (LScore.Total >= LMinScore) and (LScore.Total > APlayer.LastGoScore) then
   begin
     FState.Phase := gpAwaitingGoStop;
     AddEvent(pekGoStop, FState.Current, 0, Format('%s %d점 — 고/스톱 선택', [APlayer.Name, LScore.Total]));
@@ -1352,8 +1370,21 @@ begin
 
   var LWinner := FState.Winner;
 
-  // 쓰리뻑 즉시 승리: 고정 점수(2인 맞고 7점 / 3인+ 3점), 박·고 배수 미적용
-  if FState.ThreeBbeok then
+  // 쓰리뻑·총통 즉시 승리: 고정 점수(2인 맞고 7점 / 3인+ 3점), 박·고 배수 미적용
+  var LInstantWin := FState.ThreeBbeok;
+  if not LInstantWin then
+  begin
+    for var LEvt in FState.Events do
+    begin
+      if LEvt.Kind = pekChongtong then
+      begin
+        LInstantWin := True;
+        Break;
+      end;
+    end;
+  end;
+
+  if LInstantWin then
   begin
     var LFixed := 3;
     if FState.PlayerCount = 2 then
@@ -1379,6 +1410,17 @@ begin
   var LWinBreak := TScorer.Evaluate(LWinnerP.Captured, FRules.Score);
 
   var LTotalToWinner := 0;
+  // 피박 면제 기준은 인원수에 따라 다르다: 2인(맞고)=피값 8 이상 면제(≤7 피박), 3인 이상=피값 6 이상 면제(≤5 피박)
+  var LScoreOpt := FRules.Score;
+  if FState.PlayerCount >= 3 then
+  begin
+    LScoreOpt.PibakMaxJunk := 5;
+  end
+  else
+  begin
+    LScoreOpt.PibakMaxJunk := 7;
+  end;
+
   var LGobakLoser := -1;
   for var P := 0 to FState.PlayerCount - 1 do
   begin
@@ -1388,7 +1430,7 @@ begin
     end;
 
     var LLoserBreak := TScorer.Evaluate(FState.Player(P).Captured, FRules.Score);
-    var LSettle := TScorer.Settle(LWinBreak, LLoserBreak, LWinnerP.GoCount, LWinnerP.ShakeCount, FRules.Score);
+    var LSettle := TScorer.Settle(LWinBreak, LLoserBreak, LWinnerP.GoCount, LWinnerP.ShakeCount, LScoreOpt);
     Result[P].Net := -LSettle.Points;
     Result[P].Pibak := LSettle.Pibak;
     Result[P].Gwangbak := LSettle.Gwangbak;
@@ -1465,15 +1507,15 @@ begin
     raise EHwatuError.Create('총통은 플레이 중에만 선언할 수 있습니다.');
   end;
 
-  // 총통 = 무효 판(승자 없이 종료) — ApplyHandChongtong과 동일 규칙
+  // 총통 = 즉시 승리(기본 점수 — 정산은 FinalSettlement의 고정 점수 분기) — ApplyHandChongtong과 동일 규칙
   FState.Phase := gpFinished;
-  FState.Winner := -1;
-  AddEvent(pekChongtong, APlayerIndex, LMonth, Format('%s 총통 선언! (%d월 4장) — 무효 판', [FState.Player(APlayerIndex).Name, LMonth]));
+  FState.Winner := APlayerIndex;
+  AddEvent(pekChongtong, APlayerIndex, LMonth, Format('%s 총통 선언! (%d월 4장) — 즉시 승리', [FState.Player(APlayerIndex).Name, LMonth]));
 end;
 
 function TTurnEngine.ApplyHandChongtong: Boolean;
 begin
-  // 딜 직후 총통(같은 월 4장)이 나오면 그 판은 무효 — 승자 없이 끝내고 다음 게임으로
+  // 딜 직후 총통(같은 월 4장)이 나오면 그 사람의 즉시 승리(기본 점수)
   if FState.Phase <> gpPlaying then
   begin
     Exit(False);
@@ -1485,8 +1527,8 @@ begin
     if CanDeclareChongtong(P, LMonth) then
     begin
       FState.Phase := gpFinished;
-      FState.Winner := -1;
-      AddEvent(pekChongtong, P, LMonth, Format('%s 총통! (%d월 4장) — 무효 판', [FState.Player(P).Name, LMonth]));
+      FState.Winner := P;
+      AddEvent(pekChongtong, P, LMonth, Format('%s 총통! (%d월 4장) — 즉시 승리', [FState.Player(P).Name, LMonth]));
       Exit(True);
     end;
   end;
@@ -1570,8 +1612,14 @@ begin
       end;
     end;
 
-    // 바닥의 같은 월 모두 획득
-    CaptureInto(LCaptured, MatchIndices(AMonth), 0);
+    // 바닥의 같은 월 모두 획득(선택 없이 전부 — CaptureInto는 2장일 때 하나만 고르는
+    // 로직이 있어 폭탄의 "전부 가져감" 의도와 맞지 않으므로 여기서는 사용하지 않는다)
+    var LBombFloorIdx := MatchIndices(AMonth);
+    for var K := High(LBombFloorIdx) downto 0 do
+    begin
+      LCaptured.Add(FState.Floor[LBombFloorIdx[K]]);
+      FState.Floor.Delete(LBombFloorIdx[K]);
+    end;
 
     LPlayer.Captured.AddRange(LCaptured);
     AddEvent(pekBomb, FState.Current, AMonth, Format('%s 폭탄! (%d월)', [LPlayer.Name, AMonth]));

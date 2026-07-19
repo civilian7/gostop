@@ -76,7 +76,6 @@ type
   private
     FImages: TCardImageCache;
     FFeltTile: TBitmap;
-    FWoodTile: TBitmap;   // 다이얼로그 패널용 나무 결 텍스처(절차 생성, 펠트와 같은 방식)
     FAvatars: array [TSeatPos] of TBitmap;      // 자리별 아바타(절차 생성 폴백)
     FAvatarPool: TObjectList<TBitmap>;          // 파일 아바타 풀(assets\avatars, 지연 로드)
     FAvatarCheerPool: TObjectList<TBitmap>;     // 환호(승리) 상태 풀. FAvatarPool과 인덱스 정렬(없으면 nil)
@@ -92,6 +91,9 @@ type
     // 버튼 공용 호버/눌림 상태(모든 버튼이 참조 — 실시간 마우스 위치·좌클릭 유지 여부)
     FMousePos: TPointF;
     FMouseDown: Boolean;
+
+    // 일시정지(스페이스바) — 모든 진행 타이머가 이 플래그를 확인해 멈춘다
+    FPaused: Boolean;
 
     // 하단 컨트롤 바(볼륨·음소거·게임속도) + 타이틀 메뉴 — 유튜브식 호버 표시
     FGameSpeed: Single;        // 애니·AI 대기 속도 배율(0.5~2.0)
@@ -111,7 +113,7 @@ type
     FConfig: TGameConfig;        // 게임 룰·플레이어 설정(피박/광박/고박/보너스/금액/시드/난이도/닉네임)
     FNickEdit: TEdit;            // 닉네임 입력용(설정창에서만 표시, IME 지원)
     FSettingsOpen: Boolean;      // 설정창 표시 중
-    FCfgRects: array [0 .. 6] of TRectF;   // 설정 행 값 영역(0~4=토글, 5=닉네임, 6=아바타)
+    FCfgRects: array [0 .. 7] of TRectF;   // 설정 행 값 영역(0~5=토글, 6=닉네임, 7=아바타)
     FCfgCountRects: array [0 .. 2] of TRectF;  // 상단 인원수 카드(맞고/삼파전/광팔어유) 클릭 영역
     FCfgSkillRects: array [0 .. 3] of TRectF;  // 상단 AI 난이도 카드(병아리/선수/타짜/신의손) 클릭 영역
     FBtnCfgCancel: TRectF;      // 설정창 '취소'(타이틀로 복귀)
@@ -209,6 +211,15 @@ type
     FGiriProceed: TProc;                           // 기리 결정 후 실제 딜 진행
     FGiriRects: TList<TRectF>;                     // 기리 카드 클릭 영역
     FBtnTung: TRectF;                              // 퉁(컷 안 함) 버튼
+    FGiriAiTimer: TTimer;                          // AI(또는 관전) 말번의 기리를 화면에 보여준 뒤 자동 결정하는 지연 타이머
+    FGiriClosing: Boolean;                         // 컷(또는 퉁) 결정 후, 덱이 그 지점으로 모이는 연출 진행 중
+    FGiriCloseT: Single;                           // 위 연출 진행률(0~1)
+    FGiriCloseTimer: TTimer;
+    FGiriClosePt: TPointF;                         // 카드들이 모여드는 지점(클릭한 카드 또는 퉁 버튼 위치)
+    FGiriPendingCut: Integer;                      // 연출이 끝나면 실제로 적용할 컷 인덱스(-1=퉁)
+    FGiriSplitting: Boolean;                       // 컷일 때: 모은 뒤 좌우로 갈라 자리를 바꾸는 연출 진행 중
+    FGiriSplitT: Single;                           // 위 연출 진행률(0~1)
+    FGiriAiHoverStep: Integer;                      // AI 말번이 결정 전에 카드를 훑어보는 연출 단계(0=아직 안 봄)
 
     FSeonPicking: Boolean;                         // 선 뽑기 진행 중
     FSeonStep: TSeonStep;                          // 현재 단계
@@ -267,10 +278,13 @@ type
     FAnimDrawn: TArray<THwatuCard>;
     FAnimCaptured: TArray<THwatuCard>;
     FAnimStealCount: Integer;       // 이번 먹기 단계에서 상대 획득더미에서 뺏어온 피 장수(0=없음)
+    FAnimDrawSoundIdx: Integer;     // 뒤집기 단계에서 소리를 재생한 마지막 카드 인덱스(보너스 재뒤집기 다중 카드용)
     FAnimPlayedFrom: TPointF;
     FAnimDrawnFrom: TPointF;
     FFlySources: TArray<TPointF>;
     FFlyTargets: TArray<TPointF>;
+    FFlyIsPi: TArray<Boolean>;        // 먹기 단계에서 이 카드가 "상대에게서 뺏어온 피"인지(2단 비행용)
+    FCaptureConvergePt: TPointF;      // 뺏은 피가 1단계로 모이는 지점(싼 무더기가 있던 자리)
     FRestCards: TArray<THwatuCard>;   // 먹히기 직전 짝 위에 얹혀 대기하는 카드(낸/뒤집은 패)
     FRestPts: TArray<TPointF>;
     FAnimDone: TProc;
@@ -303,6 +317,7 @@ type
     FFlipOptAssets: array [0 .. 1] of string;
     FHoverHand: Integer;
     FHoverBonus: Integer;
+    FHoverGiri: Integer;
 
     FOnStateChanged: TNotifyEvent;
     FOnGameOver: TNotifyEvent;
@@ -310,7 +325,6 @@ type
     procedure AiTimerTick(Sender: TObject);
     procedure ClearGame(const ADeleteSave: Boolean = True);
     procedure GenerateFeltTile;
-    procedure GenerateWoodTile;
     procedure AfterAction;
     procedure StartPlay;
     procedure SetupAgentsAndEngine(const AFreshDeal: Boolean);
@@ -335,6 +349,9 @@ type
     function  MalbeonPos: TSeatPos;
     procedure RequestGiri(const ADeck: TDeck; const AProceed: TProc);
     procedure ResolveGiri(const ACutIndex: Integer);
+    procedure GiriAiTimerTick(Sender: TObject);
+    procedure BeginGiriClose(const APendingCut: Integer);
+    procedure GiriCloseTimerTick(Sender: TObject);
     procedure FanDialogGeometry(out APanelW, ACardW, ACardH, AStep, AHalfSpread, AArcDrop, AAvColW, ATopPad: Single);
     procedure DrawGiri;
     function  SeonActivePositions: TArray<TSeatPos>;
@@ -364,6 +381,7 @@ type
     function RState: TGameState;
     procedure StartTurnAnimation(const ABefore: TGameState; const AOnDone: TProc);
     procedure AnimTick(Sender: TObject);
+    procedure ComputeDrawWindows(out AWinStart, AFlyEnd, AWinEnd: TArray<Single>; out ATotalMs: Single);
     procedure AnimAdvanceStage;
     procedure AnimApplyStageStart(const AStage: Integer);
     procedure AnimApplyStageEnd(const AStage: Integer);
@@ -408,6 +426,8 @@ type
     procedure SetHumanAvatar(const AIndex: Integer);
     procedure DrawAvatarPicker;
     procedure DrawControlBar;
+    procedure PaintGame;
+    procedure DrawPauseOverlay;
     procedure DrawTitleMenu;
     procedure DrawSettings;
     procedure DrawCfgToggle(const ARect: TRectF; const AOn: Boolean);
@@ -508,6 +528,10 @@ type
     procedure HumanGo;
     /// <summary>사람이 '스톱'을 선언합니다(고/스톱 대기 중일 때만).</summary>
     procedure HumanStop;
+    /// <summary>일시정지 상태를 켜고 끕니다(스페이스바 등 외부 단축키에서 호출).</summary>
+    procedure TogglePause;
+    /// <summary>현재 텍스트 입력(닉네임 편집 등)이 포커스를 갖고 있는지 — 단축키가 타이핑을 가로채지 않도록.</summary>
+    function IsTextInputActive: Boolean;
 
     /// <summary>현재 상태 안내 문구.</summary>
     property StatusText: string read FStatus;
@@ -769,6 +793,12 @@ begin
       begin
         Result := '총통!';
       end;
+    // pekBonusCapture는 배너 없음 — 뒤집기 중 조커는 "한번 더~"가 즉시 뜨고,
+    // 손에서 낸 조커는 뒷패 고르기 다이얼로그가 떠서 별도 배너가 중복·잉여가 됨
+    pekGo:
+      begin
+        Result := '고!';
+      end;
   else
     begin
       Result := '';
@@ -801,10 +831,19 @@ begin
   FBackColor := 'red';
   FHoverHand := -1;
   FHoverBonus := -1;
+  FHoverGiri := -1;
   FPlayerCount := 2;
   FAiSkill := 70;
   FStatus := '새 게임을 시작하세요';
   FGiriRects := TList<TRectF>.Create;
+  FGiriAiTimer := TTimer.Create(Self);
+  FGiriAiTimer.Interval := 1100;
+  FGiriAiTimer.Enabled := False;
+  FGiriAiTimer.OnTimer := GiriAiTimerTick;
+  FGiriCloseTimer := TTimer.Create(Self);
+  FGiriCloseTimer.Interval := 16;   // ~60fps
+  FGiriCloseTimer.Enabled := False;
+  FGiriCloseTimer.OnTimer := GiriCloseTimerTick;
   FHandRects := TList<TRectF>.Create;
   FHandIndexMap := TList<Integer>.Create;
   FFloorRects := TList<TRectF>.Create;
@@ -915,7 +954,6 @@ begin
   FreeAndNil(FAvatarAngryPool);
   FreeAndNil(FSkillAvatarPool);
   FreeAndNil(FFeltTile);
-  FreeAndNil(FWoodTile);
   FreeAndNil(FImages);
   FreeAndNil(FFloorIndexMap);
   FreeAndNil(FFloorRects);
@@ -938,6 +976,10 @@ begin
   // 기리 대기 상태 정리(대기 중 취소 시 덱 누수 방지)
   FGiriPhase := False;
   FGiriProceed := nil;
+  FGiriAiTimer.Enabled := False;
+  FGiriClosing := False;
+  FGiriSplitting := False;
+  FGiriCloseTimer.Enabled := False;
   FreeAndNil(FGiriDeck);
 
   // 쇼당 상태 정리
@@ -1018,6 +1060,7 @@ begin
   FReplacingSeats := nil;
   FHoverHand := -1;
   FHoverBonus := -1;
+  FHoverGiri := -1;
   FAgents := nil;
   if Assigned(FAiObjects) then
   begin
@@ -1062,40 +1105,6 @@ begin
       end;
     finally
       FFeltTile.Unmap(LData);
-    end;
-  end;
-end;
-
-// 다이얼로그 패널용 나무 결 텍스처(짙은 호두나무 톤 + 가로로 흐르는 불규칙 결무늬 + 미세 잡음).
-// 펠트 배경과 같은 절차 생성 방식(외부 이미지 에셋 없이 코드로 만듦) — 단색 채움 대신 질감을 줘
-// 다이얼로그가 일반 앱 알림창처럼 밋밋해 보이지 않게 한다.
-procedure TGostopBoard.GenerateWoodTile;
-const
-  TILE = 128;
-  BASE_R = 58;
-  BASE_G = 38;
-  BASE_B = 26;
-begin
-  FWoodTile := TBitmap.Create(TILE, TILE);
-  var LData: TBitmapData;
-  if FWoodTile.Map(TMapAccess.Write, LData) then
-  begin
-    try
-      for var Y := 0 to TILE - 1 do
-      begin
-        for var X := 0 to TILE - 1 do
-        begin
-          var LGrain := Round(Sin(Y * 0.25 + Sin(X * 0.05) * 2.5) * 14 + Sin(Y * 0.9) * 4);
-          var LNoise := FeltNoise(X, Y) div 4;
-          var LShade := LGrain + LNoise;
-          var LR := EnsureRange(BASE_R + LShade, 0, 255);
-          var LG := EnsureRange(BASE_G + (LShade * 2) div 3, 0, 255);
-          var LB := EnsureRange(BASE_B + LShade div 2, 0, 255);
-          LData.SetPixel(X, Y, $FF000000 or (Cardinal(LR) shl 16) or (Cardinal(LG) shl 8) or Cardinal(LB));
-        end;
-      end;
-    finally
-      FWoodTile.Unmap(LData);
     end;
   end;
 end;
@@ -1181,43 +1190,169 @@ begin
   end;
 end;
 
-// 기리: 딜 직전 말번에게 덱 커팅 권리. 사람 말번이면 화면에 나열해 클릭받고, AI/관전이면 자동 결정
+// 기리: 딜 직전 말번에게 덱 커팅 권리. 실제로 원치 않는 경우도 있으므로 60% 확률로만 기회가
+// 주어지고(그 외엔 그대로 진행), 기회가 생기면 말번이 사람이든 AI든 화면에 부채꼴로 펼쳐 보여준다.
+// 사람은 직접 클릭해서 컷/퉁을 고르고, AI(또는 관전)는 잠시 보여준 뒤 자동으로 결정한다.
 procedure TGostopBoard.RequestGiri(const ADeck: TDeck; const AProceed: TProc);
 begin
   FGiriDeck := ADeck;
   FGiriProceed := AProceed;
 
-  if (not FSpectator) and (MalbeonPos = spBottom) then
+  if (ADeck.Count <= 10) or (Random(100) >= 60) then
   begin
-    // 사람이 말번 → 커팅 UI
-    FGiriPhase := True;
-    Repaint;
-    if Assigned(FOnStateChanged) then
+    ResolveGiri(-1);   // 기회가 없으면 그대로(퉁) 진행
+    Exit;
+  end;
+
+  FGiriPhase := True;
+  Repaint;
+  if Assigned(FOnStateChanged) then
+  begin
+    FOnStateChanged(Self);
+  end;
+
+  if FSpectator or (MalbeonPos <> spBottom) then
+  begin
+    // AI(또는 관전) 말번 → 카드를 몇 번 훑어보는 연출 후 자동으로 결정(과정이 보이도록)
+    FGiriAiHoverStep := 0;
+    FGiriAiTimer.Interval := 380;
+    FGiriAiTimer.Enabled := True;
+  end;
+  // 사람이 말번이면 여기서 더 할 일 없음 — MouseDownGiri가 클릭을 기다린다
+end;
+
+// AI(또는 관전) 말번의 기리 과정을 보여준다: 카드 몇 장을 훑어보듯 호버를 옮겨가며(소리 포함)
+// 고민하는 연출을 몇 차례 반복한 뒤, 마지막에 절반 확률로 임의 위치 컷(아니면 퉁)을 확정한다
+procedure TGostopBoard.GiriAiTimerTick(Sender: TObject);
+const
+  HOVER_PREVIEW_STEPS = 3;
+begin
+  if FPaused then
+  begin
+    Exit;
+  end;
+
+  if (not FGiriPhase) or (FGiriDeck = nil) then
+  begin
+    FGiriAiTimer.Enabled := False;
+    Exit;
+  end;
+
+  Inc(FGiriAiHoverStep);
+  if FGiriAiHoverStep <= HOVER_PREVIEW_STEPS then
+  begin
+    if FGiriRects.Count > 0 then
     begin
-      FOnStateChanged(Self);
+      var LNew := Random(FGiriRects.Count);
+      if (LNew = FHoverGiri) and (FGiriRects.Count > 1) then
+      begin
+        LNew := (LNew + 1) mod FGiriRects.Count;
+      end;
+
+      FHoverGiri := LNew;
+      TGostopAudio.Instance.Play('ui_hover');
+      Repaint;
+    end;
+
+    Exit;   // 타이머 계속 반복 — 다음 훑어보기로
+  end;
+
+  FGiriAiTimer.Enabled := False;
+  FHoverGiri := -1;
+
+  var LCut := -1;
+  if Random(2) = 0 then
+  begin
+    LCut := 4 + Random(FGiriDeck.Count - 8);
+  end;
+
+  BeginGiriClose(LCut);
+end;
+
+// 컷(또는 퉁) 결정 직후: 실제로 적용하기 전에, 카드들이 그 지점으로 모여드는 짧은 연출을 먼저 보여준다
+procedure TGostopBoard.BeginGiriClose(const APendingCut: Integer);
+begin
+  FGiriPendingCut := APendingCut;
+  FGiriClosing := True;
+  FGiriCloseT := 0;
+  FHoverGiri := -1;
+
+  if (APendingCut >= 0) and (APendingCut < FGiriRects.Count) then
+  begin
+    var LR := FGiriRects[APendingCut];
+    FGiriClosePt := PointF((LR.Left + LR.Right) / 2, (LR.Top + LR.Bottom) / 2);
+  end
+  else
+  begin
+    FGiriClosePt := PointF((FBtnTung.Left + FBtnTung.Right) / 2, (FBtnTung.Top + FBtnTung.Bottom) / 2);
+  end;
+
+  TGostopAudio.Instance.Play('card_flip');
+  FGiriCloseTimer.Enabled := True;
+  Repaint;
+end;
+
+// 위 연출 진행 타이머. 퉁은 "모으기"까지만, 컷은 "모으기" 후 "가르기"까지 이어간 뒤
+// 그때 비로소 실제 컷/퉁을 적용하고 딜로 진행한다
+procedure TGostopBoard.GiriCloseTimerTick(Sender: TObject);
+begin
+  if FPaused then
+  begin
+    Exit;
+  end;
+
+  if FGiriClosing then
+  begin
+    FGiriCloseT := FGiriCloseT + 0.045 * FGameSpeed;   // 모으기 총 ~350ms
+    if FGiriCloseT >= 1 then
+    begin
+      FGiriCloseT := 1;
+      FGiriClosing := False;
+      if FGiriPendingCut >= 0 then
+      begin
+        // 컷이면 모은 뒤 갈라 자리를 바꾸는 연출로 이어감
+        FGiriSplitting := True;
+        FGiriSplitT := 0;
+        TGostopAudio.Instance.Play('card_flip');
+      end
+      else
+      begin
+        // 퉁이면 모으는 것으로 연출 종료 → 바로 적용
+        FGiriCloseTimer.Enabled := False;
+        ResolveGiri(FGiriPendingCut);
+        Exit;
+      end;
+    end;
+  end
+  else
+  if FGiriSplitting then
+  begin
+    FGiriSplitT := FGiriSplitT + 0.04 * FGameSpeed;   // 가르기 총 ~400ms
+    if FGiriSplitT >= 1 then
+    begin
+      FGiriCloseTimer.Enabled := False;
+      FGiriSplitting := False;
+      ResolveGiri(FGiriPendingCut);
+      Exit;
     end;
   end
   else
   begin
-    // AI 말번(또는 관전): 절반 확률로 임의 위치 컷, 아니면 퉁
-    var LCut := -1;
-    if (ADeck.Count > 10) and (Random(2) = 0) then
-    begin
-      LCut := 4 + Random(ADeck.Count - 8);
-    end;
-
-    ResolveGiri(LCut);
+    FGiriCloseTimer.Enabled := False;
+    Exit;
   end;
+
+  Repaint;
 end;
 
 // 기리 결정 적용: ACutIndex>=0이면 그 위치에서 컷, 아니면 퉁(그대로). 이어서 딜 진행
 procedure TGostopBoard.ResolveGiri(const ACutIndex: Integer);
 begin
   FGiriPhase := False;
+  FHoverGiri := -1;
   if (ACutIndex >= 0) and Assigned(FGiriDeck) then
   begin
     FGiriDeck.Cut(ACutIndex);
-    TGostopAudio.Instance.Play('card_flip');
   end;
 
   var LProceed := FGiriProceed;
@@ -1235,8 +1370,8 @@ procedure TGostopBoard.FanDialogGeometry(out APanelW, ACardW, ACardH, AStep, AHa
   ATopPad: Single);
 begin
   var CS := CardSize;
-  ACardW := CS.Width * 0.65;
-  ACardH := CS.Height * 0.65;
+  ACardW := CS.Width * 1.0;
+  ACardH := CS.Height * 1.0;
   AAvColW := Max(130.0, 150.0);
   ATopPad := 54.0;
 
@@ -1267,8 +1402,8 @@ begin
     AStep := 6;
   end;
 
-  AHalfSpread := Min(28.0, 3.2 * (LRefCount - 1));
-  AArcDrop := ACardH * 0.35;
+  AHalfSpread := Min(14.0, 1.6 * (LRefCount - 1));
+  AArcDrop := ACardH * 0.18;
 
   var LRefTotalW := AStep * (LRefCount - 1) + ACardW;
   APanelW := AAvColW + 24 + 20 + LRefTotalW + 48;
@@ -1286,15 +1421,17 @@ begin
   var LPanelW, LCardW, LCardH, LStep, LHalfSpread, LArcDrop, LAvColW, LTopPad: Single;
   FanDialogGeometry(LPanelW, LCardW, LCardH, LStep, LHalfSpread, LArcDrop, LAvColW, LTopPad);
 
+  var LHoverRaise := LCardH * 0.22;   // 호버 시 위로 솟는 양(보너스 뽑기 호버와 동일한 비율)
   var LBtnH := 46.0;
-  var LPanelH := LTopPad + LCardH + LArcDrop + 20 + LBtnH + 20;
+  var LPanelH := LTopPad + LHoverRaise + LCardH + LArcDrop + 20 + LBtnH + 20;
   var LPanel := DrawStdDialog('기리', LPanelW, LPanelH);
   var LBodyTop := LPanel.Top + LTopPad;
 
-  // 좌측: 사람(항상 말번) 아바타 + 아래에 닉네임
+  // 좌측: 말번(커팅 권리자 — 사람일 수도 AI일 수도 있음) 아바타 + 아래에 닉네임
+  var LMalbeon := MalbeonPos;
   var LAvSz := 130.0;
   var LAvCx := LPanel.Left + 24 + LAvColW / 2;
-  var LAvBmp := ResultAvatarBitmap(FSeatAvatar[spBottom], False, False);
+  var LAvBmp := ResultAvatarBitmap(FSeatAvatar[LMalbeon], False, False);
   var LAvR := RectF(LAvCx - LAvSz / 2, LBodyTop, LAvCx + LAvSz / 2, LBodyTop + LAvSz);
   if Assigned(LAvBmp) then
   begin
@@ -1302,7 +1439,7 @@ begin
   end;
 
   DrawLabel(RectF(LAvCx - LAvColW / 2, LAvR.Bottom + 8, LAvCx + LAvColW / 2, LAvR.Bottom + 34),
-    SeatDisplayName(spBottom), TAlphaColors.Gold, 18);
+    SeatDisplayName(LMalbeon), TAlphaColors.Gold, 18);
 
   // 우측: 셔플된 뒷패를 부채꼴로 펼침. 남는 카드 영역 안에서 가운데 정렬(장수가 적어도 카드 크기는 고정)
   FGiriRects.Clear;
@@ -1312,7 +1449,25 @@ begin
   var LTotalW := LStep * (LN - 1) + LCardW;
   var LMidX := (LCardAreaL + LCardAreaR) / 2;
   var LStartX := LMidX - LTotalW / 2 + LCardW / 2;
-  var LRowY := LBodyTop + LCardH / 2;
+  var LRowY := LBodyTop + LHoverRaise + LCardH / 2;
+
+  // 컷일 때 카드들이 좌/우로 모여드는 지점(선택한 카드 기준 그 앞쪽은 왼쪽, 뒤쪽은 오른쪽)
+  var LSideOffset := Max(LCardW * 1.8, 110.0);
+  var LLeftPt := PointF(FGiriClosePt.X - LSideOffset, FGiriClosePt.Y);
+  var LRightPt := PointF(FGiriClosePt.X + LSideOffset, FGiriClosePt.Y);
+  var LIsCut := FGiriPendingCut >= 0;
+
+  var LGatherEase: Single := 0;
+  if FGiriClosing then
+  begin
+    LGatherEase := 1 - (1 - FGiriCloseT) * (1 - FGiriCloseT) * (1 - FGiriCloseT);
+  end;
+
+  var LMergeEase: Single := 0;
+  if FGiriSplitting then
+  begin
+    LMergeEase := 1 - (1 - FGiriSplitT) * (1 - FGiriSplitT) * (1 - FGiriSplitT);
+  end;
 
   for var I := 0 to LN - 1 do
   begin
@@ -1325,16 +1480,80 @@ begin
 
     var LAngle := LT * LHalfSpread;
     var LCY := LRowY + Sqr(LT) * LArcDrop;
-    FGiriRects.Add(RectF(LCX - LCardW / 2, LCY - LCardH / 2, LCX + LCardW / 2, LCY + LCardH / 2));
-    DrawCardRotated(LCX, LCY, LCardW, LCardH, LAngle, '', True);
+
+    // 클릭·호버 판정 rect는 원래(솟아오르기 전) 위치로 고정 — 판정이 흔들리지 않도록
+    if (not FGiriClosing) and (not FGiriSplitting) then
+    begin
+      FGiriRects.Add(RectF(LCX - LCardW / 2, LCY - LCardH / 2, LCX + LCardW / 2, LCY + LCardH / 2));
+    end;
+
+    var LDrawY := LCY;
+    if I = FHoverGiri then
+    begin
+      LDrawY := LDrawY - LHoverRaise;
+    end;
+
+    var LDrawX := LCX;
+    var LDrawW := LCardW;
+    var LDrawH := LCardH;
+    var LDrawAngle := LAngle;
+
+    if FGiriSplitting then
+    begin
+      // 2단계(컷 전용): 좌/우로 모였던 자리에서 가운데(선택 지점)로 다시 모여 합쳐짐
+      var LFrom: TPointF;
+      if I < FGiriPendingCut then
+      begin
+        LFrom := LLeftPt;
+      end
+      else
+      begin
+        LFrom := LRightPt;
+      end;
+
+      LDrawX := LFrom.X + (FGiriClosePt.X - LFrom.X) * LMergeEase;
+      LDrawY := LFrom.Y + (FGiriClosePt.Y - LFrom.Y) * LMergeEase;
+      LDrawW := LCardW * 0.7;
+      LDrawH := LCardH * 0.7;
+      LDrawAngle := 0;
+    end
+    else
+    if FGiriClosing then
+    begin
+      // 1단계: 컷이면 선택한 카드를 기준으로 앞쪽 패는 왼쪽, 뒤쪽 패는 오른쪽으로 모임.
+      // 퉁이면(선택 지점=퉁 버튼) 그대로 한 점으로 모임
+      var LTo := FGiriClosePt;
+      if LIsCut then
+      begin
+        if I < FGiriPendingCut then
+        begin
+          LTo := LLeftPt;
+        end
+        else
+        begin
+          LTo := LRightPt;
+        end;
+      end;
+
+      LDrawX := LCX + (LTo.X - LCX) * LGatherEase;
+      LDrawY := LDrawY + (LTo.Y - LDrawY) * LGatherEase;
+      LDrawW := LCardW * (1 - 0.3 * LGatherEase);
+      LDrawH := LCardH * (1 - 0.3 * LGatherEase);
+      LDrawAngle := LAngle * (1 - LGatherEase);
+    end;
+
+    DrawCardRotated(LDrawX, LDrawY, LDrawW, LDrawH, LDrawAngle, '', True);
   end;
 
-  // 퉁 버튼
-  var LBtnY := LBodyTop + LCardH + LArcDrop + 20;
-  FBtnTung := RectF(LMidX - 80, LBtnY, LMidX + 80, LBtnY + LBtnH);
-  Canvas.FillRound(FBtnTung, 10, $FF8D6E30);
-  Canvas.StrokeRound(FBtnTung, 10, $80FFFFFF, 1);
-  DrawLabel(FBtnTung, '퉁~ (그대로)', TAlphaColors.White, 18);
+  // 퉁 버튼(연출 진행 중엔 더 이상 누를 수 없으므로 숨김)
+  if (not FGiriClosing) and (not FGiriSplitting) then
+  begin
+    var LBtnY := LBodyTop + LHoverRaise + LCardH + LArcDrop + 20;
+    FBtnTung := RectF(LMidX - 80, LBtnY, LMidX + 80, LBtnY + LBtnH);
+    Canvas.FillRound(FBtnTung, 10, $FF8D6E30);
+    Canvas.StrokeRound(FBtnTung, 10, $80FFFFFF, 1);
+    DrawLabel(FBtnTung, '퉁~ (그대로)', TAlphaColors.White, 18);
+  end;
 
   EndStdDialog;
 end;
@@ -1611,6 +1830,11 @@ end;
 
 procedure TGostopBoard.SeonTimerTick(Sender: TObject);
 begin
+  if FPaused then
+  begin
+    Exit;
+  end;
+
   if (not FSeonPicking) or (FSeonDeck = nil) then
   begin
     FSeonTimer.Enabled := False;
@@ -1782,6 +2006,11 @@ end;
 
 procedure TGostopBoard.ShuffleTimerTick(Sender: TObject);
 begin
+  if FPaused then
+  begin
+    Exit;
+  end;
+
   if not FShuffling then
   begin
     FShuffleTimer.Enabled := False;
@@ -1844,10 +2073,11 @@ var
     Result.IsFloor := False;
     Result.Pos := APos;
     var LAvatar := SeatAvatarRect(APos);
-    // 매 장마다 살짝 랜덤하게 흐트러뜨려 아바타 위에 카드가 어지럽게 쌓이는 느낌을 줌
-    var LJitterX := (Random - 0.5) * LAvatar.Width * 0.5;
-    var LJitterY := (Random - 0.5) * LAvatar.Height * 0.5;
-    Result.Target := PointF((LAvatar.Left + LAvatar.Right) / 2 + LJitterX, (LAvatar.Top + LAvatar.Bottom) / 2 + LJitterY);
+    // 아바타 얼굴을 가리지 않도록 아바타 아래(닉네임 줄 근처)에 쌓는다.
+    // 매 장마다 살짝 랜덤하게 흐트러뜨려 어지럽게 쌓이는 느낌은 유지
+    var LJitterX := (Random - 0.5) * LAvatar.Width * 0.6;
+    var LJitterY := (Random - 0.5) * 12.0;
+    Result.Target := PointF((LAvatar.Left + LAvatar.Right) / 2 + LJitterX, LAvatar.Bottom + 16 + LJitterY);
     case APos of
       spTop:
         begin
@@ -1960,6 +2190,11 @@ end;
 
 procedure TGostopBoard.DealTick(Sender: TObject);
 begin
+  if FPaused then
+  begin
+    Exit;
+  end;
+
   if not FDealing then
   begin
     FDealTimer.Enabled := False;
@@ -2078,6 +2313,11 @@ end;
 
 procedure TGostopBoard.PickTick(Sender: TObject);
 begin
+  if FPaused then
+  begin
+    Exit;
+  end;
+
   if (not FPickActive) or (FEngine = nil) then
   begin
     FPickTimer.Enabled := False;
@@ -2085,7 +2325,8 @@ begin
     Exit;
   end;
 
-  FPickT := FPickT + 0.1 * FGameSpeed;
+  // 다른 카드 애니(놓기 240ms·먹기 260ms)와 비슷한 체감 속도로(기존 0.1은 160ms로 유독 빨랐음)
+  FPickT := FPickT + 0.06 * FGameSpeed;
   if FPickT >= 1 then
   begin
     FPickTimer.Enabled := False;
@@ -2311,12 +2552,22 @@ end;
 
 procedure TGostopBoard.GwangTimerTick(Sender: TObject);
 begin
+  if FPaused then
+  begin
+    Exit;
+  end;
+
   FinishGwangSale;
 end;
 
 // 광팔기 다이얼로그·판매 발표의 패 좌우 흔들림(주기적 Repaint로 위상 진행)
 procedure TGostopBoard.NegAnimTick(Sender: TObject);
 begin
+  if FPaused then
+  begin
+    Exit;
+  end;
+
   if not ((FNegotiating and FNegIsSell) or FGwangShow) then
   begin
     FNegAnimTimer.Enabled := False;
@@ -2792,12 +3043,29 @@ begin
     FAiTimer.Enabled := False;
     if FAwaitingGoStop then
     begin
-      FStatus := Format('%d점! 고 또는 스톱을 선택하세요', [FEngine.ScoreOf(FHumanIndex).Total]);
+      FStatus := Format('%d점! 고냐, 스톱이냐!', [FEngine.ScoreOf(FHumanIndex).Total]);
     end
     else
     if FGame.Phase = gpAwaitingBonusDraw then
     begin
       FStatus := '보너스! 뒷패에서 가져올 패를 클릭하세요';
+    end
+    else
+    if (FGame.Player(FHumanIndex).Hand.Count = 0) and FEngine.CanFlipOnly then
+    begin
+      // 폭탄으로 진 카드빚 때문에 손패가 남보다 먼저 떨어진 경우: 낼 손패가 없으니
+      // 뒷패만 뒤집어 자동으로 턴을 진행한다(AI의 뒤집기만 처리와 동일한 규칙)
+      FStatus := '카드빚 — 뒷패를 뒤집습니다...';
+      FTurnEvents.Clear;
+      var LBefore := FGame.Clone;
+      FAwaitingGoStop := FEngine.FlipOnly;
+      StartTurnAnimation(LBefore,
+        procedure
+        begin
+          AutoStopIfLastCard;
+          AfterAction;
+        end);
+      Exit;
     end
     else
     begin
@@ -2831,6 +3099,11 @@ end;
 
 procedure TGostopBoard.AiTimerTick(Sender: TObject);
 begin
+  if FPaused then
+  begin
+    Exit;
+  end;
+
   if (FGame = nil) or (FGame.Phase = gpFinished) or (FGame.Current = FHumanIndex) then
   begin
     FAiTimer.Enabled := False;
@@ -3866,6 +4139,10 @@ begin
       begin
         FConfig.Bonus := not FConfig.Bonus;
       end;
+    5:
+      begin
+        FConfig.Speech := not FConfig.Speech;
+      end;
   end;
 
   SaveSettings;
@@ -4024,7 +4301,7 @@ end;
 
 procedure TGostopBoard.DrawSettings;
 const
-  ROW_COUNT = 7;   // 0~4=켬/끔 토글, 5=닉네임, 6=아바타(점당금액·시드머니는 시스템 자동 결정이라 UI 없음)
+  ROW_COUNT = 8;   // 0~5=켬/끔 토글, 6=닉네임, 7=아바타(점당금액·시드머니는 시스템 자동 결정이라 UI 없음)
   CARD_ROW_H = 106.0;
   CARD_GAP = 12.0;
 begin
@@ -4076,26 +4353,28 @@ begin
 
   var LRowsTop := LCardY + CARD_ROW_H + CARD_GAP;
 
-  // 행: 라벨(왼쪽) + 값(오른쪽). 0~4=켬/끔 토글, 5=닉네임, 6=아바타
+  // 행: 라벨(왼쪽) + 값(오른쪽). 0~5=켬/끔 토글, 6=닉네임, 7=아바타
   var LLabels: array [0 .. ROW_COUNT - 1] of string;
   LLabels[0] := '피박';
   LLabels[1] := '광박';
   LLabels[2] := '멍박';
   LLabels[3] := '고박 (×2)';
   LLabels[4] := '보너스패';
-  LLabels[5] := '닉네임';
-  LLabels[6] := '아바타';
+  LLabels[5] := '말풍선';
+  LLabels[6] := '닉네임';
+  LLabels[7] := '아바타';
 
-  var LToggleOn: array [0 .. 4] of Boolean;
+  var LToggleOn: array [0 .. 5] of Boolean;
   LToggleOn[0] := FConfig.Pibak;
   LToggleOn[1] := FConfig.Gwangbak;
   LToggleOn[2] := FConfig.Meongbak;
   LToggleOn[3] := FConfig.Gobak;
   LToggleOn[4] := FConfig.Bonus;
+  LToggleOn[5] := FConfig.Speech;
 
-  var LValues: array [5 .. 6] of string;
-  LValues[5] := FConfig.Nickname;
-  LValues[6] := '변경';
+  var LValues: array [6 .. 7] of string;
+  LValues[6] := FConfig.Nickname;
+  LValues[7] := '변경';
 
   for var I := 0 to ROW_COUNT - 1 do
   begin
@@ -4108,7 +4387,7 @@ begin
     var LValueArea := RectF(LPanel.Right - 178, LY + 3, LPanel.Right - 28, LY + LRowH - 8);
     FCfgRects[I] := LValueArea;
 
-    if I in [0 .. 4] then
+    if I in [0 .. 5] then
     begin
       // 켬/끔 설정: 슬라이드 토글 스위치(오른쪽 정렬)
       DrawCfgToggle(LValueArea, LToggleOn[I]);
@@ -4139,8 +4418,8 @@ begin
   if Assigned(FAvatarPool) and (FHumanAvatarIdx >= 0) and (FHumanAvatarIdx < FAvatarPool.Count) then
   begin
     var LBmp := FAvatarPool[FHumanAvatarIdx];
-    var LSide := FCfgRects[6].Height - 4;
-    var LTh := RectF(FCfgRects[6].Left + 6, FCfgRects[6].Top + 2, FCfgRects[6].Left + 6 + LSide, FCfgRects[6].Top + 2 + LSide);
+    var LSide := FCfgRects[7].Height - 4;
+    var LTh := RectF(FCfgRects[7].Left + 6, FCfgRects[7].Top + 2, FCfgRects[7].Left + 6 + LSide, FCfgRects[7].Top + 2 + LSide);
     Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), LTh, 1, False);
   end;
 
@@ -4337,6 +4616,11 @@ end;
 // 등장 애니 진행 → 완료되면 신규 캐릭터 확정(아바타·시드머니·난이도·전적 리셋) 후 다음 판 진행
 procedure TGostopBoard.ReplaceTimerTick(Sender: TObject);
 begin
+  if FPaused then
+  begin
+    Exit;
+  end;
+
   if Length(FReplacingSeats) = 0 then
   begin
     FReplaceTimer.Enabled := False;
@@ -4465,6 +4749,11 @@ end;
 
 procedure TGostopBoard.SlotTick(Sender: TObject);
 begin
+  if FPaused then
+  begin
+    Exit;
+  end;
+
   if not FMatchSetupOpen then
   begin
     FSlotTimer.Enabled := False;
@@ -5361,7 +5650,7 @@ begin
 
   var LPanelW := Min(Width * 0.86, 760.0);
   var LPanelH := 300.0;
-  var LPanel := DrawStdDialog('참가하시겠습니까?', LPanelW, LPanelH);
+  var LPanel := DrawStdDialog('이번 판, 붙으시겠습니까?', LPanelW, LPanelH);
 
   if (FTable4 <> nil) and (FTable4.PlayerCount = 4) then
   begin
@@ -5466,6 +5755,11 @@ end;
 // 게임종료 팝업 방치 카운트다운. 다 되면 자동진행(오링된 휴먼이면 타이틀로, 아니면 새게임)
 procedure TGostopBoard.GameOverTimerTick(Sender: TObject);
 begin
+  if FPaused then
+  begin
+    Exit;
+  end;
+
   if (FGame = nil) or (FGame.Phase <> gpFinished) then
   begin
     FGameOverTimer.Enabled := False;
@@ -5577,7 +5871,7 @@ begin
       end;
 
       // 금액 두 줄(천단위 콤마, 고정폭 금액란 안에서 우측 정렬):
-      // 위=보유한 돈(크게, 강조), 아래=이번 판에서 딴/잃은 돈(작게, 손익 색상)
+      // 위=보유한 돈(크게, 강조), 아래=이번 판 손익(±N원만 — "이번 판" 접두어는 군더더기라 생략)
       var LAmtR := RectF(LAmountR0 - 20, LY, LPanel.Right - 18, LY + LRowH);
       var LBalR := RectF(LAmtR.Left, LAmtR.Top + LRowH * 0.10, LAmtR.Right, LAmtR.Top + LRowH * 0.58);
       var LNetR := RectF(LAmtR.Left, LBalR.Bottom, LAmtR.Right, LAmtR.Bottom - LRowH * 0.06);
@@ -5614,7 +5908,7 @@ begin
 
       Canvas.Fill.Color := LNetColor;
       TGostopFonts.Apply(Canvas, 14);
-      Canvas.FillText(LNetR, Format('이번 판 %s%s원', [LNetSign, FormatFloat('#,##0', LRow.Amount)]),
+      Canvas.FillText(LNetR, Format('%s%s원', [LNetSign, FormatFloat('#,##0', LRow.Amount)]),
         False, 1, [], TTextAlign.Trailing, TTextAlign.Center);
     end
     else
@@ -5697,8 +5991,8 @@ begin
   end
   else
   begin
-    FBtnNext := DrawStdButton(RectF(LCX - LBtnW - LGap / 2, LY + 12, LCX - LGap / 2, LY + 12 + LBtnH), '새게임', dbkPrimary);
-    FBtnQuit := DrawStdButton(RectF(LCX + LGap / 2, LY + 12, LCX + LGap / 2 + LBtnW, LY + 12 + LBtnH), '중지', dbkDanger);
+    FBtnNext := DrawStdButton(RectF(LCX - LBtnW - LGap / 2, LY + 12, LCX - LGap / 2, LY + 12 + LBtnH), '다음 판', dbkPrimary);
+    FBtnQuit := DrawStdButton(RectF(LCX + LGap / 2, LY + 12, LCX + LGap / 2 + LBtnW, LY + 12 + LBtnH), '그만하기', dbkDanger);
   end;
 
   EndStdDialog;
@@ -5707,7 +6001,7 @@ end;
 procedure TGostopBoard.DrawGoStopPrompt;
 begin
   var LScore := FEngine.ScoreOf(FHumanIndex).Total;
-  var LPanel := DrawStdDialog(Format('%d점! 고 또는 스톱', [LScore]), Max(Width * 0.34, 340.0), 128.0);
+  var LPanel := DrawStdDialog(Format('%d점! 고냐, 스톱이냐!', [LScore]), Max(Width * 0.34, 340.0), 128.0);
 
   var LBtnW := 120.0;
   var LBtnH := 46.0;
@@ -5723,6 +6017,11 @@ end;
 // 다이얼로그 등장 팝인 진행 타이머(등장 시작~정착까지 매 프레임 재생)
 procedure TGostopBoard.DialogPopTick(Sender: TObject);
 begin
+  if FPaused then
+  begin
+    Exit;
+  end;
+
   FDialogPopT := FDialogPopT + FDialogPopTimer.Interval / 170;   // 총 170ms
   if FDialogPopT >= 1 then
   begin
@@ -5765,30 +6064,38 @@ begin
     Canvas.SetMatrix(LMx * FDialogPreMatrix);
   end;
 
-  // 단색 대신 나무 결 텍스처(절차 생성)로 채워 일반 앱 알림창처럼 밋밋해 보이지 않게 함
-  if FWoodTile = nil then
-  begin
-    GenerateWoodTile;
-  end;
+  // 옻칠 목함 느낌: 판(펠트)과 톤이 이어지는 짙은 녹색 세로 그라데이션 + 금테.
+  // (이전의 절차 생성 나무 텍스처는 색이 겉돌아 제거)
+  // 뒤에 그림자를 깔아 떠 있는 느낌을 준다
+  Canvas.FillRound(RectF(Result.Left + 5, Result.Top + 7, Result.Right + 5, Result.Bottom + 7), 18, $58000000);
 
-  if (FWoodTile <> nil) and (FWoodTile.Width > 0) then
-  begin
-    Canvas.Fill.Kind := TBrushKind.Bitmap;
-    Canvas.Fill.Bitmap.Bitmap := FWoodTile;
-    Canvas.Fill.Bitmap.WrapMode := TWrapMode.Tile;
-    Canvas.FillRect(Result, 18, 18, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-    Canvas.Fill.Kind := TBrushKind.Solid;
-  end
-  else
-  begin
-    Canvas.FillRound(Result, 18, $F02E3A2E);   // 텍스처 생성 실패 시 기존 단색 폴백
-  end;
+  Canvas.Fill.Kind := TBrushKind.Gradient;
+  Canvas.Fill.Gradient.Style := TGradientStyle.Linear;
+  Canvas.Fill.Gradient.StartPosition.Point := PointF(0.5, 0);
+  Canvas.Fill.Gradient.StopPosition.Point := PointF(0.5, 1);
+  Canvas.Fill.Gradient.Color := $FA2C3D30;    // 상단: 펠트보다 살짝 밝은 짙은 녹색
+  Canvas.Fill.Gradient.Color1 := $FA111A13;   // 하단: 옻칠처럼 깊게 가라앉는 톤
+  Canvas.FillRect(Result, 18, 18, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
+  Canvas.Fill.Kind := TBrushKind.Solid;
 
-  Canvas.StrokeRound(Result, 18, $FFE8C868, 2.5);   // 부드러운 금색 테두리(액자 느낌으로 살짝 두껍게)
+  Canvas.StrokeRound(Result, 18, $FFE8C868, 2.5);   // 금색 외곽 테두리(액자 느낌)
   Canvas.StrokeRound(RectF(Result.Left + 4, Result.Top + 4, Result.Right - 4, Result.Bottom - 4), 14, $30E8C868, 1);   // 안쪽 은은한 이너라인
+
   if ATitle <> '' then
   begin
+    // 제목: 그림자 얹은 금색 글자 + 아래 금색 구분선(중앙 ◆ 장식)으로 현판 느낌
+    DrawLabel(RectF(Result.Left + 1, Result.Top + 18, Result.Right + 1, Result.Top + 52), ATitle, $C0000000, 22);
     DrawLabel(RectF(Result.Left, Result.Top + 16, Result.Right, Result.Top + 50), ATitle, TAlphaColors.Gold, 22);
+
+    var LCx := (Result.Left + Result.Right) / 2;
+    var LLineY := Result.Top + 56;
+    var LHalf := Min(Result.Width * 0.30, 150.0);
+    Canvas.Fill.Kind := TBrushKind.Solid;
+    Canvas.Fill.Color := $70E8C868;
+    Canvas.FillRect(RectF(LCx - LHalf, LLineY, LCx - 10, LLineY + 1), 0, 0, [], 1);
+    Canvas.FillRect(RectF(LCx + 10, LLineY, LCx + LHalf, LLineY + 1), 0, 0, [], 1);
+    Canvas.Fill.Color := $FFE8C868;
+    Canvas.FillPolygon([PointF(LCx, LLineY - 4), PointF(LCx + 4, LLineY), PointF(LCx, LLineY + 4), PointF(LCx - 4, LLineY)], 1);
   end;
 end;
 
@@ -6084,7 +6391,7 @@ begin
   EndStdDialog;
 end;
 
-procedure TGostopBoard.Paint;
+procedure TGostopBoard.PaintGame;
 begin
   // 군용담요(올리브 울) 텍스처 타일링
   if FFeltTile = nil then
@@ -6268,6 +6575,36 @@ begin
   end;
 end;
 
+// 실제 화면 그리기(PaintGame) 후, 일시정지 중이면 그 위에 딤+안내를 얹는다(모든 단계 공통)
+procedure TGostopBoard.Paint;
+begin
+  PaintGame;
+  if FPaused then
+  begin
+    DrawPauseOverlay;
+  end;
+end;
+
+procedure TGostopBoard.DrawPauseOverlay;
+begin
+  Canvas.FillRound(LocalRect, 0, $A0000000);
+  DrawLabel(RectF(0, Height * 0.44, Width, Height * 0.52), '일시정지', TAlphaColors.Gold, 40);
+  DrawLabel(RectF(0, Height * 0.52, Width, Height * 0.57), '스페이스바를 눌러 재개', TAlphaColors.White, 18);
+end;
+
+// 스페이스바 등 외부 단축키에서 호출 — 일시정지 상태를 켜고 끈다
+procedure TGostopBoard.TogglePause;
+begin
+  FPaused := not FPaused;
+  TGostopAudio.Instance.Play('ui_click');
+  Repaint;
+end;
+
+function TGostopBoard.IsTextInputActive: Boolean;
+begin
+  Result := Assigned(FNickEdit) and FNickEdit.Visible and FNickEdit.IsFocused;
+end;
+
 function TGostopBoard.FloorMatchOrdinal(const AFloorIndex, AMonth: Integer): Integer;
 begin
   Result := 0;
@@ -6360,6 +6697,11 @@ end;
 
 procedure TGostopBoard.EffectTimerTick(Sender: TObject);
 begin
+  if FPaused then
+  begin
+    Exit;
+  end;
+
   FEffectTimer.Enabled := False;
   FEffectText := '';
   Repaint;
@@ -6367,6 +6709,11 @@ end;
 
 procedure TGostopBoard.AngryTimerTick(Sender: TObject);
 begin
+  if FPaused then
+  begin
+    Exit;
+  end;
+
   FAngryTimer.Enabled := False;
   FAngrySeats := [];
   Repaint;
@@ -6399,6 +6746,11 @@ end;
 // 별도 연출로만 추가(캐릭터 개성 표현, 게임다운 느낌).
 procedure TGostopBoard.MaybeShowSpeech;
 begin
+  if not FConfig.Speech then
+  begin
+    Exit;   // 말풍선 옵션 꺼짐(새 게임 설정에서 변경, 기본 켬)
+  end;
+
   if (FGame = nil) or (FGame.Phase = gpFinished) then
   begin
     Exit;
@@ -6431,6 +6783,11 @@ end;
 
 procedure TGostopBoard.SpeechTimerTick(Sender: TObject);
 begin
+  if FPaused then
+  begin
+    Exit;
+  end;
+
   FSpeechTimer.Enabled := False;
   FSpeechText := '';
   Repaint;
@@ -6629,7 +6986,19 @@ begin
             if IsCapturedAsset(FAnimPlayed[I].AssetId) then
             begin
               var LM := FloorMonthCenter(FAnimPlayed[I].Month);
-              FFlyTargets[I] := PointF(LM.X + LRestOff.X, LM.Y + LRestOff.Y);
+              // 폭탄처럼 같은 월 손패 여러 장이 한꺼번에 잡히면 목표점이 완전히 겹쳐 한 장처럼
+              // 보이지 않도록, 같은 월 카드일수록 조금씩 더 벌려 쌓는다
+              var LDup := 0;
+              for var K := 0 to I - 1 do
+              begin
+                if IsCapturedAsset(FAnimPlayed[K].AssetId) and (FAnimPlayed[K].Month = FAnimPlayed[I].Month) then
+                begin
+                  Inc(LDup);
+                end;
+              end;
+
+              FFlyTargets[I] := PointF(LM.X + LRestOff.X + LDup * CS.Width * 0.12,
+                LM.Y + LRestOff.Y + LDup * CS.Height * 0.10);
             end
             else
             begin
@@ -6642,8 +7011,19 @@ begin
       end;
     2:
       begin
-        // 뒤집기 소리(폴리포니라 놓기 소리와 겹쳐도 안 끊김)
+        // 뒤집기 소리(폴리포니라 놓기 소리와 겹쳐도 안 끊김) — 첫 장은 여기서, 나머지(보너스라
+        // 다시 뒤집은 카드)는 AnimTick이 각자의 구간이 시작될 때마다 재생한다
         TGostopAudio.Instance.Play('card_flip');
+        FAnimDrawSoundIdx := 0;
+
+        // 첫 장부터 보너스패면 곧바로 "한번 더~" 안내(같은 월 뒤집기가 이어짐을 알림)
+        if (Length(FAnimDrawn) > 0) and (FAnimDrawn[0].Kind = hkBonus) then
+        begin
+          FEffectText := '한번 더~';
+          FEffectTimer.Enabled := False;
+          FEffectTimer.Enabled := True;
+        end;
+
         // 뒷패에서 들어올림(놓기와 동일 처리)
         for var LCard in FAnimDrawn do
         begin
@@ -6695,11 +7075,15 @@ begin
         // 소스: 얹혀있던 위치(FRest) > 바닥 위치 > 상대 획득더미(뺏어온 피). 타깃은 내 획득더미
         SetLength(FFlySources, Length(FAnimCaptured));
         SetLength(FFlyTargets, Length(FAnimCaptured));
+        SetLength(FFlyIsPi, Length(FAnimCaptured));
         var LAnchor := CapturedAnchor(FAnimActor);
+        FCaptureConvergePt := LAnchor;   // 손패·바닥패(비-피)를 하나도 못 찾은 극단적 경우의 기본값
+        var LConvergeSet := False;
         var LStolen := 0;
         for var I := 0 to High(FAnimCaptured) do
         begin
           FFlyTargets[I] := LAnchor;
+          FFlyIsPi[I] := False;
           var LAsset := FAnimCaptured[I].AssetId;
           var LFound := False;
 
@@ -6728,7 +7112,14 @@ begin
             end;
           end;
 
-          // 그 외 = 상대에게서 뺏어온 피 → 그 상대 획득더미에서 날아옴
+          // 손패·바닥패(비-피) 중 처음 찾은 위치를 "싼 무더기가 있던 자리"로 삼는다(피가 1단계로 모일 지점)
+          if LFound and (not LConvergeSet) then
+          begin
+            FCaptureConvergePt := FFlySources[I];
+            LConvergeSet := True;
+          end;
+
+          // 그 외 = 상대에게서 뺏어온 피 → 그 상대 획득더미에서 날아옴(1단계: 싼 무더기 자리로 먼저 모임)
           if not LFound then
           begin
             var P := 0;
@@ -6741,6 +7132,7 @@ begin
                   if FDisplay.Player(P).Captured[Q].AssetId = LAsset then
                   begin
                     FFlySources[I] := CapturedAnchor(P);
+                    FFlyIsPi[I] := True;
                     LFound := True;
                     Inc(LStolen);
                     Break;
@@ -6874,8 +7266,56 @@ begin
   until False;
 end;
 
+// 보너스패로 여러 장을 순서대로 뒤집을 때 카드별 시간 구간을 계산한다. 보너스패는 착지 후
+// BONUS_HOLD_MS만큼 그대로 멈춰 있어("한번 더~" 등 안내를 읽을 시간을 줌) 다음 장이 바로
+// 이어 날아가지 않게 한다 — 후속이 있는 연출이 너무 빨리 지나가 버리는 문제 방지.
+// AWinStart/AWinEnd = 전체(0~1) 중 그 카드의 구간, AFlyEnd = 그중 실제 날아가는(착지까지) 부분의 끝.
+procedure TGostopBoard.ComputeDrawWindows(out AWinStart, AFlyEnd, AWinEnd: TArray<Single>; out ATotalMs: Single);
+const
+  FLY_MS = 320.0;
+  BONUS_HOLD_MS = 650.0;
+begin
+  var LN := Length(FAnimDrawn);
+  SetLength(AWinStart, LN);
+  SetLength(AFlyEnd, LN);
+  SetLength(AWinEnd, LN);
+  if LN = 0 then
+  begin
+    ATotalMs := 1;
+    Exit;
+  end;
+
+  var LDurs: TArray<Single>;
+  SetLength(LDurs, LN);
+  ATotalMs := 0;
+  for var I := 0 to LN - 1 do
+  begin
+    LDurs[I] := FLY_MS;
+    if FAnimDrawn[I].Kind = hkBonus then
+    begin
+      LDurs[I] := LDurs[I] + BONUS_HOLD_MS;
+    end;
+
+    ATotalMs := ATotalMs + LDurs[I];
+  end;
+
+  var LCum := 0.0;
+  for var I := 0 to LN - 1 do
+  begin
+    AWinStart[I] := LCum / ATotalMs;
+    AFlyEnd[I] := (LCum + FLY_MS) / ATotalMs;
+    LCum := LCum + LDurs[I];
+    AWinEnd[I] := LCum / ATotalMs;
+  end;
+end;
+
 procedure TGostopBoard.AnimTick(Sender: TObject);
 begin
+  if FPaused then
+  begin
+    Exit;
+  end;
+
   if (FDisplay = nil) or (FAnimStage = 0) then
   begin
     FAnimTimer.Enabled := False;
@@ -6883,11 +7323,20 @@ begin
   end;
 
   // 단계별 지속시간(ms)
-  var LDur := 240.0;
+  var LDur: Single := 240.0;
+  var LDrawWinStart, LDrawFlyEnd, LDrawWinEnd: TArray<Single>;
   case FAnimStage of
     2:
       begin
-        LDur := 320;
+        if Length(FAnimDrawn) > 1 then
+        begin
+          // 보너스패가 나와 다시 뒤집은 경우: 카드별 구간(뒤집기+보너스 정지시간)을 계산해 총 시간으로 씀
+          ComputeDrawWindows(LDrawWinStart, LDrawFlyEnd, LDrawWinEnd, LDur);
+        end
+        else
+        begin
+          LDur := 320;
+        end;
       end;
     3:
       begin
@@ -6904,6 +7353,33 @@ begin
   end;
 
   FAnimT := FAnimT + FAnimTimer.Interval / LDur * FGameSpeed;
+
+  // 보너스패로 여러 장을 순서대로 뒤집는 중이면, 새 카드의 구간에 들어설 때마다 뒤집기 소리 재생
+  // + 그 카드도 보너스패면 "한번 더~" 안내를 다시 띄운다(또 이어서 뒤집힘을 알림)
+  if (FAnimStage = 2) and (Length(FAnimDrawn) > 1) then
+  begin
+    var LWinIdx := 0;
+    for var I := 0 to High(LDrawWinStart) do
+    begin
+      if FAnimT >= LDrawWinStart[I] then
+      begin
+        LWinIdx := I;
+      end;
+    end;
+
+    if LWinIdx > FAnimDrawSoundIdx then
+    begin
+      FAnimDrawSoundIdx := LWinIdx;
+      TGostopAudio.Instance.Play('card_flip');
+      if FAnimDrawn[LWinIdx].Kind = hkBonus then
+      begin
+        FEffectText := '한번 더~';
+        FEffectTimer.Enabled := False;
+        FEffectTimer.Enabled := True;
+      end;
+    end;
+  end;
+
   if FAnimT >= 1 then
   begin
     AnimApplyStageEnd(FAnimStage);
@@ -6998,6 +7474,21 @@ begin
     end;
   end;
 
+  // 뻑 더미를 뺏기와 함께 먹는 경우(먹기 단계 + 뺏은 피 있음): 뺏은 피는 먼저 싼 무더기 자리로
+  // 모이고(전반부), 그 다음 손패·바닥패와 함께 한꺼번에 내 자리로 날아간다(후반부) — 2단 비행
+  var LTwoLeg := (FAnimStage = 4) and (FAnimStealCount > 0);
+
+  // 뒤집었는데 보너스패(조커)라 다시 뒤집은 경우: 뒷패 여러 장이 한 번에 뒤집힌다.
+  // 동시에 겹쳐 날아가면 몇 장이 어떻게 나왔는지 구분이 안 되므로, 순서대로 하나씩 뒤집혀 보이게
+  // 카드별 구간(뒤집기+보너스면 정지시간 포함)을 나눠 쓴다(아직 차례가 안 된 카드는 그리지 않음).
+  var LMultiDraw := (FAnimStage = 2) and (Length(FAnimDrawn) > 1);
+  var LDrawWinStart, LDrawFlyEnd, LDrawWinEnd: TArray<Single>;
+  if LMultiDraw then
+  begin
+    var LDummyMs: Single;
+    ComputeDrawWindows(LDrawWinStart, LDrawFlyEnd, LDrawWinEnd, LDummyMs);
+  end;
+
   // 각 카드가 출발점에서 제자리(타깃)로, 직선이 아니라 아치를 그리며 날아감
   for var I := 0 to High(LCards) do
   begin
@@ -7006,14 +7497,73 @@ begin
       Break;
     end;
 
-    var LDX := FFlyTargets[I].X - FFlySources[I].X;
-    var LDY := FFlyTargets[I].Y - FFlySources[I].Y;
+    var LSrc := FFlySources[I];
+    var LDst := FFlyTargets[I];
+    var LLocalT := LT;
+    var LLocalEase := LEase;
+
+    if LMultiDraw and (I <= High(LDrawWinStart)) then
+    begin
+      if LT < LDrawWinStart[I] then
+      begin
+        Continue;   // 아직 이 카드 차례가 아님 — 뒷패에 남아있는 것처럼 그리지 않음
+      end;
+
+      // 구간 내에서: 앞부분(WinStart~FlyEnd)은 실제 날아가는 구간, 나머지(~WinEnd)는 착지 후
+      // 그대로 멈춰 있는 정지시간(보너스패일 때만 존재 — 안내를 읽을 시간)
+      if LT >= LDrawFlyEnd[I] then
+      begin
+        LLocalT := 1;
+      end
+      else
+      begin
+        LLocalT := (LT - LDrawWinStart[I]) / (LDrawFlyEnd[I] - LDrawWinStart[I]);
+      end;
+
+      LLocalEase := 1 - (1 - LLocalT) * (1 - LLocalT) * (1 - LLocalT);   // ease-out cubic
+    end;
+
+    if LTwoLeg and (I <= High(FFlyIsPi)) then
+    begin
+      if FFlyIsPi[I] then
+      begin
+        // 뺏은 피: 1구간(상대 자리 → 싼 무더기 자리), 2구간(싼 무더기 자리 → 내 자리)
+        if LT < 0.5 then
+        begin
+          LDst := FCaptureConvergePt;
+          LLocalT := LT / 0.5;
+        end
+        else
+        begin
+          LSrc := FCaptureConvergePt;
+          LLocalT := (LT - 0.5) / 0.5;
+        end;
+      end
+      else
+      begin
+        // 손패·바닥패 등: 전반부는 싼 무더기 자리에서 대기하다 후반부에 다 같이 이동
+        if LT < 0.5 then
+        begin
+          LDst := LSrc;
+          LLocalT := 0;
+        end
+        else
+        begin
+          LLocalT := (LT - 0.5) / 0.5;
+        end;
+      end;
+
+      LLocalEase := 1 - (1 - LLocalT) * (1 - LLocalT) * (1 - LLocalT);   // ease-out cubic
+    end;
+
+    var LDX := LDst.X - LSrc.X;
+    var LDY := LDst.Y - LSrc.Y;
     var LDist := Sqrt(LDX * LDX + LDY * LDY);
     var LArcH := Min(70.0, LDist * 0.14);
-    var LArc := Sin(LT * Pi) * LArcH;
+    var LArc := Sin(LLocalT * Pi) * LArcH;
 
-    var LP := PointF(FFlySources[I].X + LDX * LEase, FFlySources[I].Y + LDY * LEase - LArc);
-    DrawFlyerCard(LP, LCards[I].AssetId, LFlip, LEase, LSquash);
+    var LP := PointF(LSrc.X + LDX * LLocalEase, LSrc.Y + LDY * LLocalEase - LArc);
+    DrawFlyerCard(LP, LCards[I].AssetId, LFlip, LLocalEase, LSquash);
   end;
 end;
 
@@ -7057,6 +7607,11 @@ end;
 procedure TGostopBoard.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Single);
 begin
   inherited;
+  if FPaused then
+  begin
+    Exit;
+  end;
+
   FMousePos := PointF(X, Y);
   FMouseDown := True;
   var LPoint := PointF(X, Y);
@@ -7212,10 +7767,22 @@ end;
 
 procedure TGostopBoard.MouseDownGiri(const LPoint: TPointF);
 begin
+  // AI(또는 관전) 말번의 기리는 보여주기만 하고 자동으로 결정되므로, 사람 클릭은 무시
+  if FSpectator or (MalbeonPos <> spBottom) then
+  begin
+    Exit;
+  end;
+
+  // 이미 결정 연출(모으기·가르기)이 진행 중이면 추가 클릭 무시
+  if FGiriClosing or FGiriSplitting then
+  begin
+    Exit;
+  end;
+
   if FBtnTung.Contains(LPoint) then
   begin
     TGostopAudio.Instance.Play('ui_click');
-    ResolveGiri(-1);
+    BeginGiriClose(-1);
     Exit;
   end;
 
@@ -7225,7 +7792,7 @@ begin
     if FGiriRects[K].Contains(LPoint) then
     begin
       TGostopAudio.Instance.Play('ui_click');
-      ResolveGiri(K);
+      BeginGiriClose(K);
       Exit;
     end;
   end;
@@ -7315,15 +7882,15 @@ begin
     if FCfgRects[I].Contains(LPoint) then
     begin
       TGostopAudio.Instance.Play('ui_click');
-      if I <= 4 then
+      if I <= 5 then
       begin
         CycleCfg(I);
       end
       else
-      if I = 5 then
+      if I = 6 then
       begin
         // 닉네임: 행 위에 입력창 표시
-        BeginNickEdit(FCfgRects[5]);
+        BeginNickEdit(FCfgRects[6]);
       end
       else
       begin
@@ -7648,7 +8215,8 @@ begin
         end;
       end;
 
-      if (LMatchCount = 2) and (LK0 <> LK1) and (LCard.Kind <> hkBonus) then
+      // 뻑 더미(짝 없이 쌓여 대기 중인 패)면 선택 없이 전부 가져가야 하므로 선택 UI를 건너뛴다
+      if (LMatchCount = 2) and (LK0 <> LK1) and (LCard.Kind <> hkBonus) and (not FGame.BbeokCreator.ContainsKey(LMonth)) then
       begin
         TGostopAudio.Instance.Play('ui_select');
         FChoosing := True;
@@ -7764,6 +8332,33 @@ begin
     FHoverBonus := LNewBonus;
     Repaint;
   end;
+
+  // 기리: 사람이 말번일 때만 마우스로 호버 추적(보너스 뽑기와 동일한 방식). AI/관전 차례의 호버는
+  // GiriAiTimerTick이 훑어보기 연출로 직접 제어하므로, 사람 마우스 이동으로 건드리지 않는다
+  if FGiriPhase and (not FSpectator) and (MalbeonPos = spBottom) and (not FGiriClosing) and (not FGiriSplitting) then
+  begin
+    var LNewGiri := -1;
+    var LPoint := PointF(X, Y);
+    for var K := FGiriRects.Count - 1 downto 0 do
+    begin
+      if FGiriRects[K].Contains(LPoint) then
+      begin
+        LNewGiri := K;
+        Break;
+      end;
+    end;
+
+    if LNewGiri <> FHoverGiri then
+    begin
+      if LNewGiri >= 0 then
+      begin
+        TGostopAudio.Instance.Play('ui_hover');
+      end;
+
+      FHoverGiri := LNewGiri;
+      Repaint;
+    end;
+  end;
 end;
 
 procedure TGostopBoard.DoMouseLeave;
@@ -7788,6 +8383,12 @@ begin
   if FHoverBonus <> -1 then
   begin
     FHoverBonus := -1;
+    Repaint;
+  end;
+
+  if FHoverGiri <> -1 then
+  begin
+    FHoverGiri := -1;
     Repaint;
   end;
 

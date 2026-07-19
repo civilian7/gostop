@@ -373,8 +373,9 @@ begin
     Result.Multiplier := Result.Multiplier * 2;
   end;
 
-  // 피박: 승자가 피 점수를 냈고 패자의 피값이 기준 이하
-  if AOptions.PibakEnabled and (AWinner.JunkPoints > 0) and (ALoser.JunkValue <= AOptions.PibakMaxJunk) then
+  // 피박: 승자가 피 점수를 냈고 패자의 피값이 기준 이하. 단, 피가 한 장도 없으면(피값 0) 면제
+  if AOptions.PibakEnabled and (AWinner.JunkPoints > 0) and (ALoser.JunkValue > 0)
+    and (ALoser.JunkValue <= AOptions.PibakMaxJunk) then
   begin
     Result.Pibak := True;
     Result.Multiplier := Result.Multiplier * 2;

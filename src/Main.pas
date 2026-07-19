@@ -1,4 +1,4 @@
-unit Main;
+﻿unit Main;
 
 interface
 
@@ -23,6 +23,7 @@ type
   TfrmMain = class(TForm)
     procedure FormCreate(Sender: TObject);
     procedure FormClose(Sender: TObject; var Action: TCloseAction);
+    procedure FormKeyDown(Sender: TObject; var Key: Word; var KeyChar: WideChar; Shift: TShiftState);
   private
     FBoard: TGostopBoard;
     procedure BoardExitRequest(Sender: TObject);
@@ -104,11 +105,25 @@ begin
   FBoard.Parent := Self;   // Parent 먼저 지정
   FBoard.Align := TAlignLayout.Client;
   FBoard.OnExitRequest := BoardExitRequest;
+
+  // 스페이스바 일시정지: 닉네임 입력 등 별도 컨트롤이 포커스를 갖지 않은 한 폼이 키를 받는다
+  // (FMX는 VCL의 KeyPreview가 없음 — 포커스된 자식이 없을 때 폼으로 키 이벤트가 온다)
+  OnKeyDown := FormKeyDown;
 end;
 
 procedure TfrmMain.FormClose(Sender: TObject; var Action: TCloseAction);
 begin
   SaveWindowGeometry;
+end;
+
+procedure TfrmMain.FormKeyDown(Sender: TObject; var Key: Word; var KeyChar: WideChar; Shift: TShiftState);
+begin
+  if (Key = vkSpace) and Assigned(FBoard) and (not FBoard.IsTextInputActive) then
+  begin
+    FBoard.TogglePause;
+    Key := 0;
+    KeyChar := #0;
+  end;
 end;
 
 procedure TfrmMain.BoardExitRequest(Sender: TObject);

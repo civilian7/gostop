@@ -43,8 +43,8 @@ Forty years after I first tried, I ended up with something close to production q
 ## Documentation
 
 - [Game Rules (canonical)](docs/game-rules.md) — the rules as actually implemented in the engine
-- [The Complete Go-Stop Guide](docs/gostop-guide.html) — a friendly, illustrated walkthrough of card reading, scoring, special events, and bonus rules
-- [User Manual](docs/gostop-manual.html) — a screen-by-screen walkthrough from the title screen to settlement
+- [The Complete Go-Stop Guide](https://htmlpreview.github.io/?https://github.com/civilian7/gostop/blob/main/docs/gostop-guide.html) — a friendly, illustrated walkthrough of card reading, scoring, special events, and bonus rules
+- [User Manual](https://htmlpreview.github.io/?https://github.com/civilian7/gostop/blob/main/docs/gostop-manual.html) — a screen-by-screen walkthrough from the title screen to settlement
 
 In-app, the **User Manual / Rules** buttons on the title screen open the same documents directly in your browser (`bin\help\`).
 

@@ -2274,23 +2274,23 @@ procedure TGostopBoard.DrawGwangSale;
 begin
   var LSeller := SeatLabel(FGwang.SellerSeat);
 
-  // 표준 다이얼로그(딤 + 중앙 패널 + 제목)
-  var LPanel := DrawStdDialog(Format('%s 광 팔기!', [LSeller]), Max(Width * 0.5, 460.0), 220.0);
+  // 표준 다이얼로그(딤 + 중앙 패널 + 제목) — 닉네임은 아바타 아래에 표시하므로 제목엔 되풀이하지 않음
+  var LPanel := DrawStdDialog('광 팔기!', Max(Width * 0.5, 460.0), 260.0);
   var LBodyCy := (LPanel.Top + LPanel.Bottom) / 2 + 10;   // 제목 영역만큼 살짝 아래로
 
-  // 좌측: 판매자 아바타 + 아래에 닉네임
-  var LAvSz := 84.0;
-  var LAvColW := Max(LAvSz, 110.0);
+  // 좌측: 판매자 아바타(크게) + 아래에 닉네임
+  var LAvSz := 130.0;
+  var LAvColW := Max(LAvSz, 150.0);
   var LAvCx := LPanel.Left + 24 + LAvColW / 2;
   var LSellerPos := TSeatPos((Ord(FNextStartPos) + FGwang.SellerSeat) mod 4);
   var LAvBmp := ResultAvatarBitmap(FSeatAvatar[LSellerPos], True, False);
-  var LAvR := RectF(LAvCx - LAvSz / 2, LBodyCy - LAvSz / 2 - 8, LAvCx + LAvSz / 2, LBodyCy + LAvSz / 2 - 8);
+  var LAvR := RectF(LAvCx - LAvSz / 2, LBodyCy - LAvSz / 2 - 12, LAvCx + LAvSz / 2, LBodyCy + LAvSz / 2 - 12);
   if Assigned(LAvBmp) then
   begin
     Canvas.DrawBitmap(LAvBmp, RectF(0, 0, LAvBmp.Width, LAvBmp.Height), LAvR, 1, False);
   end;
 
-  DrawLabel(RectF(LAvCx - LAvColW / 2, LAvR.Bottom + 6, LAvCx + LAvColW / 2, LAvR.Bottom + 30), LSeller, TAlphaColors.Gold, 16);
+  DrawLabel(RectF(LAvCx - LAvColW / 2, LAvR.Bottom + 8, LAvCx + LAvColW / 2, LAvR.Bottom + 34), LSeller, TAlphaColors.Gold, 18);
 
   // 우측: 판 광 패(가로 나열, 아바타 열을 뺀 나머지 공간에 가운데 정렬)
   var CS := CardSize;

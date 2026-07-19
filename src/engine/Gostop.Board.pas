@@ -3374,7 +3374,7 @@ begin
     Exit;
   end;
 
-  var LFiles := TDirectory.GetFiles(LDir, 'avatar_*.png');
+  var LFiles := TDirectory.GetFiles(TPath.Combine(LDir, 'roster'), 'avatar_*.png');
   TArray.Sort<string>(LFiles);
   for var LFile in LFiles do
   begin

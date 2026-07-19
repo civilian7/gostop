@@ -30,7 +30,7 @@ type
     /// <summary>아바타 이미지 폴더(<c>assets\avatars</c>) 경로를 반환합니다. 못 찾으면 빈 문자열.</summary>
     /// <param name="ARoot">에셋 루트(<c>assets\hwatu</c>). 빈 문자열이면 <see cref="FindRoot"/>로 자동 탐색.</param>
     class function AvatarDir(const ARoot: string = ''): string; static;
-    /// <summary>캐릭터 정본 데이터 파일(<c>assets\characters.json</c>) 경로를 반환합니다. 못 찾으면 빈 문자열.</summary>
+    /// <summary>캐릭터 정본 데이터 파일(<c>assets\avatars\characters.json</c>) 경로를 반환합니다. 못 찾으면 빈 문자열.</summary>
     /// <param name="ARoot">에셋 루트(<c>assets\hwatu</c>). 빈 문자열이면 <see cref="FindRoot"/>로 자동 탐색.</param>
     class function CharactersJson(const ARoot: string = ''): string; static;
   end;
@@ -48,13 +48,16 @@ begin
 
   LDir := TPath.GetFullPath(LDir);
 
-  // 루트 디렉터리에 닿을 때까지 상위로 올라가며 assets\hwatu 탐색
+  // 루트 디렉터리에 닿을 때까지 상위로 올라가며 assets\avatars 탐색(반환값은 관례상 hwatu 경로
+  // 이름을 유지 — 화투패 이미지는 이제 리소스로 내장되어 assets\hwatu 폴더 자체가 배포판에 없으므로,
+  // 그 폴더를 앵커로 쓰면 실제 배포 환경에서 탐색이 실패한다. avatars는 여전히 파일로 배포되므로
+  // 이걸 앵커로 삼는다).
   while LDir <> '' do
   begin
-    var LCandidate := TPath.Combine(TPath.Combine(LDir, 'assets'), 'hwatu');
-    if TDirectory.Exists(LCandidate) then
+    var LAssetsDir := TPath.Combine(LDir, 'assets');
+    if TDirectory.Exists(TPath.Combine(LAssetsDir, 'avatars')) then
     begin
-      Result := LCandidate;
+      Result := TPath.Combine(LAssetsDir, 'hwatu');
       Exit;
     end;
 
@@ -137,8 +140,8 @@ begin
     Exit;
   end;
 
-  // LRoot = <...>\assets\hwatu → 상위 assets 폴더의 characters.json
-  Result := TPath.Combine(TDirectory.GetParent(LRoot), 'characters.json');
+  // LRoot = <...>\assets\hwatu → 아바타 캐릭터 데이터라 assets\avatars 폴더에 함께 둔다
+  Result := TPath.Combine(TPath.Combine(TDirectory.GetParent(LRoot), 'avatars'), 'characters.json');
 end;
 {$ENDREGION}
 

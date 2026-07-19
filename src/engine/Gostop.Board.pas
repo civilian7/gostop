@@ -334,6 +334,7 @@ type
     function  MalbeonPos: TSeatPos;
     procedure RequestGiri(const ADeck: TDeck; const AProceed: TProc);
     procedure ResolveGiri(const ACutIndex: Integer);
+    procedure FanDialogGeometry(out APanelW, ACardW, ACardH, AStep, AHalfSpread, AArcDrop, AAvColW, ATopPad: Single);
     procedure DrawGiri;
     function  SeonActivePositions: TArray<TSeatPos>;
     function  SeonPosLabel(const APos: TSeatPos): string;
@@ -1226,7 +1227,52 @@ begin
   end;
 end;
 
-// 기리 화면: 셔플된 뒷패를 격자로 나열(뒷면). 한 장 클릭=그 위치 컷, 퉁=그대로
+// 기리/보너스 뽑기 다이얼로그 공통 지오메트리. 기리(딜 전 전체 덱 커팅)가 항상 최대 장수 케이스이므로
+// 그 기준으로 카드 크기·부채각·패널 폭을 고정해 두고, 장수가 적은 보너스 뽑기도 그대로 재사용한다.
+// 그러면 장수가 적을 때 카드가 커지거나 배치가 흔들리지 않고, 남는 공간만 좌우로 비워진 채 가운데 정렬된다.
+procedure TGostopBoard.FanDialogGeometry(out APanelW, ACardW, ACardH, AStep, AHalfSpread, AArcDrop, AAvColW,
+  ATopPad: Single);
+begin
+  var CS := CardSize;
+  ACardW := CS.Width * 0.5;
+  ACardH := CS.Height * 0.5;
+  AAvColW := Max(130.0, 150.0);
+  ATopPad := 54.0;
+
+  var LOpt := CfgDeckOptions;
+  var LRefCount := 48;
+  if LOpt.IncludeBonus then
+  begin
+    LRefCount := LRefCount + LOpt.BonusCount;
+  end;
+
+  var LMaxPanelW := Width * 0.86;
+  var LFanAvailW := LMaxPanelW - AAvColW - 24 - 20 - 24 - 24;
+
+  AStep := ACardW * 0.55;
+  if LRefCount > 1 then
+  begin
+    var LMaxStep := LFanAvailW / (LRefCount - 1);
+    if LMaxStep < AStep then
+    begin
+      AStep := LMaxStep;
+    end;
+  end;
+
+  if AStep < 6 then
+  begin
+    AStep := 6;
+  end;
+
+  AHalfSpread := Min(28.0, 3.2 * (LRefCount - 1));
+  AArcDrop := ACardH * 0.35;
+
+  var LRefTotalW := AStep * (LRefCount - 1) + ACardW;
+  APanelW := AAvColW + 24 + 20 + LRefTotalW + 48;
+end;
+
+// 기리 화면: 표준 다이얼로그 안에 사람(항상 말번) 아바타+닉네임을 좌측에, 셔플된 뒷패를 부채꼴로
+// 편 카드열을 우측에 배치. 카드 한 장 클릭=그 위치 컷, 퉁=그대로
 procedure TGostopBoard.DrawGiri;
 begin
   if FGiriDeck = nil then
@@ -1234,39 +1280,60 @@ begin
     Exit;
   end;
 
-  Canvas.FillRound(LocalRect, 0, $A0000000);
-  DrawLabel(RectF(0, Height * 0.07, Width, Height * 0.12), '기리할 위치를 선택하세요', TAlphaColors.Gold, 24);
+  var LPanelW, LCardW, LCardH, LStep, LHalfSpread, LArcDrop, LAvColW, LTopPad: Single;
+  FanDialogGeometry(LPanelW, LCardW, LCardH, LStep, LHalfSpread, LArcDrop, LAvColW, LTopPad);
 
+  var LBtnH := 46.0;
+  var LPanelH := LTopPad + LCardH + LArcDrop + 20 + LBtnH + 20;
+  var LPanel := DrawStdDialog('기리/패 선택', LPanelW, LPanelH);
+  var LBodyTop := LPanel.Top + LTopPad;
+
+  // 좌측: 사람(항상 말번) 아바타 + 아래에 닉네임
+  var LAvSz := 130.0;
+  var LAvCx := LPanel.Left + 24 + LAvColW / 2;
+  var LAvBmp := ResultAvatarBitmap(FSeatAvatar[spBottom], False, False);
+  var LAvR := RectF(LAvCx - LAvSz / 2, LBodyTop, LAvCx + LAvSz / 2, LBodyTop + LAvSz);
+  if Assigned(LAvBmp) then
+  begin
+    Canvas.DrawBitmap(LAvBmp, RectF(0, 0, LAvBmp.Width, LAvBmp.Height), LAvR, 1, False);
+  end;
+
+  DrawLabel(RectF(LAvCx - LAvColW / 2, LAvR.Bottom + 8, LAvCx + LAvColW / 2, LAvR.Bottom + 34),
+    SeatDisplayName(spBottom), TAlphaColors.Gold, 18);
+
+  // 우측: 셔플된 뒷패를 부채꼴로 펼침. 남는 카드 영역 안에서 가운데 정렬(장수가 적어도 카드 크기는 고정)
   FGiriRects.Clear;
-  var CS := CardSize;
-  var LCW := CS.Width * 0.5;
-  var LCH := CS.Height * 0.5;
+  var LCardAreaL := LPanel.Left + 24 + LAvColW + 20;
+  var LCardAreaR := LPanel.Right - 24;
   var LN := FGiriDeck.Count;
-  var LCols := 13;
-  var LRows := (LN + LCols - 1) div LCols;
-  var LGapX := LCW * 0.18;
-  var LGapY := LCH * 0.22;
-  var LTotW := LCols * LCW + (LCols - 1) * LGapX;
-  var LTotH := LRows * LCH + (LRows - 1) * LGapY;
-  var LX0 := Width / 2 - LTotW / 2;
-  var LY0 := Height / 2 - LTotH / 2 - 20;
+  var LTotalW := LStep * (LN - 1) + LCardW;
+  var LMidX := (LCardAreaL + LCardAreaR) / 2;
+  var LStartX := LMidX - LTotalW / 2 + LCardW / 2;
+  var LRowY := LBodyTop + LCardH / 2;
 
   for var I := 0 to LN - 1 do
   begin
-    var LC := I mod LCols;
-    var LRw := I div LCols;
-    var LR := RectF(LX0 + LC * (LCW + LGapX), LY0 + LRw * (LCH + LGapY),
-      LX0 + LC * (LCW + LGapX) + LCW, LY0 + LRw * (LCH + LGapY) + LCH);
-    FGiriRects.Add(LR);
-    DrawBack(LR);
+    var LCX := LStartX + I * LStep;
+    var LT: Single := 0;
+    if LN > 1 then
+    begin
+      LT := (I / (LN - 1)) * 2 - 1;   // -1..1
+    end;
+
+    var LAngle := LT * LHalfSpread;
+    var LCY := LRowY + Sqr(LT) * LArcDrop;
+    FGiriRects.Add(RectF(LCX - LCardW / 2, LCY - LCardH / 2, LCX + LCardW / 2, LCY + LCardH / 2));
+    DrawCardRotated(LCX, LCY, LCardW, LCardH, LAngle, '', True);
   end;
 
   // 퉁 버튼
-  var LBtnY := LY0 + LTotH + 26;
-  FBtnTung := RectF(Width / 2 - 80, LBtnY, Width / 2 + 80, LBtnY + 46);
+  var LBtnY := LBodyTop + LCardH + LArcDrop + 20;
+  FBtnTung := RectF(LMidX - 80, LBtnY, LMidX + 80, LBtnY + LBtnH);
   Canvas.FillRound(FBtnTung, 10, $FF8D6E30);
   Canvas.StrokeRound(FBtnTung, 10, $80FFFFFF, 1);
   DrawLabel(FBtnTung, '퉁~ (그대로)', TAlphaColors.White, 18);
+
+  EndStdDialog;
 end;
 
 // 선(FNextStartPos)이 정해진 뒤 실제 딜·플레이로 진입한다.
@@ -2030,6 +2097,8 @@ begin
 end;
 
 // 보너스 뽑기 오버레이: 남은 뒷패를 펼쳐 보여주고(클릭 선택), 집은 카드는 자리로 비행
+// 보너스 뽑기 오버레이: 표준 다이얼로그 안에 현재 차례 플레이어 아바타+닉네임을 좌측에,
+// 남은 뒷패를 부채꼴로 편 카드열을 우측에 배치(기리와 동일 레이아웃·카드 크기). 집은 카드는 자리로 비행
 procedure TGostopBoard.DrawBonusDraw;
 begin
   FBonusRects.Clear;
@@ -2039,57 +2108,36 @@ begin
     Exit;
   end;
 
-  var CS := CardSize;
-  var LW := CS.Width * 0.75;
-  var LH := CS.Height * 0.75;
-  var LCen := CenterRegion;
-  var LMidX := (LCen.Left + LCen.Right) / 2;
-  var LMidY := (LCen.Top + LCen.Bottom) / 2;
+  var LPanelW, LCardW, LCardH, LStep, LHalfSpread, LArcDrop, LAvColW, LTopPad: Single;
+  FanDialogGeometry(LPanelW, LCardW, LCardH, LStep, LHalfSpread, LArcDrop, LAvColW, LTopPad);
 
-  // 부채꼴 가로 겹침 간격: 카드 수에 맞춰 자동 축소(패널 폭 안에 들어오게)
-  var LStep := LW * 0.55;
-  if LCount > 1 then
+  var LHoverRaise := LCardH * 0.22;   // 호버 시 위로 솟는 양(손패 호버와 동일한 비율)
+  var LPanelH := LTopPad + LHoverRaise + LCardH + LArcDrop + 24;
+  var LPanel := DrawStdDialog('기리/패 선택', LPanelW, LPanelH);
+  var LBodyTop := LPanel.Top + LTopPad;
+
+  // 좌측: 현재 차례 플레이어 아바타 + 아래에 닉네임
+  var LAvSz := 130.0;
+  var LAvCx := LPanel.Left + 24 + LAvColW / 2;
+  var LCurPos := PhysicalPos(FGame.Current);
+  var LAvBmp := ResultAvatarBitmap(FSeatAvatar[LCurPos], False, False);
+  var LAvR := RectF(LAvCx - LAvSz / 2, LBodyTop, LAvCx + LAvSz / 2, LBodyTop + LAvSz);
+  if Assigned(LAvBmp) then
   begin
-    var LMaxStep := (LCen.Width - 80) / (LCount - 1);
-    if LMaxStep < LStep then
-    begin
-      LStep := LMaxStep;
-    end;
+    Canvas.DrawBitmap(LAvBmp, RectF(0, 0, LAvBmp.Width, LAvBmp.Height), LAvR, 1, False);
   end;
 
-  if LStep < 6 then
-  begin
-    LStep := 6;
-  end;
+  DrawLabel(RectF(LAvCx - LAvColW / 2, LAvR.Bottom + 8, LAvCx + LAvColW / 2, LAvR.Bottom + 34),
+    SeatDisplayName(LCurPos), TAlphaColors.Gold, 18);
 
-  var LTotalW := LStep * (LCount - 1) + LW;
-  var LArcDropMax := LH * 0.35;    // 가장자리 카드가 아래로 처지는 최대량(부채 곡선)
-  var LHoverRaise := LH * 0.22;    // 호버 시 위로 솟는 양(손패 호버와 동일한 비율)
-  var LTopPad := 54.0;             // 제목 아래 여백
-  var LBottomPad := 24.0;
-  var LPanelW := LTotalW + 60;
-  var LPanelH := LTopPad + LHoverRaise + LH + LArcDropMax + LBottomPad;
-  var LPanel := RectF(LMidX - LPanelW / 2, LMidY - LPanelH / 2, LMidX + LPanelW / 2, LMidY + LPanelH / 2);
-
-  Canvas.FillRound(LPanel, 10, $E0101010);
-  Canvas.StrokeRound(LPanel, 10, $60FFFFFF, 1);
-
-  var LTitle := '';
-  if FGame.Current = FHumanIndex then
-  begin
-    LTitle := '가져갈 패를 선택하세요';
-  end
-  else
-  begin
-    LTitle := Format('%s이(가) 뒷패에서 한 장 가져갑니다', [FGame.CurrentPlayer.Name]);
-  end;
-
-  DrawLabel(RectF(LPanel.Left, LPanel.Top + 6, LPanel.Right, LPanel.Top + 34), LTitle, TAlphaColors.White, 16);
-
-  // 부채꼴로 펼침: 중앙은 그대로, 가장자리로 갈수록 회전 + 아래로 처짐. 비행 중인 카드 자리는 비워 둔다
-  var LRowY := LPanel.Top + LTopPad + LHoverRaise + LH / 2;
-  var LStartX := LMidX - LTotalW / 2 + LW / 2;
-  var LHalfSpread := Min(28.0, 3.2 * (LCount - 1));   // 카드가 많을수록 전체 부채각이 커지다 상한에서 고정
+  // 우측: 남은 뒷패를 부채꼴로 펼침. 남는 카드 영역 안에서 가운데 정렬(장수가 적어도 카드 크기는 고정).
+  // 비행 중인 카드 자리는 비워 둔다
+  var LCardAreaL := LPanel.Left + 24 + LAvColW + 20;
+  var LCardAreaR := LPanel.Right - 24;
+  var LTotalW := LStep * (LCount - 1) + LCardW;
+  var LMidX := (LCardAreaL + LCardAreaR) / 2;
+  var LStartX := LMidX - LTotalW / 2 + LCardW / 2;
+  var LRowY := LBodyTop + LHoverRaise + LCardH / 2;
 
   for var I := 0 to LCount - 1 do
   begin
@@ -2101,10 +2149,10 @@ begin
     end;
 
     var LAngle := LT * LHalfSpread;
-    var LCY := LRowY + Sqr(LT) * LArcDropMax;
+    var LCY := LRowY + Sqr(LT) * LArcDrop;
 
     // 클릭·호버 판정 rect는 원래(솟아오르기 전) 위치로 고정 — 손패 호버와 동일하게, 판정이 흔들리지 않도록
-    FBonusRects.Add(RectF(LCX - LW / 2, LCY - LH / 2, LCX + LW / 2, LCY + LH / 2));
+    FBonusRects.Add(RectF(LCX - LCardW / 2, LCY - LCardH / 2, LCX + LCardW / 2, LCY + LCardH / 2));
     if FPickActive and (I = FPickIndex) then
     begin
       Continue;
@@ -2116,7 +2164,7 @@ begin
       LDrawY := LDrawY - LHoverRaise;
     end;
 
-    DrawCardRotated(LCX, LDrawY, LW, LH, LAngle, '', True);
+    DrawCardRotated(LCX, LDrawY, LCardW, LCardH, LAngle, '', True);
   end;
 
   // 집은 카드 비행(ease-out)
@@ -2125,8 +2173,10 @@ begin
     var LE := 1 - Sqr(1 - FPickT);
     var LX := FPickFrom.X + (FPickTo.X - FPickFrom.X) * LE;
     var LY := FPickFrom.Y + (FPickTo.Y - FPickFrom.Y) * LE;
-    DrawBack(RectF(LX - LW / 2, LY - LH / 2, LX + LW / 2, LY + LH / 2));
+    DrawBack(RectF(LX - LCardW / 2, LY - LCardH / 2, LX + LCardW / 2, LY + LCardH / 2));
   end;
+
+  EndStdDialog;
 end;
 
 procedure TGostopBoard.StartNegotiation;
@@ -7139,7 +7189,8 @@ begin
     Exit;
   end;
 
-  for var K := 0 to FGiriRects.Count - 1 do
+  // 부채꼴로 겹친 카드이므로 나중에 그린(위에 보이는) 카드부터 판정
+  for var K := FGiriRects.Count - 1 downto 0 do
   begin
     if FGiriRects[K].Contains(LPoint) then
     begin

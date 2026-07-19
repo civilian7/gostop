@@ -429,6 +429,7 @@ type
     procedure LoadSkillAvatarPool;
     function  LoadStateAvatar(const AFile: string): TBitmap;
     function  ResultAvatarBitmap(const AAvatarIdx: Integer; const AIsWinner, AIsPenalized: Boolean): TBitmap;
+    function  NormalAvatarBitmap(const AAvatarIdx: Integer): TBitmap;
     procedure AssignAvatars;
     procedure SetHumanAvatar(const AIndex: Integer);
     procedure DrawAvatarPicker;
@@ -1445,7 +1446,7 @@ begin
   var LMalbeon := MalbeonPos;
   var LAvSz := 130.0;
   var LAvCx := LPanel.Left + 24 + LAvColW / 2;
-  var LAvBmp := ResultAvatarBitmap(FSeatAvatar[LMalbeon], False, False);
+  var LAvBmp := NormalAvatarBitmap(FSeatAvatar[LMalbeon]);
   var LAvR := RectF(LAvCx - LAvSz / 2, LBodyTop, LAvCx + LAvSz / 2, LBodyTop + LAvSz);
   if Assigned(LAvBmp) then
   begin
@@ -2378,7 +2379,7 @@ begin
   var LAvSz := 130.0;
   var LAvCx := LPanel.Left + 24 + LAvColW / 2;
   var LCurPos := PhysicalPos(FGame.Current);
-  var LAvBmp := ResultAvatarBitmap(FSeatAvatar[LCurPos], False, False);
+  var LAvBmp := NormalAvatarBitmap(FSeatAvatar[LCurPos]);
   var LAvR := RectF(LAvCx - LAvSz / 2, LBodyTop, LAvCx + LAvSz / 2, LBodyTop + LAvSz);
   if Assigned(LAvBmp) then
   begin
@@ -5727,6 +5728,23 @@ begin
   end;
 end;
 
+// 승패와 무관한 다이얼로그(기리·패선택 등)에서 쓰는 평상시(웃는) 아바타. 정산 결과와 무관하므로
+// ResultAvatarBitmap(승자=환호/패자=슬픔)을 쓰면 안 되고, 항상 기본 아바타를 보여준다
+function TGostopBoard.NormalAvatarBitmap(const AAvatarIdx: Integer): TBitmap;
+begin
+  Result := nil;
+  if AAvatarIdx < 0 then
+  begin
+    Exit;
+  end;
+
+  LoadAvatarPool;
+  if Assigned(FAvatarPool) and (AAvatarIdx < FAvatarPool.Count) then
+  begin
+    Result := FAvatarPool[AAvatarIdx];
+  end;
+end;
+
 // 게임종료 팝업 '새게임' 처리(버튼 클릭·자동진행 공용). 매치 이어가기(머니·전적 유지).
 // 오링된 상대가 있으면 새 도전자 등장 연출 후 진행
 procedure TGostopBoard.GameOverContinue;
@@ -6937,6 +6955,17 @@ begin
   FAnimActor := ABefore.Current;
   FAnimPlayed := CardsRemoved(ABefore.Player(FAnimActor).Hand, FGame.Player(FAnimActor).Hand);
   FAnimDrawn := CardsRemoved(ABefore.Stock, FGame.Stock);
+  // 스톡은 맨 뒤(Count-1)부터 먼저 뽑히는데(DrawNonBonus 참조) CardsRemoved는 원래 리스트의
+  // 오름차순 인덱스 순서로 돌려줘 실제 뽑은 순서와 반대다 — 보너스패 연쇄 애니메이션이 뽑힌 순서
+  // 그대로(보너스패부터 → 마지막에 결과 카드) 재생되도록 순서를 뒤집는다
+  for var LLo := 0 to (Length(FAnimDrawn) div 2) - 1 do
+  begin
+    var LHi := High(FAnimDrawn) - LLo;
+    var LTmp := FAnimDrawn[LLo];
+    FAnimDrawn[LLo] := FAnimDrawn[LHi];
+    FAnimDrawn[LHi] := LTmp;
+  end;
+
   FAnimCaptured := CardsAdded(ABefore.Player(FAnimActor).Captured, FGame.Player(FAnimActor).Captured);
   PlayTurnSound;
   FAnimDone := AOnDone;

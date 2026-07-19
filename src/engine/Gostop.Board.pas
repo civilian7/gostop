@@ -3374,7 +3374,7 @@ begin
     Exit;
   end;
 
-  var LFiles := TDirectory.GetFiles(TPath.Combine(LDir, 'roster'), 'avatar_*.png');
+  var LFiles := TDirectory.GetFiles(TPath.Combine(LDir, 'normal'), 'avatar_*.png');
   TArray.Sort<string>(LFiles);
   for var LFile in LFiles do
   begin
@@ -3393,8 +3393,9 @@ begin
   end;
 end;
 
-// assets\avatars\difficulty 의 diff_*.png 를 AI 난이도 카드 전용 풀로 로드(지연, 1회, 파일명 정렬 =
-// 병아리/선수/타짜/신의손 순 — AI_SKILL_LABELS와 인덱스 맞춤)
+// assets\difficulty 의 diff_*.png 를 AI 난이도 카드 전용 풀로 로드(지연, 1회, 파일명 정렬 =
+// 병아리/선수/타짜/신의손 순 — AI_SKILL_LABELS와 인덱스 맞춤). 20인 아바타 로스터와 완전히
+// 별개의 캐릭터라 avatars 하위가 아닌 assets 바로 아래에 있음(THwatuAssets.DifficultyDir).
 procedure TGostopBoard.LoadSkillAvatarPool;
 begin
   if Assigned(FSkillAvatarPool) then
@@ -3403,7 +3404,7 @@ begin
   end;
 
   FSkillAvatarPool := TObjectList<TBitmap>.Create(True);
-  var LDir := TPath.Combine(THwatuAssets.AvatarDir, 'difficulty');
+  var LDir := THwatuAssets.DifficultyDir;
   if (LDir = '') or (not TDirectory.Exists(LDir)) then
   begin
     Exit;

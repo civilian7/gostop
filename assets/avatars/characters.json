@@ -21,10 +21,10 @@
     ],
     "imagePrompt": "A skinny 19-year-old Korean boy with messy curly black hair and freckles, buck-toothed eager grin, oversized gray hoodie, joyfully holding up one single Korean hwatu flower card like a precious treasure. Cheerful webtoon-style illustration, upper body, transparent background, square format.",
     "images": {
-      "normal": "roster/avatar_01.png",
-      "cheer": "states/avatar_01_cheer.png",
-      "sad": "states/avatar_01_sad.png",
-      "angry": "states/avatar_01_angry.png"
+      "normal": "normal/avatar_01.png",
+      "cheer": "cheer/avatar_01.png",
+      "sad": "sad/avatar_01.png",
+      "angry": "angry/avatar_01.png"
     }
   },
   {
@@ -49,10 +49,10 @@
     ],
     "imagePrompt": "Hot-blooded 25-year-old Korean man, square jaw, military buzz cut, thick black eyebrows, red fighting-spirit headband, white sporty shirt, fist raised and eyes on fire, gripping hwatu cards in the other hand. Dynamic comic-book portrait from the waist up, isolated on transparent background, 1:1.",
     "images": {
-      "normal": "roster/avatar_02.png",
-      "cheer": "states/avatar_02_cheer.png",
-      "sad": "states/avatar_02_sad.png",
-      "angry": "states/avatar_02_angry.png"
+      "normal": "normal/avatar_02.png",
+      "cheer": "cheer/avatar_02.png",
+      "sad": "sad/avatar_02.png",
+      "angry": "angry/avatar_02.png"
     }
   },
   {
@@ -77,10 +77,10 @@
     ],
     "imagePrompt": "Portrait of a chubby 45-year-old Korean card salesman: slicked-back oily hair, thin mustache, gold-rimmed glasses with a coin glint, shiny blue suit and gold tie, winking slyly while fanning out three shining \"gwang\" hwatu cards. Glossy cartoon style, bust shot, no background, square.",
     "images": {
-      "normal": "roster/avatar_03.png",
-      "cheer": "states/avatar_03_cheer.png",
-      "sad": "states/avatar_03_sad.png",
-      "angry": "states/avatar_03_angry.png"
+      "normal": "normal/avatar_03.png",
+      "cheer": "cheer/avatar_03.png",
+      "sad": "sad/avatar_03.png",
+      "angry": "angry/avatar_03.png"
     }
   },
   {
@@ -105,10 +105,10 @@
     ],
     "imagePrompt": "A tall, slim 58-year-old Korean gentleman wearing a brown fedora and a brown checked three-piece suit with a pocket-watch chain, bushy gray mustache, refined smile, elegantly shaking three hwatu flower cards in one gloved hand. Classic storybook illustration, upper body only, transparent backdrop, 1:1 ratio.",
     "images": {
-      "normal": "roster/avatar_04.png",
-      "cheer": "states/avatar_04_cheer.png",
-      "sad": "states/avatar_04_sad.png",
-      "angry": "states/avatar_04_angry.png"
+      "normal": "normal/avatar_04.png",
+      "cheer": "cheer/avatar_04.png",
+      "sad": "sad/avatar_04.png",
+      "angry": "angry/avatar_04.png"
     }
   },
   {
@@ -133,10 +133,10 @@
     ],
     "imagePrompt": "Stocky 50-year-old Korean hustler with a white crew cut, square face, small scar on his cheek, black sunglasses, toothpick in the corner of his mouth, black leather jacket, smug poker face, shuffling hwatu cards with one hand. Gritty cartoon portrait, chest-up, cut out on transparency, square image.",
     "images": {
-      "normal": "roster/avatar_05.png",
-      "cheer": "states/avatar_05_cheer.png",
-      "sad": "states/avatar_05_sad.png",
-      "angry": "states/avatar_05_angry.png"
+      "normal": "normal/avatar_05.png",
+      "cheer": "cheer/avatar_05.png",
+      "sad": "sad/avatar_05.png",
+      "angry": "angry/avatar_05.png"
     }
   },
   {
@@ -161,10 +161,10 @@
     ],
     "imagePrompt": "A round-faced 30-year-old Korean collector with neatly parted hair, thick horn-rimmed glasses, knitted sweater vest with a bow tie and white cotton gloves, proudly presenting three red-ribbon hwatu cards like rare stamps. Soft pastel comic illustration, upper torso, transparent background, 1:1.",
     "images": {
-      "normal": "roster/avatar_06.png",
-      "cheer": "states/avatar_06_cheer.png",
-      "sad": "states/avatar_06_sad.png",
-      "angry": "states/avatar_06_angry.png"
+      "normal": "normal/avatar_06.png",
+      "cheer": "cheer/avatar_06.png",
+      "sad": "sad/avatar_06.png",
+      "angry": "angry/avatar_06.png"
     }
   },
   {
@@ -189,10 +189,10 @@
     ],
     "imagePrompt": "Rugged sun-tanned 40-year-old Korean man in a khaki hunting vest and feathered hunter's hat, bushy beard, binoculars hanging on his chest, sharp hawk-like focus, fanning three bird-themed hwatu cards. Adventure-comic style bust portrait, isolated subject with no background, square.",
     "images": {
-      "normal": "roster/avatar_07.png",
-      "cheer": "states/avatar_07_cheer.png",
-      "sad": "states/avatar_07_sad.png",
-      "angry": "states/avatar_07_angry.png"
+      "normal": "normal/avatar_07.png",
+      "cheer": "cheer/avatar_07.png",
+      "sad": "sad/avatar_07.png",
+      "angry": "angry/avatar_07.png"
     }
   },
   {
@@ -217,10 +217,10 @@
     ],
     "imagePrompt": "A bald 65-year-old Korean craftsman with white side hair and deep forehead wrinkles, artisan headband and apron over modern hanbok work clothes, reverently holding up a double-junk hwatu card with both hands as if it were a masterpiece. Warm hand-drawn animation still, waist-up, transparent PNG, 1:1.",
     "images": {
-      "normal": "roster/avatar_08.png",
-      "cheer": "states/avatar_08_cheer.png",
-      "sad": "states/avatar_08_sad.png",
-      "angry": "states/avatar_08_angry.png"
+      "normal": "normal/avatar_08.png",
+      "cheer": "cheer/avatar_08.png",
+      "sad": "sad/avatar_08.png",
+      "angry": "angry/avatar_08.png"
     }
   },
   {
@@ -245,10 +245,10 @@
     ],
     "imagePrompt": "Comical 70-year-old balding Korean man with round glasses sliding down his nose, saggy tired eyes, flustered crying-smile and a giant sweat drop, worn brown vest, hwatu cards slipping and scattering out of his hands. Gag-manhwa style upper-body drawing, transparent background, square frame.",
     "images": {
-      "normal": "roster/avatar_09.png",
-      "cheer": "states/avatar_09_cheer.png",
-      "sad": "states/avatar_09_sad.png",
-      "angry": "states/avatar_09_angry.png"
+      "normal": "normal/avatar_09.png",
+      "cheer": "cheer/avatar_09.png",
+      "sad": "sad/avatar_09.png",
+      "angry": "angry/avatar_09.png"
     }
   },
   {
@@ -273,10 +273,10 @@
     ],
     "imagePrompt": "An 80-year-old Korean taoist sage with long flowing white hair and beard, black traditional gat hat and gray dopo robe, serene half-closed eyes, a single hwatu card glowing and floating above his open palm. Mystical ink-and-color illustration, bust composition, isolated on transparency, 1:1.",
     "images": {
-      "normal": "roster/avatar_10.png",
-      "cheer": "states/avatar_10_cheer.png",
-      "sad": "states/avatar_10_sad.png",
-      "angry": "states/avatar_10_angry.png"
+      "normal": "normal/avatar_10.png",
+      "cheer": "cheer/avatar_10.png",
+      "sad": "sad/avatar_10.png",
+      "angry": "angry/avatar_10.png"
     }
   },
   {
@@ -301,10 +301,10 @@
     ],
     "imagePrompt": "Adorable 20-year-old Korean girl with a heart-shaped face, twin braided pigtails tied with pink ribbons, rosy blush, bright pink hanbok, winking and blowing a kiss surrounded by tiny hearts, hwatu cards held to her chest. Cute shoujo-style cartoon, upper body, transparent background, square.",
     "images": {
-      "normal": "roster/avatar_11.png",
-      "cheer": "states/avatar_11_cheer.png",
-      "sad": "states/avatar_11_sad.png",
-      "angry": "states/avatar_11_angry.png"
+      "normal": "normal/avatar_11.png",
+      "cheer": "cheer/avatar_11.png",
+      "sad": "sad/avatar_11.png",
+      "angry": "angry/avatar_11.png"
     }
   },
   {
@@ -329,10 +329,10 @@
     ],
     "imagePrompt": "A playful 24-year-old Korean woman with a silver bob haircut and mischievous cat-like eyes, sky-blue hanbok sparkling with fairy dust, gleefully sweeping an entire pile of hwatu cards toward herself with both arms. Whimsical fantasy cartoon, waist-up, cut out with no background, 1:1 aspect.",
     "images": {
-      "normal": "roster/avatar_12.png",
-      "cheer": "states/avatar_12_cheer.png",
-      "sad": "states/avatar_12_sad.png",
-      "angry": "states/avatar_12_angry.png"
+      "normal": "normal/avatar_12.png",
+      "cheer": "cheer/avatar_12.png",
+      "sad": "sad/avatar_12.png",
+      "angry": "angry/avatar_12.png"
     }
   },
   {
@@ -357,10 +357,10 @@
     ],
     "imagePrompt": "A plump 48-year-old Korean auntie with a tight brown perm, fierce narrowed eyes, arms crossed in a firm X \"forbidden\" gesture, yellow hanbok, a small stack of junk hwatu cards guarded behind her. Bold flat-color caricature, chest-up view, transparent backdrop, square canvas.",
     "images": {
-      "normal": "roster/avatar_13.png",
-      "cheer": "states/avatar_13_cheer.png",
-      "sad": "states/avatar_13_sad.png",
-      "angry": "states/avatar_13_angry.png"
+      "normal": "normal/avatar_13.png",
+      "cheer": "cheer/avatar_13.png",
+      "sad": "sad/avatar_13.png",
+      "angry": "angry/avatar_13.png"
     }
   },
   {
@@ -385,10 +385,10 @@
     ],
     "imagePrompt": "Energetic 35-year-old Korean woman with a long straight ponytail, mouth wide open in an excited cheer, red tracksuit, cheerleading pom-pom in one hand and hwatu cards in the other, speed lines bursting around her. Sporty anime-style half-body shot, transparent background, 1:1.",
     "images": {
-      "normal": "roster/avatar_14.png",
-      "cheer": "states/avatar_14_cheer.png",
-      "sad": "states/avatar_14_sad.png",
-      "angry": "states/avatar_14_angry.png"
+      "normal": "normal/avatar_14.png",
+      "cheer": "cheer/avatar_14.png",
+      "sad": "sad/avatar_14.png",
+      "angry": "angry/avatar_14.png"
     }
   },
   {
@@ -413,10 +413,10 @@
     ],
     "imagePrompt": "A 68-year-old Korean grandmother with silver hair in a traditional bun fixed by a binyeo hairpin, deep smile wrinkles around her eyes, forest-green hanbok, slyly holding up the chrysanthemum hwatu card between two fingers like a hidden ace. Gentle folk-art style portrait, upper body, isolated transparent background, square.",
     "images": {
-      "normal": "roster/avatar_15.png",
-      "cheer": "states/avatar_15_cheer.png",
-      "sad": "states/avatar_15_sad.png",
-      "angry": "states/avatar_15_angry.png"
+      "normal": "normal/avatar_15.png",
+      "cheer": "cheer/avatar_15.png",
+      "sad": "sad/avatar_15.png",
+      "angry": "angry/avatar_15.png"
     }
   },
   {
@@ -441,10 +441,10 @@
     ],
     "imagePrompt": "Intense 27-year-old Korean woman with long dark-red hair blowing in the wind, burning determined eyes, black leather jacket, clenched fist, gripping hwatu cards so hard they bend, an unstoppable aura around her. Dramatic action-comic bust portrait, no background, 1:1 format.",
     "images": {
-      "normal": "roster/avatar_16.png",
-      "cheer": "states/avatar_16_cheer.png",
-      "sad": "states/avatar_16_sad.png",
-      "angry": "states/avatar_16_angry.png"
+      "normal": "normal/avatar_16.png",
+      "cheer": "cheer/avatar_16.png",
+      "sad": "sad/avatar_16.png",
+      "angry": "angry/avatar_16.png"
     }
   },
   {
@@ -469,10 +469,10 @@
     ],
     "imagePrompt": "Glamorous 38-year-old Korean woman with wavy golden-brown hair, bold makeup and red lips, a small golden crown, purple power suit, chin raised in a self-adoring queen pose with sparkles everywhere, holding hwatu cards like a royal scepter. Luxurious fashion-cartoon illustration, upper body, transparent background, square.",
     "images": {
-      "normal": "roster/avatar_17.png",
-      "cheer": "states/avatar_17_cheer.png",
-      "sad": "states/avatar_17_sad.png",
-      "angry": "states/avatar_17_angry.png"
+      "normal": "normal/avatar_17.png",
+      "cheer": "cheer/avatar_17.png",
+      "sad": "sad/avatar_17.png",
+      "angry": "angry/avatar_17.png"
     }
   },
   {
@@ -497,10 +497,10 @@
     ],
     "imagePrompt": "A shrewd 52-year-old Korean woman with hair in a tight bun and reading glasses slid down her nose, navy modern hanbok, wooden abacus in one hand and hwatu cards in the other, thin calculating smile. Detailed slice-of-life manhwa portrait, waist-up, cut out on transparency, 1:1.",
     "images": {
-      "normal": "roster/avatar_18.png",
-      "cheer": "states/avatar_18_cheer.png",
-      "sad": "states/avatar_18_sad.png",
-      "angry": "states/avatar_18_angry.png"
+      "normal": "normal/avatar_18.png",
+      "cheer": "cheer/avatar_18.png",
+      "sad": "sad/avatar_18.png",
+      "angry": "angry/avatar_18.png"
     }
   },
   {
@@ -525,10 +525,10 @@
     ],
     "imagePrompt": "A 75-year-old Korean grandmother with a tight gray perm and a gold-tooth grin, flower-patterned monpe pants and a padded vest, rolling up her sleeves triumphantly over a swept-up pile of hwatu cards and coins. Humorous rural-comic style, upper body, transparent background, square image.",
     "images": {
-      "normal": "roster/avatar_19.png",
-      "cheer": "states/avatar_19_cheer.png",
-      "sad": "states/avatar_19_sad.png",
-      "angry": "states/avatar_19_angry.png"
+      "normal": "normal/avatar_19.png",
+      "cheer": "cheer/avatar_19.png",
+      "sad": "sad/avatar_19.png",
+      "angry": "angry/avatar_19.png"
     }
   },
   {
@@ -553,10 +553,10 @@
     ],
     "imagePrompt": "A gentle-looking 72-year-old Korean grandmother with soft short white hair and round glasses, beige cardigan, calmly sipping tea — but her eyes over the teacup rim are razor-sharp like a hidden master, hwatu cards stacked neatly in front of her. Cozy yet subtly tense cartoon portrait, bust view, isolated on transparent background, 1:1.",
     "images": {
-      "normal": "roster/avatar_20.png",
-      "cheer": "states/avatar_20_cheer.png",
-      "sad": "states/avatar_20_sad.png",
-      "angry": "states/avatar_20_angry.png"
+      "normal": "normal/avatar_20.png",
+      "cheer": "cheer/avatar_20.png",
+      "sad": "sad/avatar_20.png",
+      "angry": "angry/avatar_20.png"
     }
   }
 ]

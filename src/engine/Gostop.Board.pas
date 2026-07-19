@@ -3074,6 +3074,9 @@ begin
   if FGame.Phase = gpFinished then
   begin
     FAiTimer.Enabled := False;
+    // 자동 진행은 이번 판 한정 — 이 판이 사람 턴 중 자동으로 마무리됐더라도 여기서 반드시 꺼야
+    // 게임종료 팝업의 버튼 클릭이 위쪽 자동진행 클릭 무시 가드에 막히지 않는다
+    FAutoPlay := False;
     // 게임이 끝난 채로 앱이 닫혀도 다음 실행이 끝난 판을 이어서 하기로 열지 않도록 즉시 정리
     TGostopSaveGame.Delete;
     BuildFinalSummary;
@@ -5186,7 +5189,7 @@ begin
   var LPanel := DrawStdDialog('프로그램 정보', 480, 360);
   var LY := LPanel.Top + 66;
 
-  DrawLabel(RectF(LPanel.Left, LY, LPanel.Right, LY + 28), '루미고스톱 v1.00', TAlphaColors.Gold, 18);
+  DrawLabel(RectF(LPanel.Left, LY, LPanel.Right, LY + 28), '루미고스톱 v1.01', TAlphaColors.Gold, 18);
   LY := LY + 40;
 
   Canvas.Fill.Kind := TBrushKind.Solid;

@@ -215,6 +215,7 @@ type
     FSeonDeck: TDeck;                              // 뽑기용 셔플 덱(48장)
     FSeonWinner: Integer;                          // 확정된 선 물리위치(Ord), -1=미결정
     FSeonTicks: Integer;                           // 현재 단계 경과 틱(지연용)
+    FSeonHumanTimeoutTicks: Integer;                // 사람 카드만 남아 대기 중인 경과 틱(방치 시 자동 공개)
     FSeonTimer: TTimer;                            // AI 자동 공개·단계 페이싱
     FSeonCard: array [TSeatPos] of THwatuCard;     // 각 물리 위치가 뒤집은 카드
     FSeonHasCard: array [TSeatPos] of Boolean;     // 이번 라운드 경합자(카드 배정됨)
@@ -1421,6 +1422,7 @@ begin
 
   FSeonStep := seReveal;
   FSeonTicks := 0;
+  FSeonHumanTimeoutTicks := 0;
   FSeonTimer.Enabled := True;
 end;
 
@@ -1557,7 +1559,16 @@ begin
             Exit;
           end;
         end;
-        // 남은 것은 사람 클릭뿐 → 대기
+
+        // 남은 것은 사람 클릭뿐 → 5초(절대 시간, 배속 무관) 방치되면 자동 공개
+        if FSeonHasCard[spBottom] and (not FSeonRevealed[spBottom]) then
+        begin
+          Inc(FSeonHumanTimeoutTicks);
+          if FSeonHumanTimeoutTicks * Integer(FSeonTimer.Interval) >= 5000 then
+          begin
+            SeonRevealPos(spBottom);
+          end;
+        end;
       end;
     seDecide:
       begin
@@ -1587,10 +1598,10 @@ begin
   // 게임 시작 최초 화면부터 아바타·정보 패널 표시
   DrawPanels;
 
-  // 타이틀·안내는 빈 중앙 영역에(자리 카드와 겹치지 않게)
-  var LCen := CenterRegion;
-  var LMidY := (LCen.Top + LCen.Bottom) / 2;
-  DrawLabel(RectF(LCen.Left, LMidY - 52, LCen.Right, LMidY - 20), '선(先) 뽑기 · 밤일낮장', TAlphaColors.White, 26);
+  // 타이틀·안내는 다른 팝업들과 같은 다이얼로그 스타일(나무 결 패널+팝인)로 — 딤은 지금까지
+  // 그린 것(자리 영역·패널)에만 적용되고, 이후 그리는 자리 카드는 딤 위에 밝게 얹힌다.
+  var LPanel := DrawStdDialog('', Max(Width * 0.34, 420.0), 130.0);
+  DrawLabel(RectF(LPanel.Left, LPanel.Top + 14, LPanel.Right, LPanel.Top + 46), '선(先) 뽑기 · 밤일낮장', TAlphaColors.White, 24);
   var LSub := '';
   if FSeonIsDay then
   begin
@@ -1601,14 +1612,16 @@ begin
     LSub := '밤 — 가장 작은 월이 선';
   end;
 
-  DrawLabel(RectF(LCen.Left, LMidY - 18, LCen.Right, LMidY + 10), LSub, $FFFFE08A, 16);
+  DrawLabel(RectF(LPanel.Left, LPanel.Top + 48, LPanel.Right, LPanel.Top + 74), LSub, $FFFFE08A, 15);
 
-  // 확정 시 중앙에 선 발표
+  // 확정 시 패널 안에 선 발표
   if FSeonWinner >= 0 then
   begin
-    DrawLabel(RectF(LCen.Left, LMidY + 14, LCen.Right, LMidY + 50),
-      Format('▶ %s 선(先) ◀', [SeonPosLabel(TSeatPos(FSeonWinner))]), $FFFFD54A, 22);
+    DrawLabel(RectF(LPanel.Left, LPanel.Top + 82, LPanel.Right, LPanel.Top + 116),
+      Format('▶ %s 선(先) ◀', [SeonPosLabel(TSeatPos(FSeonWinner))]), $FFFFD54A, 20);
   end;
+
+  EndStdDialog;
 
   var CS := CardSize;
   for var LPos in SeonActivePositions do

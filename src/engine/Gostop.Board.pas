@@ -221,8 +221,8 @@ type
     FSeonRevealed: array [TSeatPos] of Boolean;    // 앞면 공개됨
     FSeonRect: array [TSeatPos] of TRectF;         // 각 카드 rect(사람 클릭 히트)
 
-    // 보너스 뽑기(더미 펼쳐 고르기) UI + 가져오기 비행 애니메이션
-    FBonusRects: TList<TRectF>;   // 펼쳐진 더미 카드 rect(인덱스 = 더미 인덱스)
+    // 보너스 뽑기(뒷패 펼쳐 고르기) UI + 가져오기 비행 애니메이션
+    FBonusRects: TList<TRectF>;   // 펼쳐진 뒷패 카드 rect(인덱스 = 뒷패 인덱스)
     FPickActive: Boolean;         // 고른 카드 비행 중
     FPickIndex: Integer;
     FPickFrom: TPointF;
@@ -237,7 +237,7 @@ type
     FDialogPopKey: string;       // 마지막에 그린 다이얼로그 식별 키(제목+크기) — 바뀌면 새로 등장한 것으로 판단
     FDialogPreMatrix: TMatrix;   // DrawStdDialog 진입 전 매트릭스(EndStdDialog에서 복원)
 
-    // 딜(패 돌리기) 애니메이션 — 덱에서 각 자리·바닥으로 카드가 날아가며 분배
+    // 딜(패 돌리기) 애니메이션 — 뒷패에서 각 자리·바닥으로 카드가 날아가며 분배
     FDealing: Boolean;
     FDealTimer: TTimer;
     FDealFlies: TArray<TDealFly>;   // 분배 순서대로의 카드 목록
@@ -1224,7 +1224,7 @@ begin
   end;
 end;
 
-// 기리 화면: 셔플된 덱을 격자로 나열(뒷면). 한 장 클릭=그 위치 컷, 퉁=그대로
+// 기리 화면: 셔플된 뒷패를 격자로 나열(뒷면). 한 장 클릭=그 위치 컷, 퉁=그대로
 procedure TGostopBoard.DrawGiri;
 begin
   if FGiriDeck = nil then
@@ -1233,7 +1233,7 @@ begin
   end;
 
   Canvas.FillRound(LocalRect, 0, $A0000000);
-  DrawLabel(RectF(0, Height * 0.07, Width, Height * 0.12), '기리 — 자를 위치의 패를 클릭하세요', TAlphaColors.Gold, 24);
+  DrawLabel(RectF(0, Height * 0.07, Width, Height * 0.12), '기리할 위치를 선택하세요', TAlphaColors.Gold, 24);
 
   FGiriRects.Clear;
   var CS := CardSize;
@@ -1742,7 +1742,7 @@ begin
   end;
 end;
 
-// 덱(무더기) 위치 — 중앙 영역 우측(라이브 보드의 더미 위치와 이어지는 느낌)
+// 뒷패 위치 — 중앙 영역 우측(라이브 보드의 뒷패 위치와 이어지는 느낌)
 function TGostopBoard.DealDeckPoint: TPointF;
 begin
   Result := TBoardLayout.DealDeckPoint(Width, Height);
@@ -1806,7 +1806,7 @@ var
     var LCols := (ATotal + 1) div 2;
     var LRow := AIndex div LCols;
     var LCol := AIndex mod LCols;
-    var LMidX := (LCen.Left + LCen.Right) / 2 - CS.Width * 0.8;   // 덱(우측)과 안 겹치게 약간 왼쪽
+    var LMidX := (LCen.Left + LCen.Right) / 2 - CS.Width * 0.8;   // 뒷패(우측)와 안 겹치게 약간 왼쪽
     var LMidY := (LCen.Top + LCen.Bottom) / 2;
     Result.Target := PointF(LMidX + (LCol - (LCols - 1) / 2) * CS.Width * 0.7 * 1.12,
       LMidY + (LRow - 0.5) * CS.Height * 0.7 * 1.12);
@@ -1920,7 +1920,7 @@ begin
   var CS := CardSize;
   var LDeckPt := DealDeckPoint;
 
-  // 덱 스택(뒷면 겹침)
+  // 뒷패 스택(뒷면 겹침)
   for var I := 2 downto 0 do
   begin
     DrawCardRotated(LDeckPt.X - I * 2, LDeckPt.Y - I * 2, CS.Width * 0.8, CS.Height * 0.8, 0, '', True);
@@ -1934,7 +1934,7 @@ begin
       LF.Card.AssetId, not (LF.IsFloor and LF.Reveal));
   end;
 
-  // 비행 중 카드(덱 → 착지 지점, ease-out. 공개되는 바닥 카드만 중간에 앞면으로 플립)
+  // 비행 중 카드(뒷패 → 착지 지점, ease-out. 공개되는 바닥 카드만 중간에 앞면으로 플립)
   if FDealLanded <= High(FDealFlies) then
   begin
     var LF := FDealFlies[FDealLanded];
@@ -1946,7 +1946,7 @@ begin
   end;
 end;
 
-// 보너스 뽑기: 펼쳐진 더미에서 AStockIndex 카드를 집어 현재 차례 자리로 날리는 애니 시작
+// 보너스 뽑기: 펼쳐진 뒷패에서 AStockIndex 카드를 집어 현재 차례 자리로 날리는 애니 시작
 procedure TGostopBoard.StartBonusPick(const AStockIndex: Integer);
 begin
   if (FGame = nil) or (FGame.Phase <> gpAwaitingBonusDraw) or FPickActive then
@@ -1962,7 +1962,7 @@ begin
   FHoverBonus := -1;
   FPickIndex := AStockIndex;
 
-  // 출발점: 펼쳐진 카드 rect(직전 Paint에서 기록) — 없으면 중앙 덱 위치
+  // 출발점: 펼쳐진 카드 rect(직전 Paint에서 기록) — 없으면 중앙 뒷패 위치
   if AStockIndex < FBonusRects.Count then
   begin
     var LR := FBonusRects[AStockIndex];
@@ -2015,7 +2015,7 @@ begin
   Repaint;
 end;
 
-// 보너스 뽑기 오버레이: 남은 더미를 뒷면으로 펼쳐 보여주고(클릭 선택), 집은 카드는 자리로 비행
+// 보너스 뽑기 오버레이: 남은 뒷패를 펼쳐 보여주고(클릭 선택), 집은 카드는 자리로 비행
 procedure TGostopBoard.DrawBonusDraw;
 begin
   FBonusRects.Clear;
@@ -2063,11 +2063,11 @@ begin
   var LTitle := '';
   if FGame.Current = FHumanIndex then
   begin
-    LTitle := '패를 고르세요';
+    LTitle := '가져갈 패를 선택하세요';
   end
   else
   begin
-    LTitle := Format('%s이(가) 더미에서 한 장 가져갑니다', [FGame.CurrentPlayer.Name]);
+    LTitle := Format('%s이(가) 뒷패에서 한 장 가져갑니다', [FGame.CurrentPlayer.Name]);
   end;
 
   DrawLabel(RectF(LPanel.Left, LPanel.Top + 6, LPanel.Right, LPanel.Top + 34), LTitle, TAlphaColors.White, 16);
@@ -2388,7 +2388,7 @@ begin
   end;
 
   FEngine := TTurnEngine.Create(FGame, LRules);
-  FEngine.BonusDrawEnabled := True;   // 보너스패를 내면 더미를 펼쳐 가져올 패를 고른다(사람·AI 모두 연출)
+  FEngine.BonusDrawEnabled := True;   // 보너스패를 내면 뒷패를 펼쳐 가져올 패를 고른다(사람·AI 모두 연출)
 
   // 이번 판 운 주입(게임 인덱스 순): 뒤집기 때 운이 높으면 유리한 카드가 나올 확률↑
   var LLuck: TArray<Integer>;
@@ -2406,7 +2406,7 @@ begin
 
   if AFreshDeal then
   begin
-    FEngine.ApplyFloorBonus;   // 바닥에 깔린 보너스패는 선이 획득하고 더미에서 보충
+    FEngine.ApplyFloorBonus;   // 바닥에 깔린 보너스패는 선이 획득하고 뒷패에서 보충
     FEngine.ApplyHandChongtong;
     FAwaitingGoStop := False;
     TGostopAudio.Instance.Play('card_deal');
@@ -2730,7 +2730,7 @@ begin
     else
     if FGame.Phase = gpAwaitingBonusDraw then
     begin
-      FStatus := '보너스! 더미에서 가져올 패를 클릭하세요';
+      FStatus := '보너스! 뒷패에서 가져올 패를 클릭하세요';
     end
     else
     begin
@@ -2770,7 +2770,7 @@ begin
     Exit;
   end;
 
-  // AI가 보너스패를 내고 더미 뽑기 대기 중이면, 펼쳐진 더미에서 한 장을 집는 연출로 진행
+  // AI가 보너스패를 내고 뒷패 뽑기 대기 중이면, 펼쳐진 뒷패에서 한 장을 집는 연출로 진행
   if FGame.Phase = gpAwaitingBonusDraw then
   begin
     FAiTimer.Enabled := False;
@@ -4388,7 +4388,7 @@ begin
     FSetupAvatar[R] := -1;   // 먼저 비워 중복 회피 계산에서 제외
     FSetupAvatar[R] := PickUnusedAvatar;
     FSlotDisp[R] := Random(FAvatarPool.Count);
-    FSlotRemain[R] := 22 + R * 9 + Random(6);   // 행마다 시차를 두고 멈춤
+    FSlotRemain[R] := 14 + R * 5 + Random(4);   // 행마다 시차를 두고 멈춤(예전보다 짧게)
   end;
 
   FSlotTick := 0;
@@ -5090,7 +5090,7 @@ begin
       LFloorW := LXs[LCount - 1] + CS.Width;
     end;
 
-    // 스톡 폭까지 고려해 가운데 정렬
+    // 뒷패 폭까지 고려해 가운데 정렬
     var LGroupW := LFloorW;
     if RState.Stock.Count > 0 then
     begin
@@ -5191,7 +5191,7 @@ begin
     end;
   end;
 
-  // 뒤집을 패 무더기(스톡) — 바닥 오른쪽에 인접, 여러 장 겹쳐 두께 표현
+  // 뒷패 — 바닥 오른쪽에 인접, 여러 장 겹쳐 두께 표현
   if RState.Stock.Count > 0 then
   begin
     var LStockX: Single;
@@ -5280,7 +5280,7 @@ begin
     var LCX := (LC.Left + LC.Right) / 2;
     var LCY := (LC.Top + LC.Bottom) / 2;
 
-    // 공개 안 된 나머지는 살짝 겹쳐 쌓인 뒷면 무더기로(스톡 무더기와 같은 표현)
+    // 공개 안 된 나머지는 살짝 겹쳐 쌓인 뒷패로(뒷패와 같은 표현)
     var LHiddenCount := FTable4.Floor.Count - 1;
     for var I := LHiddenCount downto 1 do
     begin
@@ -6110,7 +6110,7 @@ begin
     DrawRegion(SeatRegion(LP), LHasCurrent and (LP = LCurPos));
   end;
 
-  // 중앙: 바닥 + 뒤집을 패 무더기
+  // 중앙: 바닥 + 뒷패
   DrawCenter(CenterRegion);
 
   // 좌석별 카드(참가 중인 플레이어만). 관전 모드에선 아래 자리도 AI로 그린다
@@ -6130,7 +6130,7 @@ begin
   // 자리별 정보 패널(아바타·머니·전적·게임정보) — 매치의 모든 자리(빠진 자리 포함)
   DrawPanels;
 
-  // 보너스 뽑기: 더미 펼쳐 고르기 오버레이(턴 애니 중엔 숨김)
+  // 보너스 뽑기: 뒷패 펼쳐 고르기 오버레이(턴 애니 중엔 숨김)
   if (FGame.Phase = gpAwaitingBonusDraw) and (not Assigned(FDisplay)) then
   begin
     DrawBonusDraw;
@@ -6475,7 +6475,7 @@ begin
     FAnimPlayedFrom := PointF((LActorRegion.Left + LActorRegion.Right) / 2, (LActorRegion.Top + LActorRegion.Bottom) / 2);
   end;
 
-  // 더미(스톡) 위치: 중앙 오른쪽
+  // 뒷패 위치: 중앙 오른쪽
   var LC := CenterRegion;
   FAnimDrawnFrom := PointF(LC.Right - 40, (LC.Top + LC.Bottom) / 2);
 
@@ -6538,7 +6538,7 @@ begin
       begin
         // 뒤집기 소리(폴리포니라 놓기 소리와 겹쳐도 안 끊김)
         TGostopAudio.Instance.Play('card_flip');
-        // 더미에서 들어올림(놓기와 동일 처리)
+        // 뒷패에서 들어올림(놓기와 동일 처리)
         for var LCard in FAnimDrawn do
         begin
           RemoveCardByAsset(FDisplay.Stock, LCard.AssetId);
@@ -6746,7 +6746,7 @@ begin
         end;
       3:
         begin
-          // 뒤집기 후 멈춤(더미를 뒤집었을 때만)
+          // 뒤집기 후 멈춤(뒷패를 뒤집었을 때만)
           LHasContent := Length(FAnimDrawn) > 0;
         end;
       4:
@@ -7045,7 +7045,7 @@ begin
     Exit;
   end;
 
-  // 보너스 뽑기: 펼쳐진 더미에서 한 장 클릭(사람 차례일 때만)
+  // 보너스 뽑기: 펼쳐진 뒷패에서 한 장 클릭(사람 차례일 때만)
   if (FGame <> nil) and (FGame.Phase = gpAwaitingBonusDraw) then
   begin
     MouseDownBonusDraw(LPoint);
@@ -7631,7 +7631,7 @@ begin
     Repaint;
   end;
 
-  // 보너스패 더미 뽑기: 사람 차례에 펼쳐진 패 위 호버 추적(손패 호버와 동일한 방식)
+  // 보너스패 뒷패 뽑기: 사람 차례에 펼쳐진 패 위 호버 추적(손패 호버와 동일한 방식)
   var LNewBonus := -1;
   if (FGame <> nil) and (not Assigned(FDisplay)) and (FGame.Phase = gpAwaitingBonusDraw)
     and (FGame.Current = FHumanIndex) and (not FPickActive) then

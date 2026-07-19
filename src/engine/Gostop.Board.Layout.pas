@@ -36,13 +36,13 @@ type
     class function CardSize(const AHeight: Single): TSizeF; static;
     /// <summary>좌석 영역(항상 4인 구조 고정: 좌/우 세로 기둥, 상/하/중앙은 기둥 사이).</summary>
     class function SeatRegion(const AWidth, AHeight: Single; const APos: TSeatPos): TRectF; static;
-    /// <summary>중앙 영역(바닥패·더미).</summary>
+    /// <summary>중앙 영역(바닥패·뒷패).</summary>
     class function CenterRegion(const AWidth, AHeight: Single): TRectF; static;
     /// <summary>좌석의 정보 패널 rect(크기 고정, 앵커만 자리별로 다름).</summary>
     class function PlayerPanelRect(const AWidth, AHeight: Single; const APos: TSeatPos): TRectF; static;
     /// <summary>좌석에서 카드가 놓일 공간(정보 패널 제외 영역).</summary>
     class function SeatCardArea(const AWidth, AHeight: Single; const APos: TSeatPos): TRectF; static;
-    /// <summary>딜 애니메이션의 덱(무더기) 위치(중앙 영역 우측).</summary>
+    /// <summary>딜 애니메이션의 뒷패 위치(중앙 영역 우측).</summary>
     class function DealDeckPoint(const AWidth, AHeight: Single): TPointF; static;
   end;
 
@@ -81,7 +81,7 @@ end;
 
 class function TBoardLayout.CenterRegion(const AWidth, AHeight: Single): TRectF;
 begin
-  // 상/하 구역 사이 정중앙(바닥패·더미). 좌우 기둥 안쪽
+  // 상/하 구역 사이 정중앙(바닥패·뒷패). 좌우 기둥 안쪽
   Result := RectF(AWidth * 0.21, AHeight * 0.255, AWidth * 0.79, AHeight * 0.49);
 end;
 

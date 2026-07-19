@@ -17,7 +17,7 @@ type
   /// </summary>
   TGameSetup = record
   public
-    /// <summary>딜 결과로 기존 게임 상태의 손패·바닥·더미를 채웁니다(카드 값 복사).</summary>
+    /// <summary>딜 결과로 기존 게임 상태의 손패·바닥·뒷패를 채웁니다(카드 값 복사).</summary>
     /// <param name="AGame">채울 게임 상태(플레이어 수가 딜과 일치해야 함).</param>
     /// <param name="ATable">분배 결과.</param>
     /// <exception cref="EHwatuError">플레이어 수가 다르면 발생.</exception>

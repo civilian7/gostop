@@ -53,7 +53,7 @@ type
     gpPlaying,            // 플레이어가 손패를 낼 차례
     gpAwaitingGoStop,     // 3점 이상 도달, 고/스톱 대기
     gpAwaitingFlipChoice, // 뒤집은 패가 바닥 2장(다른 종류)과 매칭 → 가져갈 패 선택 대기
-    gpAwaitingBonusDraw,  // 보너스패를 내고 더미에서 가져올 패 선택 대기
+    gpAwaitingBonusDraw,  // 보너스패를 내고 뒷패에서 가져올 패 선택 대기
     gpFinished            // 게임 종료
   );
 
@@ -94,7 +94,7 @@ type
     property BbeokCount: Integer read FBbeokCount write FBbeokCount;
   end;
 
-  /// <summary>게임 전체 상태(플레이어들·바닥·더미·차례·단계·사건 로그). 모든 카드의 수명을 소유한다.</summary>
+  /// <summary>게임 전체 상태(플레이어들·바닥·뒷패·차례·단계·사건 로그). 모든 카드의 수명을 소유한다.</summary>
   TGameState = class
   private
     FPlayers: TObjectList<TPlayer>;
@@ -108,7 +108,7 @@ type
     FPlayCount: Integer;
     FThreeBbeok: Boolean;
   public
-    /// <summary>플레이어 이름 목록으로 게임 상태를 생성합니다(빈 손패·바닥·더미).</summary>
+    /// <summary>플레이어 이름 목록으로 게임 상태를 생성합니다(빈 손패·바닥·뒷패).</summary>
     constructor Create(const APlayerNames: array of string);
     destructor Destroy; override;
 
@@ -127,7 +127,7 @@ type
 
     /// <summary>바닥(패) 목록.</summary>
     property Floor: TList<THwatuCard> read FFloor;
-    /// <summary>더미(스톡) 목록. 끝이 맨 위.</summary>
+    /// <summary>뒷패 목록. 끝이 맨 위.</summary>
     property Stock: TList<THwatuCard> read FStock;
     /// <summary>현재 차례 플레이어 인덱스.</summary>
     property Current: Integer read FCurrent write FCurrent;
@@ -178,7 +178,7 @@ type
   end;
 
   /// <summary>
-  ///   고스톱 한 턴을 규칙대로 진행하는 엔진. 손패를 내면 바닥 매칭·더미 뒤집기·먹기·뻑·쪽·따닥·쓸·피 이동을
+  ///   고스톱 한 턴을 규칙대로 진행하는 엔진. 손패를 내면 바닥 매칭·뒷패 뒤집기·먹기·뻑·쪽·따닥·쓸·피 이동을
   ///   처리하고, 3점 이상이면 고/스톱 대기 단계로 전환한다. 뻑 더미의 생성자를 추적해 자뻑·연뻑·첫뻑도 판정한다.
   ///   보너스패는 즉시 획득, 폭탄 카드빚은 '뒤집기만' 턴으로 상환, 종료 시 정산(피박/광박/고박)까지 제공한다.
   /// </summary>
@@ -192,7 +192,7 @@ type
     FCollectEvents: Boolean;        // False면 이벤트 기록·콜백 생략(AI 롤아웃 성능용)
     FPlayerLuck: TArray<Integer>;   // 플레이어별 이번 판 운(0~100). 비어 있으면 보정 없음
     FPendingBonus: TArray<THwatuCard>;   // 이번 턴에 손에서 내려놓은 보너스패(뻑이면 함께 묻힘)
-    FFlipBonus: TArray<THwatuCard>;      // 직전 더미 뒤집기에서 획득한 보너스패(뻑이면 함께 묻힘)
+    FFlipBonus: TArray<THwatuCard>;      // 직전 뒷패 뒤집기에서 획득한 보너스패(뻑이면 함께 묻힘)
     FFlipCard: THwatuCard;
     FFlipOpt0: THwatuCard;
     FFlipOpt1: THwatuCard;
@@ -239,10 +239,10 @@ type
     /// <summary>뒤집기 선택 대기 중, 가져갈 후보 2장(바닥패)을 반환합니다.</summary>
     function FlipChoiceOptions: TArray<THwatuCard>;
     /// <summary>
-    ///   보너스패 뽑기 대기(<c>gpAwaitingBonusDraw</c>)에서 더미의 지정 위치 카드를 가져옵니다.
+    ///   보너스패 뽑기 대기(<c>gpAwaitingBonusDraw</c>)에서 뒷패의 지정 위치 카드를 가져옵니다.
     ///   일반패면 손패로 들어가고 같은 차례가 계속되며, 보너스패면 즉시 획득 후 계속 고릅니다.
     /// </summary>
-    /// <param name="AStockIndex">더미 내 위치(0 기반).</param>
+    /// <param name="AStockIndex">뒷패 내 위치(0 기반).</param>
     /// <exception cref="EHwatuError">보너스 뽑기 대기 단계가 아니거나 범위를 벗어나면 발생.</exception>
     procedure ResolveBonusDraw(const AStockIndex: Integer);
     /// <summary>뒤집기로 가져올 뒤집은 패(선택 대기 중).</summary>
@@ -262,7 +262,7 @@ type
     /// <returns>총통으로 종료되면 True.</returns>
     function ApplyHandChongtong: Boolean;
     /// <summary>
-    ///   딜 직후 바닥에 깔린 보너스패를 선(현재 차례)이 자동 획득하고, 그 장수만큼 더미에서
+    ///   딜 직후 바닥에 깔린 보너스패를 선(현재 차례)이 자동 획득하고, 그 장수만큼 뒷패에서
     ///   일반패를 뽑아 바닥을 채웁니다(보충 중 나온 보너스패도 선이 획득). 딜 후 1회 호출.
     /// </summary>
     procedure ApplyFloorBonus;
@@ -291,7 +291,7 @@ type
     function CanBomb(const AMonth: Integer): Boolean;
     /// <summary>
     ///   현재 플레이어가 지정 월로 폭탄을 칩니다(손패 3장 + 바닥 같은 월 모두 획득, 상대 피 1장씩,
-    ///   배수 ×2). 폭탄 후 더미 1장을 뒤집어 처리하고, 여분 장수만큼 카드빚(뒤집기만 턴)을 부여한 뒤 턴을 넘깁니다.
+    ///   배수 ×2). 폭탄 후 뒷패 1장을 뒤집어 처리하고, 여분 장수만큼 카드빚(뒤집기만 턴)을 부여한 뒤 턴을 넘깁니다.
     /// </summary>
     /// <returns>폭탄 후 3점 이상 도달해 고/스톱 선택이 필요하면 True.</returns>
     /// <exception cref="EHwatuError">폭탄 조건을 만족하지 않으면 발생.</exception>
@@ -299,7 +299,7 @@ type
     /// <summary>현재 플레이어가 카드빚이 남아 '뒤집기만' 턴을 쓸 수 있으면 True.</summary>
     function CanFlipOnly: Boolean;
     /// <summary>
-    ///   카드빚을 갚습니다: 손패를 내지 않고 더미 1장만 뒤집어 처리하고 턴을 넘깁니다(빚 1 감소).
+    ///   카드빚을 갚습니다: 손패를 내지 않고 뒷패 1장만 뒤집어 처리하고 턴을 넘깁니다(빚 1 감소).
     /// </summary>
     /// <returns>3점 이상 도달해 고/스톱 선택이 필요하면 True.</returns>
     /// <exception cref="EHwatuError">진행 단계가 아니거나 갚을 카드빚이 없으면 발생.</exception>
@@ -318,8 +318,8 @@ type
     /// </summary>
     property FlipChoiceEnabled: Boolean read FFlipChoiceEnabled write FFlipChoiceEnabled;
     /// <summary>
-    ///   보너스패를 낼 때 더미를 펼쳐 가져올 패를 고르게 할지(True=<c>gpAwaitingBonusDraw</c>로 멈춤,
-    ///   False=더미 맨 위에서 자동 보충). UI 게임에서 켠다. 기본 False.
+    ///   보너스패를 낼 때 뒷패를 펼쳐 가져올 패를 고르게 할지(True=<c>gpAwaitingBonusDraw</c>로 멈춤,
+    ///   False=뒷패 맨 위에서 자동 보충). UI 게임에서 켠다. 기본 False.
     /// </summary>
     property BonusDrawEnabled: Boolean read FBonusDrawEnabled write FBonusDrawEnabled;
     /// <summary>이벤트 기록·콜백 여부(기본 True). AI 롤아웃은 False로 꺼서 할당을 줄인다.</summary>
@@ -327,7 +327,7 @@ type
     /// <summary>이 엔진의 룰셋(읽기). AI가 시뮬 세계에 같은 룰을 적용할 때 사용.</summary>
     property Rules: TRuleSet read FRules;
     /// <summary>
-    ///   플레이어별 이번 판 운(0~100, 게임 인덱스 순). 설정하면 더미 뒤집기 때 운이 높을수록
+    ///   플레이어별 이번 판 운(0~100, 게임 인덱스 순). 설정하면 뒷패 뒤집기 때 운이 높을수록
     ///   유리한 카드가, 낮을수록 불리한 카드가 나올 확률이 커진다(맨 위 2장 은밀 교환).
     ///   비어 있으면(기본) 보정 없음 — 시뮬레이션·검증기는 순수 확률로 돈다.
     /// </summary>
@@ -717,7 +717,7 @@ begin
       FState.CurrentPlayer.Captured.Add(LCard);
       AddEvent(pekCapture, FState.Current, 0, Format('%s 바닥 보너스패 획득(선)', [FState.CurrentPlayer.Name]));
 
-      // 더미에서 일반패 1장으로 바닥 보충(보충 중 보너스가 나오면 그것도 선이 획득)
+      // 뒷패에서 일반패 1장으로 바닥 보충(보충 중 보너스가 나오면 그것도 선이 획득)
       var LFill: THwatuCard;
       if DrawNonBonus(FState.CurrentPlayer, LFill) then
       begin
@@ -771,7 +771,7 @@ end;
 
 function TTurnEngine.DrawNonBonus(const APlayer: TPlayer; out ACard: THwatuCard): Boolean;
 begin
-  // 운 보정: 이번 판 운이 높으면 더미 위 2장 중 유리한 쪽이, 낮으면 불리한 쪽이 올라오도록
+  // 운 보정: 이번 판 운이 높으면 뒷패 위 2장 중 유리한 쪽이, 낮으면 불리한 쪽이 올라오도록
   // 은밀히 교환한다(뒷면이라 관측 불가). 운 50은 무보정, 배열이 비면 순수 확률.
   if (FState.Stock.Count >= 2) and (FState.Current >= 0) and (FState.Current < Length(FPlayerLuck)) then
   begin
@@ -800,7 +800,7 @@ begin
     end;
   end;
 
-  // 더미 맨 위부터 뒤집되, 보너스패(조커)는 즉시 획득하고 한 장 더 뒤집는다.
+  // 뒷패 맨 위부터 뒤집되, 보너스패(조커)는 즉시 획득하고 한 장 더 뒤집는다.
   // 이번 뒤집기에서 획득한 조커는 추적해 둔다(이후 뻑이 나면 함께 묻어야 하므로).
   FFlipBonus := nil;
   while FState.Stock.Count > 0 do
@@ -872,7 +872,7 @@ end;
 
 function TTurnEngine.CanAct(const APlayerIndex: Integer): Boolean;
 begin
-  // 낼 손패가 있거나, 폭탄 카드빚이 남아 있고 뒤집을 더미가 있으면 행동 가능.
+  // 낼 손패가 있거나, 폭탄 카드빚이 남아 있고 뒤집을 뒷패가 있으면 행동 가능.
   var LPlayer := FState.Player(APlayerIndex);
   Result := (LPlayer.Hand.Count > 0) or ((LPlayer.CardDebt > 0) and (FState.Stock.Count > 0));
 end;
@@ -958,7 +958,7 @@ begin
     end;
 
     // 보너스패(쌍피/3피): 손에서 내면 즉시 획득더미로. 실물 규칙 — 바닥에 놓거나 뒤집지 않고
-    // 더미에서 한 장을 뽑아 손을 보충한 뒤, 같은 차례에 실제 패를 한 번 더 낸다(턴을 넘기지 않음).
+    // 뒷패에서 한 장을 뽑아 손을 보충한 뒤, 같은 차례에 실제 패를 한 번 더 낸다(턴을 넘기지 않음).
     // 단, 이번 턴에 뻑(싼) 경우 함께 묻히도록 대기 목록에 기록해 둔다.
     if LHand.Kind = hkBonus then
     begin
@@ -966,7 +966,7 @@ begin
       FPendingBonus := FPendingBonus + [LHand];
       AddEvent(pekCapture, FState.Current, 0, Format('%s 보너스패 획득', [LPlayer.Name]));
 
-      // 선택 UI가 켜져 있으면 더미를 펼쳐 가져올 패를 고르게 멈춘다
+      // 선택 UI가 켜져 있으면 뒷패를 펼쳐 가져올 패를 고르게 멈춘다
       if FBonusDrawEnabled and (FState.Stock.Count > 0) then
       begin
         FState.Phase := gpAwaitingBonusDraw;
@@ -988,7 +988,7 @@ begin
     var LFirstPlay := FState.PlayCount = 0;
     FState.PlayCount := FState.PlayCount + 1;
 
-    // 더미 뒤집기(보너스패는 즉시 획득하고 다음 장을 뒤집는다)
+    // 뒷패 뒤집기(보너스패는 즉시 획득하고 다음 장을 뒤집는다)
     var LDraw: THwatuCard;
     var LHasDraw := DrawNonBonus(LPlayer, LDraw);
 
@@ -1072,7 +1072,7 @@ begin
       end;
     end;
 
-    // 더미 카드 처리
+    // 뒷패 카드 처리
     var LTtadak := False;
     var LJjok := False;
     if LHasDraw then
@@ -1177,7 +1177,7 @@ begin
 
   if (AStockIndex < 0) or (AStockIndex >= FState.Stock.Count) then
   begin
-    raise EHwatuError.CreateFmt('더미 범위를 벗어난 선택입니다(%d).', [AStockIndex]);
+    raise EHwatuError.CreateFmt('뒷패 범위를 벗어난 선택입니다(%d).', [AStockIndex]);
   end;
 
   var LPlayer := FState.CurrentPlayer;
@@ -1186,9 +1186,9 @@ begin
 
   if LCard.Kind = hkBonus then
   begin
-    // 보너스패를 집으면 그것도 즉시 획득하고, 더미가 남았으면 다시 고른다
+    // 보너스패를 집으면 그것도 즉시 획득하고, 뒷패가 남았으면 다시 고른다
     LPlayer.Captured.Add(LCard);
-    AddEvent(pekCapture, FState.Current, 0, Format('%s 보너스패 획득(더미)', [LPlayer.Name]));
+    AddEvent(pekCapture, FState.Current, 0, Format('%s 보너스패 획득(뒷패)', [LPlayer.Name]));
     if FState.Stock.Count > 0 then
     begin
       Exit;
@@ -1586,7 +1586,7 @@ begin
     LCaptured.Free;
   end;
 
-  // 폭탄 낸 후 더미 1장 뒤집기
+  // 폭탄 낸 후 뒷패 1장 뒤집기
   FlipStockAndResolve(LPlayer);
 
   // 점수 도달 시 고/스톱, 아니면 턴 넘김

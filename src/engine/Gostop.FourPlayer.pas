@@ -72,7 +72,7 @@ type
       const AP2GiveUp: Boolean; const AP3GiveUp: Boolean; const AP4Sell: Boolean;
       const AGwangUnitPrice: Integer; const AOptions: TScoreOptions): TFourPlayerRound; static;
     /// <summary>
-    ///   협상 결과로 실제 치는 3인 게임 상태를 만듭니다. 선이 0번, 빠진 좌석의 손패는 더미(스톡)로 편입.
+    ///   협상 결과로 실제 치는 3인 게임 상태를 만듭니다. 선이 0번, 빠진 좌석의 손패는 뒷패로 편입.
     /// </summary>
     /// <param name="ATable4">4인 딜 결과.</param>
     /// <param name="ARound">협상 결과.</param>
@@ -217,7 +217,7 @@ begin
 
     Result.Floor.AddRange(ATable4.Floor);
     Result.Stock.AddRange(ATable4.Stock);
-    // 빠진 좌석의 손패는 더미로 편입(카드 경제 유지: 3인 7/6/21)
+    // 빠진 좌석의 손패는 뒷패로 편입(카드 경제 유지: 3인 7/6/21)
     Result.Stock.AddRange(ATable4.Hand(ARound.SitOutSeat));
     Result.Current := 0;
   except

@@ -176,7 +176,7 @@ begin
     try
       var LEngine := TTurnEngine.Create(LGame, AOptions);
       try
-        LEngine.ApplyFloorBonus;   // 바닥 보너스패는 선이 획득 + 더미에서 보충
+        LEngine.ApplyFloorBonus;   // 바닥 보너스패는 선이 획득 + 뒷패에서 보충
         LEngine.ApplyHandChongtong;
         while (LGame.Phase <> gpFinished) and (Result.Plays < 8000) do
         begin

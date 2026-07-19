@@ -460,7 +460,7 @@ begin
   var LPool := TList<THwatuCard>.Create;
   var LSizes := TList<Integer>.Create;
   try
-    // 안 보이는 카드 = 다른 플레이어 손패 + 더미 → 풀에 모아 무작위 재분배
+    // 안 보이는 카드 = 다른 플레이어 손패 + 뒷패 → 풀에 모아 무작위 재분배
     for var P := 0 to Result.PlayerCount - 1 do
     begin
       if P = ASelfIndex then

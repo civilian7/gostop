@@ -33,7 +33,7 @@ type
   end;
 
   /// <summary>
-  ///   딜 직후의 게임 테이블 상태. 플레이어별 손패·바닥(패)·더미(스톡)를 담으며,
+  ///   딜 직후의 게임 테이블 상태. 플레이어별 손패·바닥(패)·뒷패를 담으며,
   ///   담긴 모든 카드 목록의 수명을 소유한다. 각 목록에서 끝이 '맨 위(다음 뽑을 카드)'.
   /// </summary>
   TTableState = class
@@ -62,12 +62,12 @@ type
 
     /// <summary>모든 손패를 월→종류 순으로 정렬합니다(표시용).</summary>
     procedure SortHands;
-    /// <summary>사람이 읽을 수 있는 상태 요약 문자열(손패/바닥/더미 장수)을 반환합니다.</summary>
+    /// <summary>사람이 읽을 수 있는 상태 요약 문자열(손패/바닥/뒷패 장수)을 반환합니다.</summary>
     function Summary: string;
 
     /// <summary>바닥(패) 목록. 끝이 맨 위.</summary>
     property Floor: TList<THwatuCard> read FFloor;
-    /// <summary>더미(스톡) 목록. 끝이 맨 위(다음 뽑을 카드).</summary>
+    /// <summary>뒷패 목록. 끝이 맨 위(다음 뽑을 카드).</summary>
     property Stock: TList<THwatuCard> read FStock;
   end;
 
@@ -75,7 +75,7 @@ type
   TDealer = record
   public
     /// <summary>
-    ///   주어진 덱을 구성대로 분배합니다. 손패는 카드 단위 라운드로빈으로, 이어서 바닥, 남은 것은 더미가 됩니다.
+    ///   주어진 덱을 구성대로 분배합니다. 손패는 카드 단위 라운드로빈으로, 이어서 바닥, 남은 것은 뒷패가 됩니다.
     ///   덱은 이 호출로 소진됩니다(전달한 덱의 카드 목록은 비워짐).
     /// </summary>
     /// <param name="ADeck">분배할 덱(셔플되어 있어야 함).</param>
@@ -259,7 +259,7 @@ begin
       LBuilder.AppendFormat('P%d 손패=%d  ', [I + 1, FHands[I].Count]);
     end;
 
-    LBuilder.AppendFormat('바닥=%d  더미=%d', [FFloor.Count, FStock.Count]);
+    LBuilder.AppendFormat('바닥=%d  뒷패=%d', [FFloor.Count, FStock.Count]);
     Result := LBuilder.ToString;
   finally
     LBuilder.Free;
@@ -297,7 +297,7 @@ begin
       Result.Floor.Add(ADeck.Draw);
     end;
 
-    // 더미: 남은 카드를 순서 그대로(끝=맨 위) 이관
+    // 뒷패: 남은 카드를 순서 그대로(끝=맨 위) 이관
     Result.Stock.AddRange(ADeck.Cards);
     ADeck.Cards.Clear;
   except

@@ -6383,24 +6383,17 @@ begin
   var LAvCx := (LAvR.Left + LAvR.Right) / 2;
   var LAvCy := (LAvR.Top + LAvR.Bottom) / 2;
 
-  var LDX := 0.0;
-  var LDY := 0.0;
+  var LDX: Single;
+  var LDY := 0.0;   // 방향은 좌우 고정이라 세로 성분은 항상 0
+  // P1(spTop)·P2(spLeft)는 오른쪽, P3(spBottom)·P4(spRight)는 왼쪽으로 고정 지정
   case FSpeechSeat of
-    spTop:
+    spTop, spLeft:
       begin
-        LDX := 1;    // 손패가 왼쪽 → 오른쪽으로
-      end;
-    spBottom:
-      begin
-        LDX := -1;   // 손패가 오른쪽 → 왼쪽으로
-      end;
-    spLeft:
-      begin
-        LDY := -1;   // 손패가 아래 → 위로
+        LDX := 1;
       end;
   else
     begin
-      LDY := 1;      // spRight: 손패가 위 → 아래로
+      LDX := -1;     // spBottom, spRight
     end;
   end;
 

@@ -20,8 +20,10 @@ type
     IsWinner: Boolean;
     /// <summary>True면 Amount·Flags 표시, False면 Text만 표시.</summary>
     HasAmount: Boolean;
-    /// <summary>지불/수령 금액(부호 포함).</summary>
+    /// <summary>이번 게임에서 딴/잃은 금액(부호 포함).</summary>
     Amount: Integer;
+    /// <summary>이번 정산 반영 후 그 좌석의 총 보유 금액.</summary>
+    BalanceAfter: Integer;
     /// <summary>박 뱃지들(피박/광박/고박/멍박/쇼당독박 등).</summary>
     Flags: TArray<string>;
     /// <summary>승자 줄에만 채워지는 점수 내역 뱃지들(광 3·열끗 1·띠 3·피 3 형태).</summary>
@@ -330,6 +332,7 @@ begin
       LWinRow.IsWinner := True;
       LWinRow.HasAmount := True;
       LWinRow.Amount := LNet4[LWinnerSeat] * AInput.MoneyPerPoint * AInput.Stakes;
+      LWinRow.BalanceAfter := LMoney[AInput.GameToPhysical[AGame.Winner]];
       LWinRow.Flags := nil;
       var LWinBreakdown4 := AEngine.ScoreOf(AGame.Winner);
       LWinRow.ScoreParts := ScorePartsOf(LWinBreakdown4);
@@ -346,6 +349,7 @@ begin
           LRow.IsWinner := False;
           LRow.HasAmount := True;
           LRow.Amount := LNet4[S] * AInput.MoneyPerPoint * AInput.Stakes;
+          LRow.BalanceAfter := LMoney[(AInput.NextStartPos + S) mod 4];
           LRow.Flags := LSeatFlag[S];
           LRows.Add(LRow);
         end;
@@ -358,6 +362,7 @@ begin
       LWinRow.IsWinner := True;
       LWinRow.HasAmount := True;
       LWinRow.Amount := LSettle[AGame.Winner].Net * AInput.MoneyPerPoint * AInput.Stakes;
+      LWinRow.BalanceAfter := LMoney[AInput.GameToPhysical[AGame.Winner]];
       LWinRow.Flags := nil;
       var LWinBreakdown3 := AEngine.ScoreOf(AGame.Winner);
       LWinRow.ScoreParts := ScorePartsOf(LWinBreakdown3);
@@ -379,6 +384,7 @@ begin
           LRow.IsWinner := False;
           LRow.HasAmount := True;
           LRow.Amount := LSettle[I].Net * AInput.MoneyPerPoint * AInput.Stakes;
+          LRow.BalanceAfter := LMoney[AInput.GameToPhysical[I]];
           LRow.Flags := LFlags;
           LRows.Add(LRow);
         end;

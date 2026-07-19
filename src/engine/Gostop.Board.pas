@@ -5509,26 +5509,45 @@ begin
         LBadgeX := LBadgeR.Right + 6;
       end;
 
-      // 금액(천단위 콤마, 고정폭 금액란 안에서 우측 정렬). 승자는 받는 금액이므로 +부호로 구분
-      var LAmtSign := '';
-      if LRow.IsWinner and (LRow.Amount > 0) then
-      begin
-        LAmtSign := '+';
-      end;
+      // 금액 두 줄(천단위 콤마, 고정폭 금액란 안에서 우측 정렬):
+      // 위=보유한 돈(크게, 강조), 아래=이번 판에서 딴/잃은 돈(작게, 손익 색상)
+      var LAmtR := RectF(LAmountR0 - 20, LY, LPanel.Right - 18, LY + LRowH);
+      var LBalR := RectF(LAmtR.Left, LAmtR.Top + LRowH * 0.10, LAmtR.Right, LAmtR.Top + LRowH * 0.58);
+      var LNetR := RectF(LAmtR.Left, LBalR.Bottom, LAmtR.Right, LAmtR.Bottom - LRowH * 0.06);
 
-      var LAmtText := Format('%s%s원', [LAmtSign, FormatFloat('#,##0', LRow.Amount)]);
+      var LBalColor := TAlphaColors.White;
+      var LBalSize := 24.0;
       if LRow.IsWinner then
       begin
-        Canvas.Fill.Color := TAlphaColors.Gold;
-        Canvas.Font.Size := 23;
-      end
-      else
-      begin
-        Canvas.Fill.Color := TAlphaColors.White;
-        Canvas.Font.Size := 19;
+        LBalColor := TAlphaColors.Gold;
+        LBalSize := 27.0;
       end;
 
-      Canvas.FillText(RectF(LAmountR0 - 20, LY, LPanel.Right - 18, LY + LRowH), LAmtText,
+      Canvas.Fill.Color := LBalColor;
+      Canvas.Font.Size := LBalSize;
+      Canvas.FillText(LBalR, Format('%s원', [FormatFloat('#,##0', LRow.BalanceAfter)]),
+        False, 1, [], TTextAlign.Trailing, TTextAlign.Center);
+
+      var LNetSign := '';
+      if LRow.Amount > 0 then
+      begin
+        LNetSign := '+';
+      end;
+
+      var LNetColor := $FFB8C4B8;   // 무승부·0원 등 중립 톤
+      if LRow.Amount > 0 then
+      begin
+        LNetColor := $FF7ED9A0;     // 이득(연한 초록)
+      end
+      else
+      if LRow.Amount < 0 then
+      begin
+        LNetColor := $FFE08080;     // 손실(연한 빨강)
+      end;
+
+      Canvas.Fill.Color := LNetColor;
+      Canvas.Font.Size := 14;
+      Canvas.FillText(LNetR, Format('이번 판 %s%s원', [LNetSign, FormatFloat('#,##0', LRow.Amount)]),
         False, 1, [], TTextAlign.Trailing, TTextAlign.Center);
     end
     else

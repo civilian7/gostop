@@ -60,7 +60,8 @@ type
   TDealFly = record
     Target: TPointF;     // 착지 지점(중심)
     Card: THwatuCard;    // 바닥 카드의 앞면 표시용(손패는 미사용)
-    IsFloor: Boolean;    // True=바닥(앞면 착지), False=손패(뒷면)
+    IsFloor: Boolean;    // True=바닥, False=손패(뒷면)
+    Reveal: Boolean;     // True면 바닥패가 앞면으로 착지(4인은 1장만 True, 나머지는 뒷면 유지)
     Pos: TSeatPos;       // 손패 대상 자리
     Angle: Single;       // 착지 각도(좌/우 자리는 90/270)
     Scale: Single;       // 카드 크기 배율
@@ -1794,6 +1795,9 @@ var
   begin
     Result := Default(TDealFly);
     Result.IsFloor := True;
+    // 4인 맞고 정통 룰: 바닥패는 1장만 공개하고 나머지는 뒷면으로 둔다(광팔기 보장 목적).
+    // 2/3인은 기존대로 전부 공개.
+    Result.Reveal := (FPlayerCount <> 4) or (AIndex = 0);
     Result.Card := ACard;
     Result.Scale := 0.7;
     Result.Angle := 0;
@@ -1927,17 +1931,17 @@ begin
   begin
     var LF := FDealFlies[I];
     DrawCardRotated(LF.Target.X, LF.Target.Y, CS.Width * LF.Scale, CS.Height * LF.Scale, LF.Angle,
-      LF.Card.AssetId, not LF.IsFloor);
+      LF.Card.AssetId, not (LF.IsFloor and LF.Reveal));
   end;
 
-  // 비행 중 카드(덱 → 착지 지점, ease-out. 바닥 카드는 중간에 앞면으로 플립)
+  // 비행 중 카드(덱 → 착지 지점, ease-out. 공개되는 바닥 카드만 중간에 앞면으로 플립)
   if FDealLanded <= High(FDealFlies) then
   begin
     var LF := FDealFlies[FDealLanded];
     var LE := 1 - Sqr(1 - FDealT);
     var LX := LDeckPt.X + (LF.Target.X - LDeckPt.X) * LE;
     var LY := LDeckPt.Y + (LF.Target.Y - LDeckPt.Y) * LE;
-    var LBack := (not LF.IsFloor) or (FDealT < 0.5);
+    var LBack := (not LF.IsFloor) or (not LF.Reveal) or (FDealT < 0.5);
     DrawCardRotated(LX, LY, CS.Width * LF.Scale, CS.Height * LF.Scale, LF.Angle * LE, LF.Card.AssetId, LBack);
   end;
 end;

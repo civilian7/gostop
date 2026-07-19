@@ -281,6 +281,12 @@ type
     FAngrySeats: set of TSeatPos;       // 피를 뺏겨 화난 표정으로 보일 좌석(3초 후 원복)
     FAngryTimer: TTimer;
 
+    // 캐릭터 말풍선(턴 시작마다 일정 확률로 그 좌석 캐릭터의 대사를 잠깐 띄움)
+    FSpeechText: string;
+    FSpeechSeat: TSeatPos;
+    FSpeechTimer: TTimer;
+    FLastSpeechGameIndex: Integer;   // 마지막으로 말풍선을 시도한 게임 인덱스(같은 턴 중복 방지)
+
     // 입력/렌더 보조
     FHandRects: TList<TRectF>;
     FHandIndexMap: TList<Integer>;
@@ -361,6 +367,9 @@ type
     procedure DrawFlyerCard(const ACenter: TPointF; const AAssetId: string; const AFlip: Boolean;
       const AProgress: Single; const ASquashY: Single = 1.0);
     procedure DrawEffectBanner;
+    procedure MaybeShowSpeech;
+    procedure SpeechTimerTick(Sender: TObject);
+    procedure DrawSpeechBubble;
     procedure EffectTimerTick(Sender: TObject);
     procedure AngryTimerTick(Sender: TObject);
     procedure CollectTurnEffects;
@@ -810,6 +819,11 @@ begin
   FEffectTimer.Interval := 1500;
   FEffectTimer.Enabled := False;
   FEffectTimer.OnTimer := EffectTimerTick;
+  FSpeechTimer := TTimer.Create(Self);
+  FSpeechTimer.Interval := 3200;
+  FSpeechTimer.Enabled := False;
+  FSpeechTimer.OnTimer := SpeechTimerTick;
+  FLastSpeechGameIndex := -1;
   FAngryTimer := TTimer.Create(Self);
   FAngryTimer.Interval := 3000;
   FAngryTimer.Enabled := False;
@@ -929,6 +943,13 @@ begin
   FAwaitingGoStop := False;
   FEffectText := '';
   FAngrySeats := [];
+  FSpeechText := '';
+  if Assigned(FSpeechTimer) then
+  begin
+    FSpeechTimer.Enabled := False;
+  end;
+
+  FLastSpeechGameIndex := -1;
   FResultRows := nil;
   FResultTitle := '';
   if Assigned(FSeonTimer) then
@@ -2711,6 +2732,8 @@ begin
     FStatus := Format('%s 차례...', [FGame.CurrentPlayer.Name]);
     FAiTimer.Enabled := True;
   end;
+
+  MaybeShowSpeech;
 
   if CanSaveGame then
   begin
@@ -6119,6 +6142,9 @@ begin
   // 특수 상황 배너(쪽/따닥/싹쓸이/폭탄/흔들기/뻑/총통…)
   DrawEffectBanner;
 
+  // 캐릭터 말풍선(턴 시작마다 일정 확률로)
+  DrawSpeechBubble;
+
   // 아바타 선택 오버레이(최상단)
   if FAvatarPicking then
   begin
@@ -6256,6 +6282,88 @@ begin
   Canvas.FillRound(LRect, 16, $B0201008);
   Canvas.StrokeRound(LRect, 16, $FFFFD54A, 2);
   DrawLabel(LRect, FEffectText, $FFFFE14A, 42);
+end;
+
+// 턴이 새로 시작될 때(같은 턴 안에서 AfterAction이 여러 번 불려도 한 번만) 일정 확률로 그
+// 자리 캐릭터의 대사 하나를 말풍선으로 잠깐 띄운다 — 하단 상태문구는 안내용이라 손대지 않고
+// 별도 연출로만 추가(캐릭터 개성 표현, 게임다운 느낌).
+procedure TGostopBoard.MaybeShowSpeech;
+begin
+  if (FGame = nil) or (FGame.Phase = gpFinished) then
+  begin
+    Exit;
+  end;
+
+  if FGame.Current = FLastSpeechGameIndex then
+  begin
+    Exit;
+  end;
+
+  FLastSpeechGameIndex := FGame.Current;
+  if Random(100) >= 40 then
+  begin
+    Exit;
+  end;
+
+  var LSeat := PhysicalPos(FGame.Current);
+  var LAvIdx := FSeatAvatar[LSeat];
+  var LQCount := TGostopCharacters.QuoteCount(LAvIdx);
+  if LQCount = 0 then
+  begin
+    Exit;
+  end;
+
+  FSpeechSeat := LSeat;
+  FSpeechText := TGostopCharacters.QuoteOf(LAvIdx, Random(LQCount));
+  FSpeechTimer.Enabled := False;
+  FSpeechTimer.Enabled := True;
+end;
+
+procedure TGostopBoard.SpeechTimerTick(Sender: TObject);
+begin
+  FSpeechTimer.Enabled := False;
+  FSpeechText := '';
+  Repaint;
+end;
+
+// 좌석 아바타 옆(보드 중앙 방향)에 대사 말풍선을 그린다 — 어느 좌석이든 화면 안에 들어오도록
+// 아바타 중심→보드 중앙 방향으로 살짝 떨어진 지점에 배치.
+procedure TGostopBoard.DrawSpeechBubble;
+begin
+  if FSpeechText = '' then
+  begin
+    Exit;
+  end;
+
+  var LAvR := SeatAvatarRect(FSpeechSeat);
+  var LAvCx := (LAvR.Left + LAvR.Right) / 2;
+  var LAvCy := (LAvR.Top + LAvR.Bottom) / 2;
+
+  var LCen := CenterRegion;
+  var LDX := (LCen.Left + LCen.Right) / 2 - LAvCx;
+  var LDY := (LCen.Top + LCen.Bottom) / 2 - LAvCy;
+  var LDist := Sqrt(LDX * LDX + LDY * LDY);
+  if LDist < 1 then
+  begin
+    LDist := 1;
+  end;
+
+  var LOffset := LAvR.Width / 2 + 44;
+  var LBx := LAvCx + LDX / LDist * LOffset;
+  var LBy := LAvCy + LDY / LDist * LOffset;
+
+  Canvas.Font.Size := 14;
+  var LTextW := EnsureRange(Canvas.TextWidth(FSpeechText) + 30, 70, 200);
+  var LTextH := 40.0;
+  var LR := RectF(LBx - LTextW / 2, LBy - LTextH / 2, LBx + LTextW / 2, LBy + LTextH / 2);
+
+  Canvas.FillRound(LR, 12, $F0F5EEDD);
+  Canvas.StrokeRound(LR, 12, $FF8A7048, 1.5);
+
+  Canvas.Fill.Kind := TBrushKind.Solid;
+  Canvas.Fill.Color := $FF3A2A18;
+  Canvas.Font.Size := 14;
+  Canvas.FillText(LR, FSpeechText, True, 1, [], TTextAlign.Center, TTextAlign.Center);
 end;
 
 procedure TGostopBoard.PlayTurnSound;

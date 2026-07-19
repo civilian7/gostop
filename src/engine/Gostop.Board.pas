@@ -260,6 +260,7 @@ type
     FDisplay: TGameState;            // 애니 중 표시용 상태(진행 중일 때만, 아니면 nil)
     FAnimTimer: TTimer;
     FAnimStage: Integer;            // 0=없음,1=놓기,2=뒤집기,3=멈춤,4=먹기
+    FEffectStage: Integer;          // 뻑·따닥 등 효과 배너를 띄울 단계(실제 결과가 눈에 보이는 시점에 맞춤)
     FAnimT: Single;                 // 현재 단계 진행(0~1)
     FAnimActor: Integer;
     FAnimPlayed: TArray<THwatuCard>;
@@ -1246,7 +1247,7 @@ begin
     LRefCount := LRefCount + LOpt.BonusCount;
   end;
 
-  var LMaxPanelW := Width * 0.86;
+  var LMaxPanelW := Width * 0.62;
   // 부채꼴 실폭 = Step*(N-1) + 카드폭(양끝 반폭)이므로, 간격 상한 계산 시 카드폭만큼 미리 빼 둬야
   // 실제 패널 폭이 LMaxPanelW를 넘지 않는다.
   var LFanAvailW := LMaxPanelW - AAvColW - 24 - 20 - 24 - 24 - ACardW;
@@ -6519,7 +6520,6 @@ end;
 
 procedure TGostopBoard.StartTurnAnimation(const ABefore: TGameState; const AOnDone: TProc);
 begin
-  CollectTurnEffects;
   FAnimActor := ABefore.Current;
   FAnimPlayed := CardsRemoved(ABefore.Player(FAnimActor).Hand, FGame.Player(FAnimActor).Hand);
   FAnimDrawn := CardsRemoved(ABefore.Stock, FGame.Stock);
@@ -6529,9 +6529,31 @@ begin
   SetLength(FRestCards, 0);
   SetLength(FRestPts, 0);
 
+  // 뻑·따닥 등 효과 배너는 그 결과가 실제로 화면에 드러나는 단계에서 띄운다(먹기>뒤집기>놓기 순으로
+  // 마지막에 벌어지는 단계) — 그래야 카드가 실제로 움직이기 전에 배너부터 먼저 뜨는 일이 없다
+  if Length(FAnimCaptured) > 0 then
+  begin
+    FEffectStage := 4;
+  end
+  else
+  if Length(FAnimDrawn) > 0 then
+  begin
+    FEffectStage := 2;
+  end
+  else
+  if Length(FAnimPlayed) > 0 then
+  begin
+    FEffectStage := 1;
+  end
+  else
+  begin
+    FEffectStage := 0;
+  end;
+
   // 애니메이션할 게 없으면(고/스톱 등) 즉시 완료
   if (Length(FAnimPlayed) = 0) and (Length(FAnimDrawn) = 0) and (Length(FAnimCaptured) = 0) then
   begin
+    CollectTurnEffects;
     ABefore.Free;
     FAnimDone := nil;
     if Assigned(AOnDone) then
@@ -6567,6 +6589,12 @@ end;
 
 procedure TGostopBoard.AnimApplyStageStart(const AStage: Integer);
 begin
+  // 뻑·따닥 등 효과 배너는 그 결과가 실제로 보이는 단계가 시작될 때 띄운다(StartTurnAnimation에서 계산한 FEffectStage)
+  if AStage = FEffectStage then
+  begin
+    CollectTurnEffects;
+  end;
+
   var CS := CardSize;
   // 먹는 패를 짝 위에 얹을 때 오른쪽-아래로 살짝 밀어 짝이 드러나게
   var LRestOff := PointF(CS.Width * 0.16, CS.Height * 0.26);

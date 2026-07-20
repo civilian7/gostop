@@ -30,6 +30,7 @@ type
     pekPiSteal,     // 피 이동(뺏김)
     pekGoStop,      // 고/스톱 선택 가능
     pekGo,          // 고 선언
+    pekReverseGo,   // 역고(상대가 고를 부른 상태에서 내가 다시 고)
     pekStop,        // 스톱 선언
     pekTurnPass,    // 턴 넘어감
     pekFinished     // 게임 종료
@@ -70,6 +71,7 @@ type
     FCardDebt: Integer;
     FPendingShakeMonth: Integer;
     FBbeokCount: Integer;
+    FReverseGo: Boolean;
   public
     /// <summary>이름을 지정해 빈 플레이어를 생성합니다.</summary>
     constructor Create(const AName: string);
@@ -91,6 +93,11 @@ type
     property CardDebt: Integer read FCardDebt write FCardDebt;
     /// <summary>흔들기를 선언한 월(0=없음). 이 월을 실제로 내야 흔들기가 성립한다.</summary>
     property PendingShakeMonth: Integer read FPendingShakeMonth write FPendingShakeMonth;
+    /// <summary>
+    ///   역고 성립 여부. 다른 플레이어가 이미 고를 부른 상태에서 이 플레이어가 고를 부르면 True가 된다.
+    ///   승리 시 고 횟수 배수 대신 역고 배수(따따블)를 적용한다.
+    /// </summary>
+    property ReverseGo: Boolean read FReverseGo write FReverseGo;
     /// <summary>이번 게임에서 이 플레이어가 만든 누적 뻑 횟수(3회=쓰리뻑 즉시 승리 판정).</summary>
     property BbeokCount: Integer read FBbeokCount write FBbeokCount;
   end;
@@ -160,6 +167,8 @@ type
     Meongbak: Boolean;
     /// <summary>고박(고를 부르고 진 사람이 전액 부담) 적용 여부.</summary>
     Gobak: Boolean;
+    /// <summary>역고(상대의 고 뒤에 다시 고) 적용 여부. 승자 기준.</summary>
+    ReverseGo: Boolean;
     /// <summary>승자가 부른 고 횟수(고 배수 표시용).</summary>
     GoCount: Integer;
     /// <summary>고로만 적용된 배수(표시용, 예: 4고=4). 3고 미만이면 1.</summary>
@@ -383,6 +392,7 @@ begin
   FCardDebt := 0;
   FPendingShakeMonth := 0;
   FBbeokCount := 0;
+  FReverseGo := False;
 end;
 
 destructor TPlayer.Destroy;
@@ -443,6 +453,7 @@ begin
     Result.Player(I).CardDebt := FPlayers[I].CardDebt;
     Result.Player(I).PendingShakeMonth := FPlayers[I].PendingShakeMonth;   // 흔들기 커밋 보존(누락 시 시뮬 배수 왜곡)
     Result.Player(I).BbeokCount := FPlayers[I].BbeokCount;
+    Result.Player(I).ReverseGo := FPlayers[I].ReverseGo;   // 역고 보존(누락 시 AI 시뮬 배수 왜곡)
   end;
 
   Result.Floor.AddRange(FFloor);
@@ -1377,9 +1388,32 @@ begin
   end;
 
   var LPlayer := FState.CurrentPlayer;
+
+  // 역고: 이미 고를 부른 상대가 있는데 내가 점수를 내고 거기서 그치지 않고 또 고를 부른 상황.
+  // 한 번 성립하면 그대로 유지된다(이후 몇 번을 더 부르든 역고는 역고).
+  if not LPlayer.ReverseGo then
+  begin
+    for var P := 0 to FState.PlayerCount - 1 do
+    begin
+      if (P <> FState.Current) and (FState.Player(P).GoCount > 0) then
+      begin
+        LPlayer.ReverseGo := True;
+        Break;
+      end;
+    end;
+  end;
+
   LPlayer.GoCount := LPlayer.GoCount + 1;
   LPlayer.LastGoScore := ScoreOf(FState.Current).Total;
-  AddEvent(pekGo, FState.Current, 0, Format('%s %d고!', [LPlayer.Name, LPlayer.GoCount]));
+  if LPlayer.ReverseGo then
+  begin
+    AddEvent(pekReverseGo, FState.Current, 0, Format('%s 역고! (%d고)', [LPlayer.Name, LPlayer.GoCount]));
+  end
+  else
+  begin
+    AddEvent(pekGo, FState.Current, 0, Format('%s %d고!', [LPlayer.Name, LPlayer.GoCount]));
+  end;
+
   AdvanceTurn;
 end;
 
@@ -1490,13 +1524,15 @@ begin
 
     // 패자는 총점이 정산에 안 쓰이므로, 국진을 열끗/쌍피 중 총점이 아니라 피박 회피 우선으로 해석
     var LLoserBreak := TScorer.EvaluateAsLoser(FState.Player(P).Captured, LScoreOpt);
-    var LSettle := TScorer.Settle(LWinBreak, LLoserBreak, LWinnerP.GoCount, LWinnerP.ShakeCount, LScoreOpt);
+    var LSettle := TScorer.Settle(LWinBreak, LLoserBreak, LWinnerP.GoCount, LWinnerP.ShakeCount,
+      LScoreOpt, LWinnerP.ReverseGo);
     Result[P].Net := -LSettle.Points;
     Result[P].Pibak := LSettle.Pibak;
     Result[P].Gwangbak := LSettle.Gwangbak;
     Result[P].Meongbak := LSettle.Meongbak;
     Result[P].GoCount := LWinnerP.GoCount;
     Result[P].GoMultiplier := LSettle.GoMultiplier;
+    Result[P].ReverseGo := LSettle.ReverseGo;
     LTotalToWinner := LTotalToWinner + LSettle.Points;
 
     // 고를 부르고 진 사람(고박 대상)
@@ -1524,6 +1560,7 @@ begin
   end;
 
   Result[LWinner].Net := LTotalToWinner;
+  Result[LWinner].ReverseGo := LWinnerP.ReverseGo;   // 승자 줄에 '역고' 뱃지를 붙이기 위함
 end;
 
 function TTurnEngine.CanDeclareChongtong(const APlayerIndex: Integer; out AMonth: Integer): Boolean;

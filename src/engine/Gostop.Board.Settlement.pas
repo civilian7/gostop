@@ -106,12 +106,18 @@ implementation
 function FlagLabelsOf(const AResult: TPlayerResult): TArray<string>;
 begin
   Result := nil;
+  if AResult.ReverseGo then
+  begin
+    // 역고는 고 횟수 배수를 대체하므로 '3고×2' 대신 이 뱃지를 보여준다
+    Result := Result + [Format('역고×%d', [AResult.GoMultiplier])];
+  end;
+
   if AResult.Gobak then
   begin
     Result := Result + ['고박'];
   end
   else
-  if AResult.GoMultiplier > 1 then
+  if (not AResult.ReverseGo) and (AResult.GoMultiplier > 1) then
   begin
     Result := Result + [Format('%d고×%d', [AResult.GoCount, AResult.GoMultiplier])];
   end;

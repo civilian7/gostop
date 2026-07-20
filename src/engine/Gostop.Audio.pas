@@ -346,9 +346,9 @@ begin
       begin
         Play('sfx_pi_steal');
       end;
-    pekGo:
+    pekGo, pekReverseGo:
       begin
-        Play('sfx_go');
+        Play('sfx_go');   // 역고 전용 음원은 아직 없어 고 소리를 함께 쓴다
       end;
     pekStop:
       begin

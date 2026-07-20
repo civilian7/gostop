@@ -53,6 +53,14 @@ type
     ///   고를 부른 사람이 다른 패자 몫까지 전액을 이 배수로 물어준다(나머지 패자는 면제). 1이면 배수 없음.
     /// </summary>
     GobakMultiplier: Integer;
+    /// <summary>역고 활성화(기본 True).</summary>
+    ReverseGoEnabled: Boolean;
+    /// <summary>
+    ///   역고 배수(기본 4, '따따블'). 상대가 이미 고를 부른 상태에서 내가 점수를 내고
+    ///   거기서 그치지 않고 고를 부르면 역고가 성립한다. 성립하면 고 횟수로 정해지는
+    ///   배수(GoDoubleFromCount) 대신 이 값을 쓴다. 고 보너스(가산점)는 그대로 유지된다.
+    /// </summary>
+    ReverseGoMultiplier: Integer;
 
     /// <summary>널리 쓰이는 표준 규칙값을 반환합니다.</summary>
     class function Default: TScoreOptions; static;
@@ -107,6 +115,8 @@ type
     Gwangbak: Boolean;
     /// <summary>멍박(열끗박) 적용 여부.</summary>
     Meongbak: Boolean;
+    /// <summary>역고 적용 여부(표시용).</summary>
+    ReverseGo: Boolean;
   end;
 
   /// <summary>먹은 패로부터 점수를 계산하고 고·박 정산을 수행하는 정적 계산기.</summary>
@@ -137,8 +147,10 @@ type
     /// <param name="AGoCount">승자 고 횟수.</param>
     /// <param name="AShakeCount">승자 흔들기 횟수(각 ×2).</param>
     /// <param name="AOptions">점수 규칙 옵션.</param>
+    /// <param name="AReverseGo">승자가 역고를 성립시켰는지. True면 고 횟수 배수 대신 역고 배수를 쓴다.</param>
     class function Settle(const AWinner: TScoreBreakdown; const ALoser: TScoreBreakdown;
-      const AGoCount: Integer; const AShakeCount: Integer; const AOptions: TScoreOptions): TSettlement; static;
+      const AGoCount: Integer; const AShakeCount: Integer; const AOptions: TScoreOptions;
+      const AReverseGo: Boolean = False): TSettlement; static;
   end;
 
 implementation
@@ -163,6 +175,8 @@ begin
   Result.MeongbakEnabled := True;
   Result.MeongbakMinAnimal := 7;
   Result.GobakMultiplier := 2;
+  Result.ReverseGoEnabled := True;
+  Result.ReverseGoMultiplier := 4;
 end;
 {$ENDREGION}
 
@@ -399,7 +413,8 @@ begin
 end;
 
 class function TScorer.Settle(const AWinner: TScoreBreakdown; const ALoser: TScoreBreakdown;
-  const AGoCount: Integer; const AShakeCount: Integer; const AOptions: TScoreOptions): TSettlement;
+  const AGoCount: Integer; const AShakeCount: Integer; const AOptions: TScoreOptions;
+  const AReverseGo: Boolean): TSettlement;
 begin
   Result := Default(TSettlement);
 
@@ -408,10 +423,19 @@ begin
   var LBase := AWinner.Total + Result.GoBonus;
 
   Result.Multiplier := 1;
+  if AReverseGo and AOptions.ReverseGoEnabled then
+  begin
+    // 역고(따따블): 고 횟수로 정해지는 배수를 쓰지 않고 고정 배수로 대체한다.
+    // 고박(고를 부르고 진 사람이 전액을 무는 규칙)은 별개로 FinalSettlement에서 또 적용된다.
+    Result.ReverseGo := True;
+    Result.Multiplier := AOptions.ReverseGoMultiplier;
+  end
+  else
   if AGoCount >= AOptions.GoDoubleFromCount then
   begin
     Result.Multiplier := Result.Multiplier * (1 shl Min(AGoCount - (AOptions.GoDoubleFromCount - 1), 10));
   end;
+
   Result.GoMultiplier := Result.Multiplier;
 
   // 흔들기: 각 ×2

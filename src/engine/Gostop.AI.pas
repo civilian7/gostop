@@ -45,12 +45,21 @@ type
     FGoBias: Integer;   // 배짱(0~100, 기본 50): 고/스톱 판단을 고 쪽으로 기울임
     FGreed: Integer;    // 욕심(0~100, 기본 50): 높으면 득점 우선, 낮으면 방어(견제) 우선
     FSeed: UInt64;
+
+    // 족보 완성 카드 봉쇄: MC 평가가 사실상 동점인 후보들 사이에서만, 상대 족보를
+    // 완성시켜 주는 수를 피한다(후보 선별 자체는 건드리지 않는다)
+    FDenyTieBreak: Boolean;   // 동점 갈림수 사용 여부(A/B 측정용)
+    FDenyTieCount: Integer;   // 동점 갈림으로 선택이 바뀐 횟수(검증용)
     function NextRandom(const ABound: Integer): Integer;
     function NextFloat: Double;
     function SkillFactor: Double;
     function SimCount: Integer;
     function CardValue(const ACard: THwatuCard): Double;
     function OpponentThreat(const AState: TGameState; const ASelfIndex: Integer): Double;
+    function OpponentGiftRisk(const AState: TGameState; const ASelfIndex: Integer;
+      const ACard: THwatuCard): Double;
+    function MoveGiftRisk(const AState: TGameState; const ASelfIndex: Integer;
+      const AMove: TAiMove): Double;
     function BestFloorChoice(const AState: TGameState; const AMonth: Integer; out AChoiceValue: Double): Integer;
     function EvaluateHandMove(const AState: TGameState; const ASelfIndex: Integer; const AHandIndex: Integer;
       const AThreat: Double; out AFloorChoice: Integer): Double;
@@ -83,6 +92,14 @@ type
     property GoBias: Integer read FGoBias write FGoBias;
     /// <summary>욕심(0~100, 기본 50). 높을수록 득점 우선, 낮을수록 방어(상대 견제) 우선.</summary>
     property Greed: Integer read FGreed write FGreed;
+
+    /// <summary>
+    ///   수읽기 결과가 사실상 동점일 때 상대 족보를 완성시켜 주는 수를 피할지 여부(기본 켬).
+    ///   후보 선별에는 개입하지 않으므로 실력에는 영향이 없고, 눈에 띄는 악수만 걸러낸다.
+    /// </summary>
+    property DenyTieBreak: Boolean read FDenyTieBreak write FDenyTieBreak;
+    /// <summary>동점 갈림으로 선택이 바뀐 누적 횟수(검증용). 0이면 로직이 죽어 있는 것이다.</summary>
+    property DenyTieCount: Integer read FDenyTieCount;
   end;
 
 implementation
@@ -98,6 +115,10 @@ const
   MAX_DETERMINIZATIONS = 12;   // 능력 100일 때 후보당 시뮬 세계 수
   TOP_K = 3;                   // 몬테카를로로 정밀 평가할 상위 후보 수
   ROLLOUT_ITER_CAP = 4000;     // 롤아웃 안전 상한
+  // 수읽기 값이 이 폭 안이면 사실상 동점으로 보고, 상대 족보를 덜 완성시키는 쪽을 고른다.
+  // 후보 선별에 봉쇄를 섞으면 좋은 수가 밀려나 손해였으므로(6,000판 실측 판당 -0.217,
+  // docs/balance.md 9절) 봉쇄는 여기서만 쓴다.
+  DENY_TIE_EPS = 0.3;
 
 {$REGION 'TAiPlayer'}
 constructor TAiPlayer.Create(const ASkill: Integer; const ASeed: UInt64);
@@ -106,6 +127,8 @@ begin
   FSkill := EnsureRange(ASkill, 0, 100);
   FGoBias := 50;
   FGreed := 50;
+  FDenyTieBreak := True;
+  FDenyTieCount := 0;
   FSeed := ASeed;
   if FSeed = 0 then
   begin
@@ -245,6 +268,69 @@ begin
   end;
 end;
 
+// 이 카드를 바닥에 남기면 상대가 가져가 족보를 완성할 수 있는 위험도(상대 중 최대 상승 점수).
+// 조건을 손으로 나열하는 대신 실제 채점기로 "상대가 이 카드를 먹었을 때 오르는 점수"를 직접 재
+// 청단·홍단·초단·고도리·광은 물론 비광 삼광 같은 예외까지 규칙 그대로 반영된다.
+function TAiPlayer.OpponentGiftRisk(const AState: TGameState; const ASelfIndex: Integer;
+  const ACard: THwatuCard): Double;
+begin
+  Result := 0;
+  var LWith := TList<THwatuCard>.Create;
+  try
+    for var P := 0 to AState.PlayerCount - 1 do
+    begin
+      if P = ASelfIndex then
+      begin
+        Continue;
+      end;
+
+      var LCaptured := AState.Player(P).Captured;
+      var LBase := TScorer.Evaluate(LCaptured, TScoreOptions.Default).Total;
+
+      LWith.Clear;
+      LWith.AddRange(LCaptured);
+      LWith.Add(ACard);
+      Result := Max(Result, TScorer.Evaluate(LWith, TScoreOptions.Default).Total - LBase);
+    end;
+  finally
+    LWith.Free;
+  end;
+end;
+
+// 이 수를 두면 상대에게 족보 완성 카드를 내주게 되는가(바닥에 남는 경우만).
+// 바닥에 같은 월이 있으면 내가 먹으므로 내주는 게 아니고, 보너스패도 바닥에 남지 않는다.
+function TAiPlayer.MoveGiftRisk(const AState: TGameState; const ASelfIndex: Integer;
+  const AMove: TAiMove): Double;
+begin
+  Result := 0;
+  if AMove.Kind <> amkPlayHand then
+  begin
+    Exit;
+  end;
+
+  var LHand := AState.Player(ASelfIndex).Hand;
+  if (AMove.HandIndex < 0) or (AMove.HandIndex >= LHand.Count) then
+  begin
+    Exit;
+  end;
+
+  var LCard := LHand[AMove.HandIndex];
+  if LCard.Kind = hkBonus then
+  begin
+    Exit;
+  end;
+
+  for var I := 0 to AState.Floor.Count - 1 do
+  begin
+    if AState.Floor[I].Month = LCard.Month then
+    begin
+      Exit;   // 짝이 있어 내가 먹는다
+    end;
+  end;
+
+  Result := OpponentGiftRisk(AState, ASelfIndex, LCard);
+end;
+
 function TAiPlayer.BestFloorChoice(const AState: TGameState; const AMonth: Integer; out AChoiceValue: Double): Integer;
 begin
   Result := 0;
@@ -294,6 +380,10 @@ begin
 
   if LMatchCount = 0 then
   begin
+    // 상대 족보를 완성시키는 카드인지는 여기서 보지 않는다. 이 점수는 MC로 정밀 평가할
+    // 상위 후보를 고르는 데 쓰이는데, 여기에 봉쇄 가중을 얹으면 정작 좋은 수가 후보에서
+    // 밀려나 손해였다(6,000판 실측 판당 -0.217, docs/balance.md 9절).
+    // 봉쇄는 MC 평가가 사실상 동점일 때의 갈림수로만 쓴다(DoPlay 참조).
     Result := -CardValue(LCard) * (0.2 + LDefWeight);
     Exit;
   end;
@@ -618,6 +708,7 @@ begin
   var LTopK := TopKMoves(LMoves, TOP_K);
   var LBestValue := -1.0e18;
   var LBestMove := LTopK[0];
+  var LBestGift := 1.0e18;   // 첫 후보가 항상 기준이 되도록 크게 시작
   for var C := 0 to High(LTopK) do
   begin
     var LSum: Double := 0;
@@ -640,10 +731,36 @@ begin
     end;
 
     var LAvg := LSum / LSims;
+
+    // 수읽기 값이 확실히 더 좋으면 그대로 채택하고, 사실상 동점이면 상대 족보를 덜
+    // 완성시켜 주는 쪽을 고른다(상대가 청단 2장인데 3번째 청띠를 깔아주는 악수 회피).
+    var LGift: Double := 0;
+    if FDenyTieBreak then
+    begin
+      LGift := MoveGiftRisk(LState, LSelf, LTopK[C]);
+    end;
+
+    if LAvg > LBestValue + DENY_TIE_EPS then
+    begin
+      LBestValue := LAvg;
+      LBestMove := LTopK[C];
+      LBestGift := LGift;
+    end
+    else
+    if FDenyTieBreak and (LAvg >= LBestValue - DENY_TIE_EPS) and (LGift < LBestGift) then
+    begin
+      // 동점 갈림 — 값은 그대로 두고(더 낮을 수 있으므로) 수만 바꾼다
+      LBestValue := Max(LBestValue, LAvg);
+      LBestMove := LTopK[C];
+      LBestGift := LGift;
+      Inc(FDenyTieCount);
+    end
+    else
     if LAvg > LBestValue then
     begin
       LBestValue := LAvg;
       LBestMove := LTopK[C];
+      LBestGift := LGift;
     end;
   end;
 

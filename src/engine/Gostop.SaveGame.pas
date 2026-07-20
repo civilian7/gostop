@@ -37,6 +37,7 @@ type
     CardDebt: Integer;
     PendingShakeMonth: Integer;
     BbeokCount: Integer;
+    ReverseGo: Boolean;
   end;
 
   /// <summary>저장된 뻑 더미 1건(월 → 생성자 플레이어 인덱스).</summary>
@@ -50,6 +51,12 @@ type
   ///   좌석 배열(Seats)은 항상 TSeatPos 순서(spTop, spLeft, spBottom, spRight) 4칸 고정.
   /// </summary>
   TSaveData = record
+    /// <summary>
+    ///   매치 정보만 담은 스냅샷인지. 판이 끝났지만 사람이 오링되지 않아 다음 판을 이어갈 수 있을 때
+    ///   저장한다. True면 진행 중인 게임(Players/Floor/Stock)이 없으므로 복원 시 곧바로 다음 판을 시작한다.
+    /// </summary>
+    MatchOnly: Boolean;
+
     // 매치(좌석) 정보
     PlayerCount: Integer;
     Spectator: Boolean;
@@ -207,6 +214,7 @@ begin
   try
     var LRoot := TJSONObject.Create;
     try
+      LRoot.AddPair('matchOnly', TJSONBool.Create(AData.MatchOnly));
       LRoot.AddPair('playerCount', TJSONNumber.Create(AData.PlayerCount));
       LRoot.AddPair('spectator', TJSONBool.Create(AData.Spectator));
       LRoot.AddPair('nextStartPos', TJSONNumber.Create(AData.NextStartPos));
@@ -270,6 +278,7 @@ begin
         LPObj.AddPair('cardDebt', TJSONNumber.Create(LP.CardDebt));
         LPObj.AddPair('pendingShakeMonth', TJSONNumber.Create(LP.PendingShakeMonth));
         LPObj.AddPair('bbeokCount', TJSONNumber.Create(LP.BbeokCount));
+        LPObj.AddPair('reverseGo', TJSONBool.Create(LP.ReverseGo));
         LPlayersArr.AddElement(LPObj);
       end;
       LRoot.AddPair('players', LPlayersArr);
@@ -310,6 +319,7 @@ begin
       end;
 
       var LRoot := TJSONObject(LValue);
+      AData.MatchOnly := LRoot.GetValue<Boolean>('matchOnly', False);
       AData.PlayerCount := LRoot.GetValue<Integer>('playerCount', 0);
       AData.Spectator := LRoot.GetValue<Boolean>('spectator', False);
       AData.NextStartPos := LRoot.GetValue<Integer>('nextStartPos', 0);
@@ -389,6 +399,7 @@ begin
           AData.Players[I].CardDebt := LPObj.GetValue<Integer>('cardDebt', 0);
           AData.Players[I].PendingShakeMonth := LPObj.GetValue<Integer>('pendingShakeMonth', 0);
           AData.Players[I].BbeokCount := LPObj.GetValue<Integer>('bbeokCount', 0);
+          AData.Players[I].ReverseGo := LPObj.GetValue<Boolean>('reverseGo', False);
         end;
       end;
 
@@ -409,7 +420,15 @@ begin
       // 4인 매치에서 말번 협상 때 누군가 포기(SitOutSeat)하면 이번 판은 3인으로 진행되므로
       // Players 길이가 PlayerCount보다 작을 수 있다(반대로 클 수는 없음). 예전엔 완전히 같아야
       // 한다고 검사해 말번이 빠진 4인 판을 저장한 뒤에는 항상 "이어하기"가 실패했다.
-      Result := (AData.PlayerCount >= 2) and (Length(AData.Players) >= 2) and (Length(AData.Players) <= AData.PlayerCount);
+      if AData.MatchOnly then
+      begin
+        // 매치 전용 스냅샷은 진행 중인 게임이 없어 Players가 비어 있다 — 좌석 수만 유효하면 된다
+        Result := AData.PlayerCount >= 2;
+      end
+      else
+      begin
+        Result := (AData.PlayerCount >= 2) and (Length(AData.Players) >= 2) and (Length(AData.Players) <= AData.PlayerCount);
+      end;
     finally
       LValue.Free;
     end;

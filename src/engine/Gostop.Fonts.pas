@@ -4,6 +4,7 @@ interface
 
 {$REGION 'uses'}
 uses
+  System.UITypes,
   FMX.Graphics;
 {$ENDREGION}
 
@@ -20,7 +21,8 @@ type
     /// <summary>지정 Canvas의 글꼴을 게임 전역 글꼴+크기로 맞춥니다(Canvas.Font.Size 단독 대입 대체).</summary>
     /// <param name="ACanvas">적용할 Canvas.</param>
     /// <param name="ASize">글꼴 크기(pt).</param>
-    class procedure Apply(const ACanvas: TCanvas; const ASize: Single); static;
+    /// <param name="ABold">굵게 표시할지. Style을 항상 명시적으로 덮어써서 이전 그리기의 굵기가 새지 않게 한다.</param>
+    class procedure Apply(const ACanvas: TCanvas; const ASize: Single; const ABold: Boolean = False); static;
   end;
 
 implementation
@@ -35,10 +37,19 @@ begin
   Result := GOSTOP_FONT_FAMILY;
 end;
 
-class procedure TGostopFonts.Apply(const ACanvas: TCanvas; const ASize: Single);
+class procedure TGostopFonts.Apply(const ACanvas: TCanvas; const ASize: Single; const ABold: Boolean);
 begin
   ACanvas.Font.Family := GOSTOP_FONT_FAMILY;
   ACanvas.Font.Size := ASize;
+  // Style은 Canvas에 남아 다음 그리기까지 따라가므로 굵기 여부와 무관하게 매번 지정한다
+  if ABold then
+  begin
+    ACanvas.Font.Style := [TFontStyle.fsBold];
+  end
+  else
+  begin
+    ACanvas.Font.Style := [];
+  end;
 end;
 
 end.

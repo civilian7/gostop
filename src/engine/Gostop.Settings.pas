@@ -24,6 +24,7 @@ type
     Gwangbak: Boolean;       // 광박
     Meongbak: Boolean;       // 멍박(열끗박)
     Gobak: Boolean;          // 고박(×2)
+    ReverseGo: Boolean;      // 역고(따따블 ×4)
     Bonus: Boolean;          // 보너스패 3장 포함(끄면 순수 48장)
     Speech: Boolean;         // 참가자 말풍선 표시(기본 켬)
     MoneyPerPoint: Integer;  // 점당 금액(사용자 설정 불가 — AiSkill로 자동 결정, SyncMoneyPerPoint 참조)
@@ -60,6 +61,7 @@ begin
   Gwangbak := True;
   Meongbak := True;
   Gobak := True;
+  ReverseGo := True;
   Bonus := True;
   Speech := True;
   SeedMoney := 1000000;   // 시스템 고정 시드머니(100만원)
@@ -133,6 +135,8 @@ begin
   begin
     Result.GobakMultiplier := 1;
   end;
+
+  Result.ReverseGoEnabled := ReverseGo;
 end;
 
 function TGameConfig.ToRules: TRuleSet;
@@ -159,6 +163,7 @@ begin
   Gwangbak := AIni.ReadBool('Rules', 'Gwangbak', Gwangbak);
   Meongbak := AIni.ReadBool('Rules', 'Meongbak', Meongbak);
   Gobak := AIni.ReadBool('Rules', 'Gobak', Gobak);
+  ReverseGo := AIni.ReadBool('Rules', 'ReverseGo', ReverseGo);
   Bonus := AIni.ReadBool('Rules', 'Bonus', Bonus);
   Speech := AIni.ReadBool('Rules', 'Speech', Speech);
   // MoneyPerPoint(AiSkill로 자동 유도)·SeedMoney(시스템 고정값)는 사용자 설정이 아니므로
@@ -175,6 +180,7 @@ begin
   AIni.WriteBool('Rules', 'Gwangbak', Gwangbak);
   AIni.WriteBool('Rules', 'Meongbak', Meongbak);
   AIni.WriteBool('Rules', 'Gobak', Gobak);
+  AIni.WriteBool('Rules', 'ReverseGo', ReverseGo);
   AIni.WriteBool('Rules', 'Bonus', Bonus);
   AIni.WriteBool('Rules', 'Speech', Speech);
   AIni.WriteInteger('Rules', 'AiSkill', AiSkill);

@@ -219,6 +219,21 @@ begin
     Result.Stock.AddRange(ATable4.Stock);
     // 빠진 좌석의 손패는 뒷패로 편입(카드 경제 유지: 3인 7/6/21)
     Result.Stock.AddRange(ATable4.Hand(ARound.SitOutSeat));
+
+    // 편입한 손패를 뒷패에 섞는다. 뒷패는 맨 뒤부터 뽑히므로(TTurnEngine.DrawNonBonus) 그냥
+    // 이어 붙이면 빠진 사람의 패가 곧바로 다음 뒤집기로 전부 나온다 — 실측 100%.
+    // 실물에서도 죽은 패는 뒷패에 섞어 넣으므로 Fisher–Yates로 전체를 다시 섞는다.
+    for var I := Result.Stock.Count - 1 downto 1 do
+    begin
+      var LJ := Random(I + 1);
+      if LJ <> I then
+      begin
+        var LTmp := Result.Stock[I];
+        Result.Stock[I] := Result.Stock[LJ];
+        Result.Stock[LJ] := LTmp;
+      end;
+    end;
+
     Result.Current := 0;
   except
     Result.Free;

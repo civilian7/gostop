@@ -33,7 +33,7 @@
 | sfx_jjok | 쪽 | `playful short "pop" with a tiny bell, cheerful accent, 0.4s` |
 | sfx_ttadak | 따닥 | `two rapid card slaps in quick succession, snappy, 0.4s` |
 | sfx_sseul | 싹쓸이 | `long satisfying sweep of many cards across a table, whoosh, 0.8s` |
-| sfx_bomb | 폭탄 | `cartoon bomb explosion, punchy but short, no debris tail, 0.7s` |
+| sfx_bomb | 폭탄 | `cartoon bomb explosion, punchy but short, no debris tail, 0.7s` — **현재 파일은 절차 합성본(0.80s)**. 크랙(노이즈 파열) + 저역 붐(150→34Hz 하강 스윕) + 럼블 꼬리(2극 저역통과)를 tanh 소프트 클립으로 합쳐 만들었다. 원래 배포본이 0.16s로 스펙의 1/4이라 터지는 느낌이 없었다. |
 | sfx_shake | 흔들기 | `cards rattling and shaking in a hand, tense tremble, 0.6s` |
 | sfx_bbeok | 뻑(자뻑·연뻑·첫뻑) | `comedic deflating womp-womp, short trombone-like fail, 0.6s` |
 | sfx_chongtong | 총통 | `dramatic gong hit with short reverb, announcement, 1s` |

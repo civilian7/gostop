@@ -169,6 +169,11 @@ type
     Gobak: Boolean;
     /// <summary>역고(상대의 고 뒤에 다시 고) 적용 여부. 승자 기준.</summary>
     ReverseGo: Boolean;
+    /// <summary>
+    ///   정산에서 이 플레이어의 국진을 쌍피로 해석했으면 True.
+    ///   국진은 덱에 한 장뿐이라 최대 한 명만 True가 된다. 연출(국진→피 이동)에서 사용한다.
+    /// </summary>
+    GukjinAsPi: Boolean;
     /// <summary>승자가 부른 고 횟수(고 배수 표시용).</summary>
     GoCount: Integer;
     /// <summary>고로만 적용된 배수(표시용, 예: 4고=4). 3고 미만이면 1.</summary>
@@ -1501,6 +1506,7 @@ begin
 
   var LWinnerP := FState.Player(LWinner);
   var LWinBreak := TScorer.Evaluate(LWinnerP.Captured, FRules.Score);
+  Result[LWinner].GukjinAsPi := LWinBreak.GukjinAsPi;
 
   var LTotalToWinner := 0;
   // 피박 면제 기준은 인원수에 따라 다르다: 2인(맞고)=피값 8 이상 면제(≤7 피박), 3인 이상=피값 6 이상 면제(≤5 피박)
@@ -1533,6 +1539,7 @@ begin
     Result[P].GoCount := LWinnerP.GoCount;
     Result[P].GoMultiplier := LSettle.GoMultiplier;
     Result[P].ReverseGo := LSettle.ReverseGo;
+    Result[P].GukjinAsPi := LLoserBreak.GukjinAsPi;
     LTotalToWinner := LTotalToWinner + LSettle.Points;
 
     // 고를 부르고 진 사람(고박 대상)

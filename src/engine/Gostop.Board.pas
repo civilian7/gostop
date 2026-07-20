@@ -70,6 +70,22 @@ type
   end;
 
   /// <summary>
+  ///   한 자리의 획득 패 부채 배치값. 그리기와 좌표 질의가 같은 값을 쓰도록 한 곳에서 계산한다.
+  ///   가로형이면 A=왼쪽 X·B=오른쪽 X·C=위쪽 Y, 세로형이면 A=열 중심 X·B=위 Y·C=아래 Y.
+  /// </summary>
+  TCapturedFanSpec = record
+    Vertical: Boolean;    // True=좌/우 자리(회전 부채)
+    Scale: Single;        // 카드 크기 배율
+    Angle: Single;        // 회전각(세로형만, 90/270)
+    A: Single;
+    B: Single;
+    C: Single;
+    AnchorEnd: Boolean;   // 가로=오른쪽 앵커, 세로=아래 앵커
+    Reverse: Boolean;     // 그룹 순서 반전(세로형 P4)
+    BadgeDir: Integer;    // 장수 배지를 붙일 방향(세로형, +1=오른쪽 -1=왼쪽)
+  end;
+
+  /// <summary>
   ///   고스톱 플레이 보드(FMX 커스텀 컨트롤). 2/3/4인 모드·좌석 배치(반시계)·렌더링·클릭 입력·AI 진행·
   ///   4인 광팔기 협상·고/스톱을 모두 담당한다. 사람은 항상 아래 자리, 나머지는 AI.
   /// </summary>
@@ -281,6 +297,19 @@ type
     FPickTimer: TTimer;
     FBtnQuit: TRectF;             // 게임 종료 팝업 '중지' 버튼
 
+    // 국진(9월 열끗) → 쌍피 이동 연출. 게임이 끝나고 정산이 국진을 쌍피로 해석했을 때,
+    // 획득 더미 안에서 열끗 무리 → 피 무리로 카드가 옮겨가는 걸 보여준다.
+    // 국진은 덱에 한 장뿐이라 대상은 항상 카드 1장·플레이어 1명이다.
+    FGukjinAsPi: array [TSeatPos] of Boolean;   // 이 자리의 국진을 피 무리로 그릴지(이동 완료 후 True)
+    FGukjinMoveActive: Boolean;                 // 이동 연출 진행 중
+    FGukjinMoveDone: Boolean;                   // 이번 판에서 이동 판정을 이미 했는지(중복 시작 방지)
+    FGukjinMoveSeat: TSeatPos;                  // 이동 중인 자리
+    FGukjinMovePileIndex: Integer;              // Captured 안에서의 국진 인덱스(더미에서 뺄 대상)
+    FGukjinMoveFrom: TRectF;                    // 열끗 자리
+    FGukjinMoveTo: TRectF;                      // 피 자리
+    FGukjinMoveT: Single;                       // 0~1 진행도
+    FGukjinMoveTimer: TTimer;
+
     // 표준 다이얼로그(DrawStdDialog) 등장 팝인 애니메이션 — 모든 팝업에 공용
     FDialogPopTimer: TTimer;
     FDialogPopT: Single;         // 0~1, 현재 다이얼로그의 등장 진행도(1=정착)
@@ -468,10 +497,23 @@ type
     procedure DrawBack(const R: TRectF);
     procedure DrawLabel(const R: TRectF; const AText: string; const AColor: TAlphaColor;
       const ASize: Single; const ABold: Boolean = False);
-    procedure DrawCapturedFan(const APile: TList<THwatuCard>; const AX, ARight, AY, AScale: Single; const AAnchorRight: Boolean = False);
+    procedure DrawCapturedFan(const APile: TList<THwatuCard>; const AX, ARight, AY, AScale: Single;
+      const AAnchorRight: Boolean = False; const AGukjinAsPi: Boolean = False; const ASkipPileIndex: Integer = -1);
     procedure DrawCapturedFanV(const APile: TList<THwatuCard>; const ACX, ATopY, ABottomY, AScale, AAngle: Single;
-      const AAnchorBottom: Boolean = False; const AReverse: Boolean = False);
-    function  CapturedSequence(const APile: TList<THwatuCard>): TArray<Integer>;
+      const AAnchorBottom: Boolean = False; const AReverse: Boolean = False; const ABadgeDir: Integer = 1;
+      const AGukjinAsPi: Boolean = False; const ASkipPileIndex: Integer = -1);
+    function  CapturedFanLayout(const APile: TList<THwatuCard>; const AX, ARight, AScale: Single;
+      const AAnchorRight, AGukjinAsPi: Boolean; out ASeq: TArray<Integer>): TArray<Single>;
+    function  CapturedFanLayoutV(const APile: TList<THwatuCard>; const ATopY, ABottomY, AScale: Single;
+      const AAnchorBottom, AReverse, AGukjinAsPi: Boolean; out ASeq: TArray<Integer>): TArray<Single>;
+    procedure DrawCapturedCount(const ACenterX, ACenterY: Single; const ACount: Integer);
+    function  CapturedBadgeSize: TSizeF;
+    function  CapturedSequence(const APile: TList<THwatuCard>; const AGukjinAsPi: Boolean = False): TArray<Integer>;
+    function  CapturedFanSpec(const APos: TSeatPos; const AIsHuman: Boolean): TCapturedFanSpec;
+    procedure BeginGukjinMove;
+    procedure GukjinMoveTick(Sender: TObject);
+    procedure DrawGukjinMove;
+    function  GukjinSlotRect(const AGameIndex, APileIndex: Integer; const AGukjinAsPi: Boolean): TRectF;
     procedure DrawCardRotated(const ACenterX, ACenterY, ACardW, ACardH, AAngle: Single; const AAssetId: string; const ABack: Boolean);
     procedure DrawHumanHand(const ARegion: TRectF);
     procedure DrawHandList(const AHand: TList<THwatuCard>; const ARegion: TRectF; const AInteractive: Boolean;
@@ -673,8 +715,14 @@ begin
 end;
 
 // 획득 더미 그룹: 0=광, 1=열끗, 2=띠, 3=피(피+보너스)
-function CapturedGroup(const ACard: THwatuCard): Integer;
+// AGukjinAsPi=True 면 (전환권이 남은) 국진을 피 무리로 본다 — 정산에서 쌍피로 해석됐을 때의 표시용.
+function CapturedGroup(const ACard: THwatuCard; const AGukjinAsPi: Boolean = False): Integer;
 begin
+  if AGukjinAsPi and ACard.IsGukjin and (not ACard.GukjinLocked) then
+  begin
+    Exit(3);
+  end;
+
   case ACard.Kind of
     hkBright:
       begin
@@ -918,6 +966,10 @@ begin
   FGiriAiTimer.Interval := 1100;
   FGiriAiTimer.Enabled := False;
   FGiriAiTimer.OnTimer := GiriAiTimerTick;
+  FGukjinMoveTimer := TTimer.Create(Self);
+  FGukjinMoveTimer.Interval := 16;   // ~60fps
+  FGukjinMoveTimer.Enabled := False;
+  FGukjinMoveTimer.OnTimer := GukjinMoveTick;
   FGiriCloseTimer := TTimer.Create(Self);
   FGiriCloseTimer.Interval := 16;   // ~60fps
   FGiriCloseTimer.Enabled := False;
@@ -1157,6 +1209,19 @@ begin
   FFoldFrom := nil;
   FFoldAngle := nil;
   FGameOverPending := False;
+
+  // 국진 → 쌍피 이동 상태도 판마다 초기화(안 하면 다음 판에서 이동을 건너뛰거나 표시가 남는다)
+  if Assigned(FGukjinMoveTimer) then
+  begin
+    FGukjinMoveTimer.Enabled := False;
+  end;
+
+  FGukjinMoveActive := False;
+  FGukjinMoveDone := False;
+  for var LP := Low(TSeatPos) to High(TSeatPos) do
+  begin
+    FGukjinAsPi[LP] := False;
+  end;
 
   if Assigned(FGwangTimer) then
   begin
@@ -3485,11 +3550,11 @@ end;
 function TGostopBoard.PresentationBusy: Boolean;
 begin
   Result := (FEffectText <> '') or FEffectGap or (Length(FEffectQueue) > 0) or
-    (Assigned(FEffectTimer) and FEffectTimer.Enabled) or (FShakeT < 1);
+    (Assigned(FEffectTimer) and FEffectTimer.Enabled) or (FShakeT < 1) or FGukjinMoveActive;
 end;
 
 // 판이 끝났을 때의 정산창 진입. 연출이 남아 있으면 미루고, 그 연출이 끝나는 시점
-// (EffectTimerTick·ShakeTimerTick)에 다시 불려 그때 진입한다.
+// (EffectTimerTick·ShakeTimerTick·GukjinMoveTick)에 다시 불려 그때 진입한다.
 procedure TGostopBoard.MaybeBeginGameOver;
 begin
   if (not FGameOverPending) or (FGame = nil) then
@@ -3500,6 +3565,19 @@ begin
   if PresentationBusy then
   begin
     Exit;
+  end;
+
+  // 다른 연출이 모두 끝난 뒤에 국진 → 쌍피 이동을 보여준다. 여기서 시작해야 '국진 → 쌍피' 배너가
+  // 카드 이동과 같이 나온다(AfterAction 에서 시작하면 직전 턴 배너가 남아 있는 동안 카드만 먼저 움직인다).
+  // 이동이 시작되면 PresentationBusy 가 다시 참이 되므로, 끝날 때 GukjinMoveTick 이 여길 다시 부른다.
+  if not FGukjinMoveDone then
+  begin
+    FGukjinMoveDone := True;
+    BeginGukjinMove;
+    if FGukjinMoveActive then
+    begin
+      Exit;
+    end;
   end;
 
   FGameOverPending := False;
@@ -3552,6 +3630,8 @@ begin
     // 정산창은 마지막 턴의 연출(특수 상황 배너·판 흔들림)이 다 끝난 뒤에 띄운다.
     // 바로 띄우면 아직 큐에 남은 배너가 정산창 위에 겹쳐 보인다.
     FGameOverPending := True;
+
+    // 국진 → 쌍피 이동은 MaybeBeginGameOver 안에서(다른 연출이 다 끝난 뒤) 시작한다
     MaybeBeginGameOver;
   end
   else
@@ -3769,7 +3849,7 @@ begin
 end;
 
 // 획득 패를 광→열끗→띠→피 순으로 정렬한 인덱스 시퀀스(연속 부채용)
-function TGostopBoard.CapturedSequence(const APile: TList<THwatuCard>): TArray<Integer>;
+function TGostopBoard.CapturedSequence(const APile: TList<THwatuCard>; const AGukjinAsPi: Boolean): TArray<Integer>;
 begin
   Result := nil;
   for var G := 0 to 3 do
@@ -3778,7 +3858,7 @@ begin
     try
       for var I := 0 to APile.Count - 1 do
       begin
-        if CapturedGroup(APile[I]) = G then
+        if CapturedGroup(APile[I], AGukjinAsPi) = G then
         begin
           LGi.Add(I);
         end;
@@ -3795,26 +3875,150 @@ begin
   end;
 end;
 
+// 배지에 더할 수. 피는 장수가 아니라 피 값(쌍피=2, 3피=3)을 더해야 실제 점수 기준(피 10 = 1점)과 맞는다.
+// 광·열끗·띠는 한 장이 곧 한 개다.
+function CapturedBadgeValue(const ACard: THwatuCard; const AGukjinAsPi: Boolean): Integer;
+begin
+  if CapturedGroup(ACard, AGukjinAsPi) = 3 then
+  begin
+    // 쌍피로 해석된 국진은 JunkValue 가 0이므로 쌍피 값 2로 센다
+    if ACard.IsGukjin then
+    begin
+      Exit(2);
+    end;
+
+    Result := Max(ACard.JunkValue, 1);
+  end
+  else
+  begin
+    Result := 1;
+  end;
+end;
+
+// 획득 더미 그룹별 장수 배지 크기. 동그라미라 가로·세로가 같다.
+// 카드와 함께 커지고 작아져야 한다 — 고정 px 로 두면 작은 창에서 배지가 상대적으로 커져
+// 먹은패를 자리 밖으로 밀어낸다.
+function TGostopBoard.CapturedBadgeSize: TSizeF;
+begin
+  var LD := EnsureRange(CardSize.Height * 0.18, 15.0, 30.0);
+  Result := TSizeF.Create(LD, LD);
+end;
+
+// 획득 더미의 그룹(광/열끗/띠/피) 옆에 붙는 장수 배지.
+// 회색 반투명으로 흐릿하게 깔아 카드를 가리지 않게 하고, 숫자만 또렷하게 얹는다.
+procedure TGostopBoard.DrawCapturedCount(const ACenterX, ACenterY: Single; const ACount: Integer);
+begin
+  var LS := CapturedBadgeSize;
+  var LR := RectF(ACenterX - LS.Width / 2, ACenterY - LS.Height / 2,
+    ACenterX + LS.Width / 2, ACenterY + LS.Height / 2);
+  Canvas.FillCircle(LR, $99787878);
+  DrawLabel(LR, ACount.ToString, $FFFFF4D0, LS.Height * 0.56, True);
+end;
+
 // 획득 패를 하나의 촘촘한 가로 부채로 그린다(광→열끗→띠→피 정렬, 마지막 장이 온전히 보임).
 // [AX..ARight] 폭 안에 들어가도록 겹침 간격 자동 축소(최대 획득 수치에서도 넘치지 않음)
-procedure TGostopBoard.DrawCapturedFan(const APile: TList<THwatuCard>; const AX, ARight, AY, AScale: Single; const AAnchorRight: Boolean);
+// 그룹마다 위쪽에 장수 배지를 얹는다
+// 자리별 획득 부채의 배치 파라미터. 그리기(DrawHumanHand·DrawOpponent)와 좌표 질의(GukjinSlotRect)가
+// 반드시 같은 값을 쓰도록 여기 한 곳에서만 계산한다 — 양쪽에서 따로 계산하면 언젠가 어긋난다.
+// 가로형: A=왼쪽 X, B=오른쪽 X, C=위쪽 Y / 세로형: A=열 중심 X, B=위 Y, C=아래 Y
+function TGostopBoard.CapturedFanSpec(const APos: TSeatPos; const AIsHuman: Boolean): TCapturedFanSpec;
 begin
-  if APile.Count = 0 then
+  Result := Default(TCapturedFanSpec);
+
+  var CS := CardSize;
+  var LRegion := SeatRegion(APos);
+  var LPanel := PlayerPanelRect(APos);
+
+  if AIsHuman then
+  begin
+    // 사람(하단): 패널 오른쪽부터, 손패 위에 얹는다. 상대보다 조금 크게 그린다.
+    Result.Scale := 0.72;
+    Result.A := LPanel.Right + 14;
+    Result.B := LRegion.Right - 6;
+
+    var LHandTop := LRegion.Bottom - CS.Height - 8;
+    Result.C := LHandTop - 12 - CS.Height * Result.Scale;
+    if Result.C < LRegion.Top + 6 then
+    begin
+      Result.C := LRegion.Top + 6;
+    end;
+
+    Exit;
+  end;
+
+  Result.Scale := 0.66;
+  case APos of
+    spTop, spBottom:
+      begin
+        var LBackH := CS.Height * 0.5;
+        if APos = spTop then
+        begin
+          Result.A := LRegion.Left + 6;
+          Result.B := LPanel.Left - 14;
+          Result.AnchorEnd := True;
+
+          // 손패 아래. 먹은패 위에 장수 배지가 얹히므로 그만큼 간격을 더 벌린다
+          var LHandY := LRegion.Top + 8;
+          Result.C := LHandY + LBackH + 12 + CapturedBadgeSize.Height;
+        end
+        else
+        begin
+          Result.A := LPanel.Right + 14;
+          Result.B := LRegion.Right - 6;
+
+          var LHandY := LRegion.Bottom - LBackH - 8;
+          Result.C := LHandY - 10 - CS.Height * Result.Scale;
+        end;
+      end;
+  else
+    begin
+      Result.Vertical := True;
+
+      var LColW := LRegion.Right - LRegion.Left;
+      if APos = spLeft then
+      begin
+        Result.Angle := 90;
+        Result.A := LRegion.Left + LColW * 0.70;
+        Result.B := LPanel.Bottom + 14;
+        Result.C := LRegion.Bottom - 6;
+        Result.BadgeDir := 1;
+      end
+      else
+      begin
+        // P4(오른): 패널이 아래 → 아래 앵커 + 그룹 순서 반전(광이 맨 아래), 배지는 왼쪽
+        Result.Angle := 270;
+        Result.A := LRegion.Left + LColW * 0.30;
+        Result.B := LRegion.Top + 6;
+        Result.C := LPanel.Top - 14;
+        Result.AnchorEnd := True;
+        Result.Reverse := True;
+        Result.BadgeDir := -1;
+      end;
+    end;
+  end;
+end;
+
+// 가로 부채의 배치만 계산한다(그리기 없음). 국진 이동 연출이 이동 전/후 좌표를 알아야 해서
+// 계산과 그리기를 분리했다. Result[K] = ASeq[K] 카드의 왼쪽 X.
+function TGostopBoard.CapturedFanLayout(const APile: TList<THwatuCard>; const AX, ARight, AScale: Single;
+  const AAnchorRight, AGukjinAsPi: Boolean; out ASeq: TArray<Integer>): TArray<Single>;
+begin
+  ASeq := CapturedSequence(APile, AGukjinAsPi);
+  Result := nil;
+
+  var LN := Length(ASeq);
+  if LN = 0 then
   begin
     Exit;
   end;
 
-  var CS := CardSize;
-  var LW := CS.Width * AScale;
-  var LH := CS.Height * AScale;
-  var LSeq := CapturedSequence(APile);
-  var LN := Length(LSeq);
+  var LW := CardSize.Width * AScale;
 
   // 그룹(광/열끗/띠/피) 경계 수 — 그룹 사이에 간격을 줘 묶여 보이게
   var LBounds := 0;
   for var K := 1 to LN - 1 do
   begin
-    if CapturedGroup(APile[LSeq[K]]) <> CapturedGroup(APile[LSeq[K - 1]]) then
+    if CapturedGroup(APile[ASeq[K]], AGukjinAsPi) <> CapturedGroup(APile[ASeq[K - 1]], AGukjinAsPi) then
     begin
       Inc(LBounds);
     end;
@@ -3848,64 +4052,116 @@ begin
   var LX := AX;
   if AAnchorRight then
   begin
-    var LTotal := LW + (LN - 1) * LStep + LBounds * LGap;
-    LX := ARight - LTotal;
+    LX := ARight - (LW + (LN - 1) * LStep + LBounds * LGap);
     if LX < AX then
     begin
       LX := AX;
     end;
   end;
 
+  SetLength(Result, LN);
   for var K := 0 to LN - 1 do
   begin
-    if (K > 0) and (CapturedGroup(APile[LSeq[K]]) <> CapturedGroup(APile[LSeq[K - 1]])) then
+    if (K > 0) and (CapturedGroup(APile[ASeq[K]], AGukjinAsPi) <> CapturedGroup(APile[ASeq[K - 1]], AGukjinAsPi)) then
     begin
       LX := LX + LGap;
     end;
 
-    DrawFront(RectF(LX, AY, LX + LW, AY + LH), APile[LSeq[K]].AssetId);
+    Result[K] := LX;
     LX := LX + LStep;
   end;
 end;
 
-// 세로 방향 촘촘 부채(좌/우 자리용, 90/270 회전). [ATopY..ABottomY] 안에 들어가게 자동 축소
-// AReverse=True면 그룹 순서를 뒤집어(피→띠→열끗→광) 그려, AAnchorBottom과 함께 쓰면 광이 맨 아래에 온다
-procedure TGostopBoard.DrawCapturedFanV(const APile: TList<THwatuCard>; const ACX, ATopY, ABottomY, AScale, AAngle: Single;
-  const AAnchorBottom: Boolean; const AReverse: Boolean);
+procedure TGostopBoard.DrawCapturedFan(const APile: TList<THwatuCard>; const AX, ARight, AY, AScale: Single;
+  const AAnchorRight: Boolean; const AGukjinAsPi: Boolean; const ASkipPileIndex: Integer);
 begin
   if APile.Count = 0 then
   begin
     Exit;
   end;
 
-  var CS := CardSize;
-  var LW := CS.Width * AScale;
-  var LH := CS.Height * AScale;
-  var LSeq := CapturedSequence(APile);
-  if AReverse then
+  var LSeq: TArray<Integer>;
+  var LXs := CapturedFanLayout(APile, AX, ARight, AScale, AAnchorRight, AGukjinAsPi, LSeq);
+  var LN := Length(LSeq);
+  var LW := CardSize.Width * AScale;
+  var LH := CardSize.Height * AScale;
+
+  // 그룹별 좌우 끝과 장수를 모아 두었다가, 카드를 다 그린 뒤 배지를 얹는다
+  var LGCount: TArray<Integer>;
+  var LGLeft: TArray<Single>;
+  var LGRight: TArray<Single>;
+  SetLength(LGCount, 4);
+  SetLength(LGLeft, 4);
+  SetLength(LGRight, 4);
+
+  for var K := 0 to LN - 1 do
   begin
-    for var Lo := 0 to (Length(LSeq) div 2) - 1 do
+    var LX := LXs[K];
+    var LG := CapturedGroup(APile[LSeq[K]], AGukjinAsPi);
+    if LGCount[LG] = 0 then
     begin
-      var LHi := High(LSeq) - Lo;
-      var LTmp := LSeq[Lo];
-      LSeq[Lo] := LSeq[LHi];
-      LSeq[LHi] := LTmp;
+      LGLeft[LG] := LX;
+    end;
+
+    Inc(LGCount[LG], CapturedBadgeValue(APile[LSeq[K]], AGukjinAsPi));
+    LGRight[LG] := LX + LW;
+
+    // 이동 연출 중인 카드는 더미에서 빼고 날아가는 쪽에서 그린다(자리는 이미 비워져 있다)
+    if LSeq[K] <> ASkipPileIndex then
+    begin
+      DrawFront(RectF(LX, AY, LX + LW, AY + LH), APile[LSeq[K]].AssetId);
     end;
   end;
 
-  var LN := Length(LSeq);
+  for var G := 0 to 3 do
+  begin
+    if LGCount[G] > 0 then
+    begin
+      DrawCapturedCount((LGLeft[G] + LGRight[G]) / 2, AY - CapturedBadgeSize.Height / 2 - 2, LGCount[G]);
+    end;
+  end;
+end;
+
+// 세로 방향 촘촘 부채(좌/우 자리용, 90/270 회전). [ATopY..ABottomY] 안에 들어가게 자동 축소
+// AReverse=True면 그룹 순서를 뒤집어(피→띠→열끗→광) 그려, AAnchorBottom과 함께 쓰면 광이 맨 아래에 온다
+// ABadgeDir: 장수 배지를 카드 열의 어느 쪽에 붙일지(+1=오른쪽, -1=왼쪽). 손패 열 반대쪽으로 준다
+// 세로 부채의 배치만 계산한다(그리기 없음). Result[K] = ASeq[K] 카드의 중심 Y.
+function TGostopBoard.CapturedFanLayoutV(const APile: TList<THwatuCard>; const ATopY, ABottomY, AScale: Single;
+  const AAnchorBottom, AReverse, AGukjinAsPi: Boolean; out ASeq: TArray<Integer>): TArray<Single>;
+begin
+  ASeq := CapturedSequence(APile, AGukjinAsPi);
+  Result := nil;
+
+  if AReverse then
+  begin
+    for var Lo := 0 to (Length(ASeq) div 2) - 1 do
+    begin
+      var LHi := High(ASeq) - Lo;
+      var LTmp := ASeq[Lo];
+      ASeq[Lo] := ASeq[LHi];
+      ASeq[LHi] := LTmp;
+    end;
+  end;
+
+  var LN := Length(ASeq);
+  if LN = 0 then
+  begin
+    Exit;
+  end;
+
+  // 회전 시 세로로 쌓이는 시각 높이는 카드 폭(LW)
+  var LW := CardSize.Width * AScale;
 
   // 그룹(광/열끗/띠/피) 경계 수 — 그룹 사이 간격으로 묶여 보이게
   var LBounds := 0;
   for var K := 1 to LN - 1 do
   begin
-    if CapturedGroup(APile[LSeq[K]]) <> CapturedGroup(APile[LSeq[K - 1]]) then
+    if CapturedGroup(APile[ASeq[K]], AGukjinAsPi) <> CapturedGroup(APile[ASeq[K - 1]], AGukjinAsPi) then
     begin
       Inc(LBounds);
     end;
   end;
 
-  // 회전 시 세로로 쌓이는 시각 높이는 카드 폭(LW). 그룹 간격은 카드폭보다 크게(빈 공간)
   var LGap := LW * 1.15;   // 그룹 사이 간격
   var LStep := LW * 0.3;
   var LAvail := ABottomY - ATopY;
@@ -3932,34 +4188,263 @@ begin
   var LY := ATopY + LW / 2;
   if AAnchorBottom then
   begin
-    var LTotal := LW + (LN - 1) * LStep + LBounds * LGap;
-    LY := ABottomY - LTotal + LW / 2;
+    LY := ABottomY - (LW + (LN - 1) * LStep + LBounds * LGap) + LW / 2;
     if LY < ATopY + LW / 2 then
     begin
       LY := ATopY + LW / 2;
     end;
   end;
 
-  // 위치를 먼저 정해 두고, 그리기는 아래에서 위로(역순) 한다.
-  // 순서대로 그리면 나중에 그린 아래쪽 패가 위쪽 패를 덮어, 위쪽 패가 아래로 들어간 것처럼 보인다.
-  var LYs: TArray<Single>;
-  SetLength(LYs, LN);
+  SetLength(Result, LN);
   for var K := 0 to LN - 1 do
   begin
-    if (K > 0) and (CapturedGroup(APile[LSeq[K]]) <> CapturedGroup(APile[LSeq[K - 1]])) then
+    if (K > 0) and (CapturedGroup(APile[ASeq[K]], AGukjinAsPi) <> CapturedGroup(APile[ASeq[K - 1]], AGukjinAsPi)) then
     begin
       LY := LY + LGap;
     end;
 
-    LYs[K] := LY;
+    Result[K] := LY;
     LY := LY + LStep;
   end;
+end;
 
+procedure TGostopBoard.DrawCapturedFanV(const APile: TList<THwatuCard>; const ACX, ATopY, ABottomY, AScale, AAngle: Single;
+  const AAnchorBottom: Boolean; const AReverse: Boolean; const ABadgeDir: Integer;
+  const AGukjinAsPi: Boolean; const ASkipPileIndex: Integer);
+begin
+  if APile.Count = 0 then
+  begin
+    Exit;
+  end;
+
+  var LSeq: TArray<Integer>;
+  var LYs := CapturedFanLayoutV(APile, ATopY, ABottomY, AScale, AAnchorBottom, AReverse, AGukjinAsPi, LSeq);
+  var LN := Length(LSeq);
+  var LW := CardSize.Width * AScale;
+  var LH := CardSize.Height * AScale;
+
+  // 그리기는 아래에서 위로(역순). 순서대로 그리면 나중에 그린 아래쪽 패가 위쪽 패를 덮어,
+  // 위쪽 패가 아래로 들어간 것처럼 보인다.
   for var K := LN - 1 downto 0 do
   begin
-    DrawCardRotated(ACX, LYs[K], LW, LH, AAngle, APile[LSeq[K]].AssetId, False);
+    // 이동 연출 중인 카드는 더미에서 빼고 날아가는 쪽에서 그린다
+    if LSeq[K] <> ASkipPileIndex then
+    begin
+      DrawCardRotated(ACX, LYs[K], LW, LH, AAngle, APile[LSeq[K]].AssetId, False);
+    end;
+  end;
+
+  // 그룹별 장수 배지 — 카드 열 옆(손패 반대쪽)에 그룹 중앙 높이로 붙인다.
+  // 배지는 회전시키지 않는다(어느 자리든 똑바로 읽혀야 하므로).
+  var LGCount: TArray<Integer>;
+  var LGTop: TArray<Single>;
+  var LGBottom: TArray<Single>;
+  SetLength(LGCount, 4);
+  SetLength(LGTop, 4);
+  SetLength(LGBottom, 4);
+
+  for var K := 0 to LN - 1 do
+  begin
+    var LG := CapturedGroup(APile[LSeq[K]], AGukjinAsPi);
+    if LGCount[LG] = 0 then
+    begin
+      LGTop[LG] := LYs[K];
+    end;
+
+    Inc(LGCount[LG], CapturedBadgeValue(APile[LSeq[K]], AGukjinAsPi));
+    LGBottom[LG] := LYs[K];
+  end;
+
+  var LBadgeX := ACX + ABadgeDir * (LH / 2 + CapturedBadgeSize.Width / 2 + 2);
+  for var G := 0 to 3 do
+  begin
+    if LGCount[G] > 0 then
+    begin
+      DrawCapturedCount(LBadgeX, (LGTop[G] + LGBottom[G]) / 2, LGCount[G]);
+    end;
   end;
 end;
+
+{$REGION '국진 → 쌍피 이동 연출'}
+const
+  // 이동에 걸리는 시간(ms). 카드 한 장이 무리를 옮겨가는 게 눈에 들어올 만큼은 길어야 한다.
+  GUKJIN_MOVE_MS = 620.0;
+
+// 국진 카드가 놓일 화면 위치. AGukjinAsPi 에 따라 열끗 자리 / 피 자리가 나온다.
+function TGostopBoard.GukjinSlotRect(const AGameIndex, APileIndex: Integer; const AGukjinAsPi: Boolean): TRectF;
+begin
+  Result := TRectF.Empty;
+
+  var LPos := PhysicalPos(AGameIndex);
+  var LSpec := CapturedFanSpec(LPos, (LPos = spBottom) and (AGameIndex = FHumanIndex));
+  var LPile := RState.Player(AGameIndex).Captured;
+  var LSeq: TArray<Integer>;
+  var LW := CardSize.Width * LSpec.Scale;
+  var LH := CardSize.Height * LSpec.Scale;
+
+  if LSpec.Vertical then
+  begin
+    var LYs := CapturedFanLayoutV(LPile, LSpec.B, LSpec.C, LSpec.Scale, LSpec.AnchorEnd, LSpec.Reverse,
+      AGukjinAsPi, LSeq);
+    for var K := 0 to High(LSeq) do
+    begin
+      if LSeq[K] = APileIndex then
+      begin
+        // 회전 부채: 중심 기준. 가로 두께가 LH, 세로 두께가 LW 다.
+        Exit(RectF(LSpec.A - LH / 2, LYs[K] - LW / 2, LSpec.A + LH / 2, LYs[K] + LW / 2));
+      end;
+    end;
+
+    Exit;
+  end;
+
+  var LXs := CapturedFanLayout(LPile, LSpec.A, LSpec.B, LSpec.Scale, LSpec.AnchorEnd, AGukjinAsPi, LSeq);
+  for var K := 0 to High(LSeq) do
+  begin
+    if LSeq[K] = APileIndex then
+    begin
+      Exit(RectF(LXs[K], LSpec.C, LXs[K] + LW, LSpec.C + LH));
+    end;
+  end;
+end;
+
+// 정산이 국진을 쌍피로 해석했으면, 획득 더미 안에서 열끗 무리 → 피 무리로 옮겨가는 연출을 시작한다.
+// 국진은 덱에 한 장뿐이라 대상은 최대 한 명·한 장이다. 대상이 없으면 아무 일도 하지 않는다.
+procedure TGostopBoard.BeginGukjinMove;
+begin
+  FGukjinMoveActive := False;
+  for var LP := Low(TSeatPos) to High(TSeatPos) do
+  begin
+    FGukjinAsPi[LP] := False;
+  end;
+
+  if (not Assigned(FGame)) or (not Assigned(FEngine)) then
+  begin
+    Exit;
+  end;
+
+  var LResults := FEngine.FinalSettlement;
+  for var I := 0 to FGame.PlayerCount - 1 do
+  begin
+    if (I > High(LResults)) or (not LResults[I].GukjinAsPi) then
+    begin
+      Continue;
+    end;
+
+    // 이 플레이어의 더미에서 전환권이 남은 국진을 찾는다.
+    // GukjinSlotRect 도 같은 더미(RState)를 보므로 인덱스가 어긋나지 않는다.
+    var LPile := RState.Player(I).Captured;
+    for var K := 0 to LPile.Count - 1 do
+    begin
+      if LPile[K].IsGukjin and (not LPile[K].GukjinLocked) then
+      begin
+        var LFrom := GukjinSlotRect(I, K, False);
+        var LTo := GukjinSlotRect(I, K, True);
+        if LFrom.IsEmpty or LTo.IsEmpty then
+        begin
+          Break;
+        end;
+
+        FGukjinMoveSeat := PhysicalPos(I);
+        FGukjinMovePileIndex := K;
+        FGukjinMoveFrom := LFrom;
+        FGukjinMoveTo := LTo;
+        FGukjinMoveT := 0;
+        FGukjinMoveActive := True;
+
+        // 이동 중에도 나머지 패는 이미 '국진이 빠진' 배치로 그린다 — 그래야 착지할 빈자리가 보인다
+        FGukjinAsPi[FGukjinMoveSeat] := True;
+        FGukjinMoveTimer.Enabled := True;
+        QueueEffect('국진 → 쌍피');
+        Break;
+      end;
+    end;
+
+    if FGukjinMoveActive then
+    begin
+      Break;
+    end;
+  end;
+end;
+
+procedure TGostopBoard.GukjinMoveTick(Sender: TObject);
+begin
+  if not FGukjinMoveActive then
+  begin
+    FGukjinMoveTimer.Enabled := False;
+    Exit;
+  end;
+
+  FGukjinMoveT := FGukjinMoveT + FGukjinMoveTimer.Interval / GUKJIN_MOVE_MS * FGameSpeed;
+  if FGukjinMoveT >= 1 then
+  begin
+    FGukjinMoveT := 1;
+    FGukjinMoveActive := False;
+    FGukjinMoveTimer.Enabled := False;
+
+    // 연출이 끝나야 정산 다이얼로그가 뜬다(PresentationBusy 가 이 플래그를 본다)
+    MaybeBeginGameOver;
+  end;
+
+  Repaint;
+end;
+
+// 이동 중인 국진 한 장. 더미 쪽에서는 빠져 있고(ASkipPileIndex) 여기서만 그린다.
+procedure TGostopBoard.DrawGukjinMove;
+begin
+  if not FGukjinMoveActive then
+  begin
+    Exit;
+  end;
+
+  // ease-in-out — 출발·도착을 부드럽게
+  var LT := EnsureRange(FGukjinMoveT, 0, 1);
+  var LE := LT * LT * (3 - 2 * LT);
+
+  var LR := RectF(
+    FGukjinMoveFrom.Left + (FGukjinMoveTo.Left - FGukjinMoveFrom.Left) * LE,
+    FGukjinMoveFrom.Top + (FGukjinMoveTo.Top - FGukjinMoveFrom.Top) * LE,
+    FGukjinMoveFrom.Right + (FGukjinMoveTo.Right - FGukjinMoveFrom.Right) * LE,
+    FGukjinMoveFrom.Bottom + (FGukjinMoveTo.Bottom - FGukjinMoveFrom.Bottom) * LE);
+
+  // 가운데서 살짝 떠오르게 — 더미 위를 넘어가는 느낌
+  var LLift := Sin(LT * Pi) * LR.Height * 0.35;
+  LR.Offset(0, -LLift);
+
+  // 떠 있는 동안 조금 커지고 그림자를 깐다
+  var LPop := 1 + Sin(LT * Pi) * 0.12;
+  LR.Inflate(LR.Width * (LPop - 1) / 2, LR.Height * (LPop - 1) / 2);
+
+  var LShadow := LR;
+  LShadow.Offset(3, 4);
+  Canvas.FillRound(LShadow, 4, $55000000);
+
+  var LSeat := FGukjinMoveSeat;
+  var LAngle := 0.0;
+  if LSeat = spLeft then
+  begin
+    LAngle := 90;
+  end
+  else
+  if LSeat = spRight then
+  begin
+    LAngle := 270;
+  end;
+
+  var LCard := RState.Player(PlayerAtPos(LSeat)).Captured[FGukjinMovePileIndex];
+  if IsZero(LAngle) then
+  begin
+    DrawFront(LR, LCard.AssetId);
+  end
+  else
+  begin
+    // 좌/우 자리는 회전 부채라 회전시켜 그린다(rect 의 가로/세로가 뒤바뀐 상태)
+    DrawCardRotated(LR.CenterPoint.X, LR.CenterPoint.Y, LR.Height, LR.Width, LAngle, LCard.AssetId, False);
+  end;
+
+  Canvas.StrokeRound(LR, 4, $FFFFE082, 2);
+end;
+{$ENDREGION}
 
 function TGostopBoard.SeatRegion(const APos: TSeatPos): TRectF;
 begin
@@ -4097,17 +4582,18 @@ begin
   var LHandRegion := RectF(LCardsL, ARegion.Top, LCardsR + 6, ARegion.Bottom);
   DrawHandList(RState.Player(FHumanIndex).Hand, LHandRegion, not Assigned(FDisplay));
 
-  // 먹은패 — 손패 위 촘촘 가로 부채
-  var LHandTop := ARegion.Bottom - CS.Height - 8;
-  var LCapScale := 0.72;
-  var LCapH := CS.Height * LCapScale;
-  var LCapY := LHandTop - 12 - LCapH;
-  if LCapY < ARegion.Top + 6 then
+  // 먹은패 — 손패 위 촘촘 가로 부채. 배치값은 CapturedFanSpec 한 곳에서만 계산한다
+  var LSpec := CapturedFanSpec(spBottom, True);
+
+  // 국진이 쌍피로 해석돼 이동 중이면, 이동하는 그 카드는 더미에서 빼고 DrawGukjinMove 가 그린다
+  var LSkip := -1;
+  if FGukjinMoveActive and (FGukjinMoveSeat = spBottom) then
   begin
-    LCapY := ARegion.Top + 6;
+    LSkip := FGukjinMovePileIndex;
   end;
 
-  DrawCapturedFan(RState.Player(FHumanIndex).Captured, LCardsL, LCardsR, LCapY, LCapScale);
+  DrawCapturedFan(RState.Player(FHumanIndex).Captured, LSpec.A, LSpec.B, LSpec.C, LSpec.Scale,
+    LSpec.AnchorEnd, FGukjinAsPi[spBottom], LSkip);
 end;
 
 function TGostopBoard.PlayerAtPos(const APos: TSeatPos): Integer;
@@ -6019,18 +6505,17 @@ begin
           LHandY := ARegion.Top + 8;
         end;
 
-        // 먹은패 Y — 손패 다음 순서(위→아래: P1은 손패→먹은패, P3는 먹은패→손패)
-        var LCapY: Single;
-        if APos = spTop then
+        // 먹은패 배치값은 CapturedFanSpec 한 곳에서만 계산한다(좌표 질의와 어긋나지 않도록)
+        var LSpecH := CapturedFanSpec(APos, False);
+
+        var LSkipH := -1;
+        if FGukjinMoveActive and (FGukjinMoveSeat = APos) then
         begin
-          LCapY := LHandY + LBackH + 10;
-        end
-        else
-        begin
-          LCapY := LHandY - 10 - CS.Height * 0.66;
+          LSkipH := FGukjinMovePileIndex;
         end;
 
-        DrawCapturedFan(LCaptured, LCardsL, LCardsR, LCapY, 0.66, APos = spTop);
+        DrawCapturedFan(LCaptured, LSpecH.A, LSpecH.B, LSpecH.C, LSpecH.Scale, LSpecH.AnchorEnd,
+          FGukjinAsPi[APos], LSkipH);
 
         // 손패(뒷면) 그리기 — 가로 부채. P1은 우측(패널쪽) 앵커
         var LStep := LHandStep;
@@ -6077,15 +6562,13 @@ begin
           LBot := LPanel.Top - 14;
         end;
 
-        // 손패(뒷면)·먹은패 열. P2(왼)는 손패가 바깥쪽(왼쪽)·먹은패가 안쪽,
-        // P4(오른)는 반대로 손패가 바깥쪽(오른쪽)·먹은패가 안쪽이 되도록 배치
+        // 손패(뒷면) 열. P2(왼)는 손패가 바깥쪽(왼쪽), P4(오른)는 바깥쪽(오른쪽).
+        // 먹은패 열 X 는 CapturedFanSpec 이 준다.
         var LColW := ARegion.Right - ARegion.Left;
-        var LXHand := ARegion.Left + LColW * 0.30;   // 손패(뒷면) 열
-        var LXCap := ARegion.Left + LColW * 0.70;    // 먹은패 열
+        var LXHand := ARegion.Left + LColW * 0.30;
         if APos = spRight then
         begin
           LXHand := ARegion.Left + LColW * 0.70;
-          LXCap := ARegion.Left + LColW * 0.30;
         end;
 
         // 손패(뒷면) 세로 부채
@@ -6116,7 +6599,17 @@ begin
         end;
 
         // 먹은패 세로 촘촘 부채. P4는 아래(패널쪽) 앵커 + 그룹 순서 반전(광이 맨 아래)
-        DrawCapturedFanV(LCaptured, LXCap, LTop, LBot, 0.66, LAng, APos = spRight, APos = spRight);
+        // 배치값은 CapturedFanSpec 한 곳에서만 계산한다
+        var LSpecV := CapturedFanSpec(APos, False);
+
+        var LSkipV := -1;
+        if FGukjinMoveActive and (FGukjinMoveSeat = APos) then
+        begin
+          LSkipV := FGukjinMovePileIndex;
+        end;
+
+        DrawCapturedFanV(LCaptured, LSpecV.A, LSpecV.B, LSpecV.C, LSpecV.Scale, LSpecV.Angle,
+          LSpecV.AnchorEnd, LSpecV.Reverse, LSpecV.BadgeDir, FGukjinAsPi[APos], LSkipV);
       end;
   end;
 end;
@@ -7416,6 +7909,9 @@ end;
 procedure TGostopBoard.Paint;
 begin
   PaintGame;
+
+  // 국진 → 쌍피 이동은 더미 위를 지나가므로 카드보다 뒤에, 배너보다는 앞에 그린다
+  DrawGukjinMove;
 
   // 특수 상황 배너(쪽/따닥/싹쓸이/폭탄/흔들기/뻑/총통/연사…)는 PaintGame 밖에서 그린다.
   // PaintGame 은 협상·광판매 발표·타이틀 단계에서 일찍 Exit 하므로 그 안에서 그리면

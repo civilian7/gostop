@@ -94,6 +94,11 @@ type
     JunkPoints: Integer;
     /// <summary>족보 합계 점수(고·박 적용 전).</summary>
     Total: Integer;
+    /// <summary>
+    ///   이 내역이 소유 국진을 쌍피로 해석해 계산된 것이면 True.
+    ///   두 해석 중 어느 쪽이 채택됐는지 호출자(연출·UI)가 알 수 있게 남긴다.
+    /// </summary>
+    GukjinAsPi: Boolean;
 
     /// <summary>내역을 사람이 읽을 수 있는 문자열로 반환합니다.</summary>
     function ToString: string;
@@ -363,6 +368,7 @@ begin
       if LAsPi.Total > Result.Total then
       begin
         Result := LAsPi;
+        Result.GukjinAsPi := True;
       end;
 
       Break;
@@ -403,12 +409,14 @@ begin
   begin
     // 쌍피로 봐야만 피박을 면함 → 총점이 낮아져도 그쪽을 선택(패자 총점은 정산에 안 쓰임)
     Result := LAsPi;
+    Result.GukjinAsPi := True;
   end
   else
   if (LAnimalSafe = LPiSafe) and (LAsPi.Total > Result.Total) then
   begin
     // 피박 면부가 두 해석에서 같으면(둘 다 면하거나 둘 다 못 면하거나) 그때는 총점 높은 쪽
     Result := LAsPi;
+    Result.GukjinAsPi := True;
   end;
 end;
 

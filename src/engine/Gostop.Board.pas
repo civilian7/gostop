@@ -5251,7 +5251,7 @@ begin
   var LPanel := DrawStdDialog('프로그램 정보', 480, 360);
   var LY := LPanel.Top + 66;
 
-  DrawLabel(RectF(LPanel.Left, LY, LPanel.Right, LY + 28), '루미고스톱 v1.01', TAlphaColors.Gold, 18);
+  DrawLabel(RectF(LPanel.Left, LY, LPanel.Right, LY + 28), '루미고스톱 v1.0.2', TAlphaColors.Gold, 18);
   LY := LY + 40;
 
   Canvas.Fill.Kind := TBrushKind.Solid;

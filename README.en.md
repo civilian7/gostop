@@ -6,7 +6,10 @@ A Delphi FMX implementation of **Go-Stop (Gostop / Matgo)**, Korea's classic hwa
 
 ![Title screen](docs/screenshots/title.png)
 
-<video src="docs/screenshots/playing.mp4" controls width="720">Gameplay video (docs/screenshots/playing.mp4)</video>
+▶ **Gameplay video** — 3-player match (dealing → capturing → Go/Stop → settlement)
+[Watch page](https://htmlpreview.github.io/?https://github.com/civilian7/gostop/blob/main/docs/demo.html) · [View on GitHub](docs/screenshots/playing.mp4)
+
+> GitHub READMEs cannot play repository-hosted video inline (blocked by GitHub’s own `media-src` CSP), so it opens as a link.
 
 ## Why I built this
 

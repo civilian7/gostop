@@ -99,8 +99,8 @@ begin
       end;
     spBottom:
       begin
-        // P3(아래/사람): 하단 좌측, 카드는 오른쪽
-        Result := RectF(LR.Left + 6, LR.Bottom - 6 - PANEL_H, LR.Left + 6 + LW, LR.Bottom - 6);
+        // P3(아래/사람): 하단 좌측, 카드는 오른쪽 — 하단 컨트롤 바와 겹치지 않게 8px 위로
+        Result := RectF(LR.Left + 6, LR.Bottom - 14 - PANEL_H, LR.Left + 6 + LW, LR.Bottom - 14);
       end;
     spLeft:
       begin
@@ -109,8 +109,8 @@ begin
       end;
   else
     begin
-      // P4(오른쪽): 우측 기둥 하단, 카드는 위
-      Result := RectF(LCx - LW / 2, LR.Bottom - 6 - PANEL_H, LCx + LW / 2, LR.Bottom - 6);
+      // P4(오른쪽): 우측 기둥 하단, 카드는 위 — 하단 컨트롤 바와 겹치지 않게 8px 위로
+      Result := RectF(LCx - LW / 2, LR.Bottom - 14 - PANEL_H, LCx + LW / 2, LR.Bottom - 14);
     end;
   end;
 end;

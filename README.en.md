@@ -6,6 +6,8 @@ A Delphi FMX implementation of **Go-Stop (Gostop / Matgo)**, Korea's classic hwa
 
 ![Title screen](docs/screenshots/title.png)
 
+<video src="docs/screenshots/playing.mp4" controls width="720">Gameplay video (docs/screenshots/playing.mp4)</video>
+
 ## Why I built this
 
 This project is a roughly 40-year-old unfinished assignment.

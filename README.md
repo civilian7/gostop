@@ -6,6 +6,8 @@
 
 ![타이틀 화면](docs/screenshots/title.png)
 
+<video src="docs/screenshots/playing.mp4" controls width="720">플레이 영상(docs/screenshots/playing.mp4)</video>
+
 ## 왜 만들었나
 
 이 프로젝트는 약 40년 묵은 미완성 숙제다.

@@ -109,6 +109,11 @@ begin
   if AResult.Gobak then
   begin
     Result := Result + ['고박'];
+  end
+  else
+  if AResult.GoMultiplier > 1 then
+  begin
+    Result := Result + [Format('%d고×%d', [AResult.GoCount, AResult.GoMultiplier])];
   end;
 
   if AResult.Pibak then
@@ -333,8 +338,17 @@ begin
       LWinRow.BalanceAfter := LMoney[AInput.GameToPhysical[AGame.Winner]];
       LWinRow.Flags := nil;
       var LWinBreakdown4 := AEngine.ScoreOf(AGame.Winner);
+      var LWinGoBonus4 := 0;
+      if not (AGame.ThreeBbeok or LChongtong) then
+      begin
+        LWinGoBonus4 := AGame.Player(AGame.Winner).GoCount * AEngine.Rules.Score.GoBonusPerGo;
+      end;
       LWinRow.ScoreParts := ScorePartsOf(LWinBreakdown4);
-      LWinRow.ScoreTotal := LWinBreakdown4.Total;
+      if LWinGoBonus4 > 0 then
+      begin
+        LWinRow.ScoreParts := LWinRow.ScoreParts + [Format('고(%d)', [LWinGoBonus4])];
+      end;
+      LWinRow.ScoreTotal := LWinBreakdown4.Total + LWinGoBonus4;
       LRows.Add(LWinRow);
 
       for var S := 0 to 3 do
@@ -363,8 +377,17 @@ begin
       LWinRow.BalanceAfter := LMoney[AInput.GameToPhysical[AGame.Winner]];
       LWinRow.Flags := nil;
       var LWinBreakdown3 := AEngine.ScoreOf(AGame.Winner);
+      var LWinGoBonus3 := 0;
+      if not (AGame.ThreeBbeok or LChongtong) then
+      begin
+        LWinGoBonus3 := AGame.Player(AGame.Winner).GoCount * AEngine.Rules.Score.GoBonusPerGo;
+      end;
       LWinRow.ScoreParts := ScorePartsOf(LWinBreakdown3);
-      LWinRow.ScoreTotal := LWinBreakdown3.Total;
+      if LWinGoBonus3 > 0 then
+      begin
+        LWinRow.ScoreParts := LWinRow.ScoreParts + [Format('고(%d)', [LWinGoBonus3])];
+      end;
+      LWinRow.ScoreTotal := LWinBreakdown3.Total + LWinGoBonus3;
       LRows.Add(LWinRow);
 
       for var I := 0 to AGame.PlayerCount - 1 do

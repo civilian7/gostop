@@ -160,6 +160,10 @@ type
     Meongbak: Boolean;
     /// <summary>고박(고를 부르고 진 사람이 전액 부담) 적용 여부.</summary>
     Gobak: Boolean;
+    /// <summary>승자가 부른 고 횟수(고 배수 표시용).</summary>
+    GoCount: Integer;
+    /// <summary>고로만 적용된 배수(표시용, 예: 4고=4). 3고 미만이면 1.</summary>
+    GoMultiplier: Integer;
   end;
 
   /// <summary>
@@ -1491,6 +1495,8 @@ begin
     Result[P].Pibak := LSettle.Pibak;
     Result[P].Gwangbak := LSettle.Gwangbak;
     Result[P].Meongbak := LSettle.Meongbak;
+    Result[P].GoCount := LWinnerP.GoCount;
+    Result[P].GoMultiplier := LSettle.GoMultiplier;
     LTotalToWinner := LTotalToWinner + LSettle.Points;
 
     // 고를 부르고 진 사람(고박 대상)

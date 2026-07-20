@@ -96,9 +96,8 @@ type
     FPaused: Boolean;
     FAutoPlay: Boolean;   // 이번 판 한정 — 켜져 있으면 내 턴도 AI가 대신 진행
 
-    // 하단 컨트롤 바(볼륨·음소거·게임속도) + 타이틀 메뉴 — 유튜브식 호버 표시
+    // 하단 컨트롤 바(게임레벨·일시정지·자동·소리·게임속도) — 항상 고정 표시
     FGameSpeed: Single;        // 애니·AI 대기 속도 배율(0.5~2.0)
-    FBarVisible: Boolean;      // 하단 호버 시에만 컨트롤 바 표시
     FVolDragging: Boolean;     // 볼륨 노브 드래그 중
     FSpdDragging: Boolean;     // 속도 노브 드래그 중
     FMuteRect: TRectF;
@@ -161,6 +160,13 @@ type
     FResultRows: TArray<TResultRow>;
     FResultTitle: string;   // 정산창 제목(판돈 배수 안내, 없으면 빈 문자열) — FStakes 갱신 전 값 보존
     FAwaitingGoStop: Boolean;
+
+    // 정산창 머니 카운트 애니메이션(승자=백단위로 차오름/패자=백단위로 깎임, 모든 줄이 동시 시작·종료)
+    // 순서: 정산창 등장 → 1초 대기 → 카운트 애니메이션(FMoneyCountT) → 끝나야 다음 판 카운트다운·버튼 활성화
+    FMoneyCountDelay: Single;     // 카운트 시작 전 남은 대기 시간(초)
+    FMoneyCountT: Single;         // 0~1, 진행도
+    FMoneyCountTimer: TTimer;
+    FGameOverReady: Boolean;      // 카운트 애니메이션 종료 후 True — 자동진행 카운트다운·버튼 활성화
 
     // 4인 광팔기
     FNegotiating: Boolean;
@@ -346,6 +352,7 @@ type
     function  CanSaveGame: Boolean;
     procedure SaveCurrentGame;
     function  LoadSavedGame: Boolean;
+    function  CanResumeMatch: Boolean;
     procedure StartNegotiation;
     procedure StartNegotiationDeal;
     procedure ResolveNegotiation(const AP2Give, AP3Give, AP4Sell: Boolean);
@@ -506,6 +513,7 @@ type
     function  DrawStdDialog(const ATitle: string; const AWidth, AHeight: Single): TRectF;
     procedure EndStdDialog;
     procedure DialogPopTick(Sender: TObject);
+    procedure MoneyCountTick(Sender: TObject);
     function  AdjustColor(const AColor: TAlphaColor; const ADelta: Integer): TAlphaColor;
     function  IsHot(const ARect: TRectF): Boolean;
     function  IsPressed(const ARect: TRectF): Boolean;
@@ -911,6 +919,10 @@ begin
   FDialogPopTimer.Interval := 16;   // ~60fps
   FDialogPopTimer.Enabled := False;
   FDialogPopTimer.OnTimer := DialogPopTick;
+  FMoneyCountTimer := TTimer.Create(Self);
+  FMoneyCountTimer.Interval := 16;   // ~60fps
+  FMoneyCountTimer.Enabled := False;
+  FMoneyCountTimer.OnTimer := MoneyCountTick;
   FBonusRects := TList<TRectF>.Create;
   FPickTimer := TTimer.Create(Self);
   FPickTimer.Interval := 16;   // ~60fps
@@ -1086,6 +1098,12 @@ begin
   begin
     FGameOverTimer.Enabled := False;
   end;
+
+  if Assigned(FMoneyCountTimer) then
+  begin
+    FMoneyCountTimer.Enabled := False;
+  end;
+  FGameOverReady := False;
 
   FReplacingSeats := nil;
   FHoverHand := -1;
@@ -1507,9 +1525,13 @@ begin
   var LRowY := LBodyTop + LHoverRaise + LCardH / 2;
 
   // 컷일 때 카드들이 좌/우로 모여드는 지점(선택한 카드 기준 그 앞쪽은 왼쪽, 뒤쪽은 오른쪽)
+  // 컷 위치가 카드열 좌/우 끝 쪽으로 치우치면 고정 오프셋만으로는 카드 영역을 벗어날 수 있어
+  // 패널의 카드 영역(LCardAreaL..LCardAreaR) 안으로 clamp 한다.
   var LSideOffset := Max(LCardW * 1.8, 110.0);
-  var LLeftPt := PointF(FGiriClosePt.X - LSideOffset, FGiriClosePt.Y);
-  var LRightPt := PointF(FGiriClosePt.X + LSideOffset, FGiriClosePt.Y);
+  var LGatherMinX := LCardAreaL + LCardW / 2;
+  var LGatherMaxX := LCardAreaR - LCardW / 2;
+  var LLeftPt := PointF(EnsureRange(FGiriClosePt.X - LSideOffset, LGatherMinX, LGatherMaxX), FGiriClosePt.Y);
+  var LRightPt := PointF(EnsureRange(FGiriClosePt.X + LSideOffset, LGatherMinX, LGatherMaxX), FGiriClosePt.Y);
   var LIsCut := FGiriPendingCut >= 0;
 
   var LGatherEase: Single := 0;
@@ -2993,6 +3015,15 @@ begin
   Result := True;
 end;
 
+// 저장 파일(중단된 대국)이 없어도 '이어하기'를 쓸 수 있는가: 직전에 끝낸 매치 설정이 아직
+// 메모리에 남아 있고(FSeatAvatar[spBottom]로 판정 — 한 번도 대전 설정을 거치지 않았으면 -1),
+// 지금 게임이 진행 중이 아니며, 사람이 오링되지 않은 경우. 이 경우 새 대전 설정 없이
+// 직전과 같은 게임모드(인원수·AI 난이도 등)로, 머니·전적을 유지한 채 바로 다음 판을 시작한다.
+function TGostopBoard.CanResumeMatch: Boolean;
+begin
+  Result := (FGame = nil) and (not FSpectator) and (FSeatAvatar[spBottom] >= 0) and (FMoney[spBottom] > 0);
+end;
+
 // 정산 계산은 Gostop.Board.Settlement.TGostopSettlement.Build(순수 함수)에 위임하고,
 // 여기서는 매치 상태를 입력으로 모아 전달한 뒤 결과를 그대로 필드에 반영만 한다.
 procedure TGostopBoard.BuildFinalSummary;
@@ -3081,9 +3112,12 @@ begin
     TGostopSaveGame.Delete;
     BuildFinalSummary;
 
-    // 방치 시 자동진행 카운트다운 시작(관전 모드도 포함 — AI끼리도 계속 진행되어야 함)
-    FGameOverRemain := GAME_OVER_COUNTDOWN_SECONDS;
-    FGameOverTimer.Enabled := True;
+    // 정산창 머니 카운트 애니메이션 준비: 1초 대기 후 시작(승자 차오름/패자 깎임이 동시에 시작·종료).
+    // 방치 시 자동진행 카운트다운·버튼 활성화는 이 애니메이션이 끝나야 MoneyCountTick에서 시작한다.
+    FMoneyCountDelay := 1.0;
+    FMoneyCountT := 0;
+    FGameOverReady := False;
+    FMoneyCountTimer.Enabled := True;
 
     if FGame.Winner < 0 then
     begin
@@ -3965,7 +3999,7 @@ begin
   end;
 end;
 
-// 하단 바: 유튜브식 컨트롤(호버/드래그 중에만) + 크레딧
+// 하단 바: 게임레벨(표시 전용)·일시정지·자동·소리·게임속도를 항상 고정 표시 + 크레딧
 // (하단 진행 메시지 박스는 제거 — 진행 메시지는 일단 숨김)
 procedure TGostopBoard.DrawControlBar;
 begin
@@ -3976,28 +4010,56 @@ begin
   TGostopFonts.Apply(Canvas, 12);
   Canvas.FillText(FCreditRect, '@시골프로그래머', False, 1, [], TTextAlign.Trailing, TTextAlign.Center);
 
-  // 컨트롤은 하단 호버 시에만(드래그 중엔 유지) 메시지 위로 표시
-  if not (FBarVisible or FVolDragging or FSpdDragging) then
-  begin
-    FMuteRect := TRectF.Empty;
-    FVolTrackRect := TRectF.Empty;
-    FSpeedRect := TRectF.Empty;
-    FBtnPauseBar := TRectF.Empty;
-    FBtnAutoBar := TRectF.Empty;
-    Exit;
-  end;
-
   var LAudio := TGostopAudio.Instance;
   var LBarH := 32.0;
   var LMidX := Width / 2;
   var LTop := Height - LBarH - 6;
-  var LBar := RectF(LMidX - 280, LTop, LMidX + 280, LTop + LBarH);
+  var LBarW := 710.0;   // 게임레벨 섹션 추가분(약 146px) 반영해 기존 560에서 확장
+  if FSpectator then
+  begin
+    LBarW := LBarW + 60;   // 관전 뱃지 추가분
+  end;
+
+  var LBar := RectF(LMidX - LBarW / 2, LTop, LMidX + LBarW / 2, LTop + LBarH);
   var LCY := (LBar.Top + LBar.Bottom) / 2;
 
-  Canvas.FillRound(LBar, 15, $C0000000);
+  Canvas.FillRound(LBar, 15, $C0424242);
+
+  // 게임레벨(표시 전용 — 클릭 불가. 변경은 새 게임 설정에서만 가능)
+  var LLevelText := '';
+  for var LI := 0 to High(AI_SKILL_VALUES) do
+  begin
+    if AI_SKILL_VALUES[LI] = FConfig.AiSkill then
+    begin
+      LLevelText := AI_SKILL_LABELS[LI];
+      Break;
+    end;
+  end;
+
+  if LLevelText = '' then
+  begin
+    LLevelText := Format('Lv.%d', [FConfig.AiSkill]);
+  end;
+
+  DrawLabel(RectF(LBar.Left + 12, LBar.Top, LBar.Left + 68, LBar.Bottom), '게임레벨', $FFD8E0D0, 12);
+  DrawLabel(RectF(LBar.Left + 70, LBar.Top, LBar.Left + 138, LBar.Bottom), LLevelText, $FFFFE082, 13);
+
+  var LLevelEndX := LBar.Left + 138;
+  if FSpectator then
+  begin
+    var LSpecR := RectF(LLevelEndX + 6, LBar.Top + 4, LLevelEndX + 60, LBar.Bottom - 4);
+    Canvas.FillRound(LSpecR, LSpecR.Height / 2, $FF37474F);
+    DrawLabel(LSpecR, '관전', $FFFFE082, 12);
+    LLevelEndX := LSpecR.Right;
+  end;
+
+  Canvas.Stroke.Kind := TBrushKind.Solid;
+  Canvas.Stroke.Color := $30FFFFFF;
+  Canvas.Stroke.Thickness := 1;
+  Canvas.DrawLine(PointF(LLevelEndX + 8, LBar.Top + 6), PointF(LLevelEndX + 8, LBar.Bottom - 6), 1);
 
   // 일시정지/재개 버튼(스페이스바와 동일 동작) — 아이콘 + 설명 텍스트(잘리지 않게 넉넉한 폭)
-  FBtnPauseBar := RectF(LBar.Left + 8, LBar.Top + 3, LBar.Left + 106, LBar.Bottom - 3);
+  FBtnPauseBar := RectF(LLevelEndX + 16, LBar.Top + 3, LLevelEndX + 114, LBar.Bottom - 3);
   Canvas.FillRound(FBtnPauseBar, 6, IfThen(IsHot(FBtnPauseBar), $50FFFFFF, $30FFFFFF));
   if FPaused then
   begin
@@ -5173,7 +5235,7 @@ begin
   var LHasSave := TGostopSaveGame.Exists;
 
   FBtnMenuContinue := DrawStdButton(RectF(LMidX - LBW * 1.5 - LGap, LBY, LMidX - LBW * 0.5 - LGap, LBY + LBH),
-    '이어하기', dbkAccent, LHasSave, 19);
+    '이어하기', dbkAccent, LHasSave or CanResumeMatch, 19);
   FBtnMenuNew := DrawStdButton(RectF(LMidX - LBW * 0.5, LBY, LMidX + LBW * 0.5, LBY + LBH), '새게임', dbkPrimary, True, 19);
   FBtnMenuExit := DrawStdButton(RectF(LMidX + LBW * 0.5 + LGap, LBY, LMidX + LBW * 1.5 + LGap, LBY + LBH), '끝내기', dbkDanger, True, 19);
 
@@ -6013,11 +6075,10 @@ begin
     LTopPad := 52.0;   // 판돈 배수 제목이 있으면 그만큼 위쪽 여백 확보
   end;
 
-  var LCountdownH := 0.0;
-  if FGameOverTimer.Enabled then
-  begin
-    LCountdownH := 56.0;   // 자동 진행 카운트다운 표시 영역
-  end;
+  // 자동 진행 카운트다운 표시 영역 — 실제로 뜨기 전(머니 카운트 애니메이션 중)에도 항상 자리를
+  // 확보해 둔다. 그렇지 않으면 카운트다운이 나타나는 순간 패널 높이(=DrawStdDialog의 팝인 키)가
+  // 바뀌어 정산창이 닫혔다 다시 열리는 것처럼 튕겨 보인다.
+  var LCountdownH := 56.0;
 
   // 승자 줄은 점수 내역 뱃지(광(3)·열끗(3)·청단(3) 등)가 있으면 한 줄 더 필요해 그만큼 늘림
   const SCORE_ROW_EXTRA_H = 32.0;
@@ -6090,9 +6151,19 @@ begin
         LBalSize := 27.0;
       end;
 
+      // 머니 카운트 애니메이션: 승자는 백단위로 차오르고 패자는 백단위로 깎여내려감(모든 줄이
+      // FMoneyCountT 하나를 공유해 동시에 시작·종료됨). 진행 중엔 100원 단위로 스냅해서 보여준다.
+      var LDisplayBalance := LRow.BalanceAfter;
+      if FMoneyCountT < 1 then
+      begin
+        var LEase := 1 - Power(1 - FMoneyCountT, 3);
+        var LBefore := LRow.BalanceAfter - LRow.Amount;
+        LDisplayBalance := LBefore + Round(LRow.Amount * LEase / 100) * 100;
+      end;
+
       Canvas.Fill.Color := LBalColor;
       TGostopFonts.Apply(Canvas, LBalSize);
-      Canvas.FillText(LBalR, Format('%s원', [FormatFloat('#,##0', LRow.BalanceAfter)]),
+      Canvas.FillText(LBalR, Format('%s원', [FormatFloat('#,##0', LDisplayBalance)]),
         False, 1, [], TTextAlign.Trailing, TTextAlign.Center);
 
       var LNetSign := '';
@@ -6183,22 +6254,28 @@ begin
     Canvas.StrokeCircle(LCircle, $FFFFD54A, 2);
     DrawLabel(LCircle, IntToStr(LSecLeft), TAlphaColors.White, 16 * LScale);
     DrawLabel(RectF(LCX - 100, LCdCY + LBaseR + 6, LCX + 100, LCdCY + LBaseR + 22), '자동 진행까지', $FF8A968A, 11);
-    LY := LY + LCountdownH;
   end;
 
+  LY := LY + LCountdownH;   // 카운트다운이 아직 안 떠도 자리는 항상 확보(패널 크기 고정)
+
   // 버튼: 내가 파산했으면 타이틀로 복귀만, 아니면 새게임(이어가기)/중지 2개
+  // 머니 카운트 애니메이션이 끝나기 전(FGameOverReady=False)엔 비활성 표시하고 클릭도 무시한다
+  // (MouseDownGameOver에서 재확인)
   var LBtnW := 140.0;
   var LGap := 16.0;
   var LHumanBroke := (not FSpectator) and (FHumanIndex >= 0) and (FMoney[spBottom] <= 0);
   if LHumanBroke then
   begin
     FBtnNext := TRectF.Empty;
-    FBtnQuit := DrawStdButton(RectF(LCX - LBtnW / 2, LY + 12, LCX + LBtnW / 2, LY + 12 + LBtnH), '타이틀로', dbkDanger);
+    FBtnQuit := DrawStdButton(RectF(LCX - LBtnW / 2, LY + 12, LCX + LBtnW / 2, LY + 12 + LBtnH), '타이틀로',
+      dbkDanger, FGameOverReady);
   end
   else
   begin
-    FBtnNext := DrawStdButton(RectF(LCX - LBtnW - LGap / 2, LY + 12, LCX - LGap / 2, LY + 12 + LBtnH), '다음 판', dbkPrimary);
-    FBtnQuit := DrawStdButton(RectF(LCX + LGap / 2, LY + 12, LCX + LGap / 2 + LBtnW, LY + 12 + LBtnH), '그만하기', dbkDanger);
+    FBtnNext := DrawStdButton(RectF(LCX - LBtnW - LGap / 2, LY + 12, LCX - LGap / 2, LY + 12 + LBtnH), '다음 판',
+      dbkPrimary, FGameOverReady);
+    FBtnQuit := DrawStdButton(RectF(LCX + LGap / 2, LY + 12, LCX + LGap / 2 + LBtnW, LY + 12 + LBtnH), '그만하기',
+      dbkDanger, FGameOverReady);
   end;
 
   EndStdDialog;
@@ -6233,6 +6310,36 @@ begin
   begin
     FDialogPopT := 1;
     FDialogPopTimer.Enabled := False;
+  end;
+
+  Repaint;
+end;
+
+// 정산창 머니 카운트 애니메이션 진행(모든 줄이 이 하나의 진행도를 공유해 동시 시작·종료됨).
+// 대기(FMoneyCountDelay) → 카운트(FMoneyCountT) 순으로 진행하고, 다 끝나면 자동진행
+// 카운트다운·버튼 활성화(FGameOverReady)를 그제서야 켠다.
+procedure TGostopBoard.MoneyCountTick(Sender: TObject);
+begin
+  if FPaused then
+  begin
+    Exit;
+  end;
+
+  if FMoneyCountDelay > 0 then
+  begin
+    FMoneyCountDelay := FMoneyCountDelay - FMoneyCountTimer.Interval / 1000;
+  end
+  else
+  begin
+    FMoneyCountT := FMoneyCountT + FMoneyCountTimer.Interval / 900 * FGameSpeed;   // 총 900ms
+    if FMoneyCountT >= 1 then
+    begin
+      FMoneyCountT := 1;
+      FMoneyCountTimer.Enabled := False;
+      FGameOverReady := True;
+      FGameOverRemain := GAME_OVER_COUNTDOWN_SECONDS;
+      FGameOverTimer.Enabled := True;
+    end;
   end;
 
   Repaint;
@@ -7319,8 +7426,9 @@ begin
         TGostopAudio.Instance.Play('card_flip');
         FAnimDrawSoundIdx := 0;
 
-        // 첫 장부터 보너스패면 곧바로 "한장 더~" 안내(같은 월 뒤집기가 이어짐을 알림)
-        if (Length(FAnimDrawn) > 0) and (FAnimDrawn[0].Kind = hkBonus) then
+        // 첫 장부터 보너스패면 곧바로 "한장 더~" 안내(같은 월 뒤집기가 이어짐을 알림).
+        // 단, 그 보너스패가 뒷패의 마지막 장이면 더 뒤집을 패가 없으므로 안내하지 않는다.
+        if (Length(FAnimDrawn) > 1) and (FAnimDrawn[0].Kind = hkBonus) then
         begin
           QueueEffect('한장 더~');
         end;
@@ -7672,7 +7780,8 @@ begin
     begin
       FAnimDrawSoundIdx := LWinIdx;
       TGostopAudio.Instance.Play('card_flip');
-      if FAnimDrawn[LWinIdx].Kind = hkBonus then
+      // 이 보너스패가 뒷패의 마지막 장이면(체인에서 더 이어질 카드가 없으면) 안내하지 않는다.
+      if (FAnimDrawn[LWinIdx].Kind = hkBonus) and (LWinIdx < High(FAnimDrawn)) then
       begin
         QueueEffect('한장 더~');
       end;
@@ -8319,6 +8428,15 @@ begin
     end;
   end
   else
+  if FBtnMenuContinue.Contains(LPoint) and CanResumeMatch then
+  begin
+    // 중단된 대국 저장은 없지만, 직전에 끝낸 매치가 오링 없이 남아 있는 경우 —
+    // 새 대전 설정 없이 같은 게임모드로 머니·전적을 유지한 채 바로 다음 판 시작
+    TGostopAudio.Instance.Play('ui_click');
+    LoadAvatarPool;
+    BeginSeatReplacement(spTop);
+  end
+  else
   if FBtnMenuNew.Contains(LPoint) then
   begin
     TGostopAudio.Instance.Play('ui_click');
@@ -8431,6 +8549,12 @@ end;
 
 procedure TGostopBoard.MouseDownGameOver(const LPoint: TPointF);
 begin
+  // 머니 카운트 애니메이션이 끝나기 전엔 버튼이 비활성 표시이므로 클릭도 무시
+  if not FGameOverReady then
+  begin
+    Exit;
+  end;
+
   if FBtnNext.Contains(LPoint) then
   begin
     TGostopAudio.Instance.Play('ui_click');
@@ -8653,14 +8777,6 @@ begin
     Exit;
   end;
 
-  // 유튜브식: 하단 근처 호버 시에만 컨트롤 바 표시
-  var LShow := Y >= Height - 64;
-  if LShow <> FBarVisible then
-  begin
-    FBarVisible := LShow;
-    Repaint;
-  end;
-
   var LNew := -1;
   if (FGame <> nil) and (not Assigned(FDisplay)) and (FGame.Phase = gpPlaying) and (FGame.Current = FHumanIndex) and (not FChoosing) then
   begin
@@ -8748,12 +8864,6 @@ begin
   FMouseDown := False;
   FVolDragging := False;
   FSpdDragging := False;
-  if FBarVisible then
-  begin
-    FBarVisible := False;
-    Repaint;
-  end;
-
   if FHoverHand <> -1 then
   begin
     FHoverHand := -1;

@@ -99,6 +99,8 @@ type
     Multiplier: Integer;
     /// <summary>고 보너스로 더해진 점수.</summary>
     GoBonus: Integer;
+    /// <summary>고로만 적용된 배수(표시용, 예: 4고=4). 3고 미만이면 1.</summary>
+    GoMultiplier: Integer;
     /// <summary>피박 적용 여부.</summary>
     Pibak: Boolean;
     /// <summary>광박 적용 여부.</summary>
@@ -410,6 +412,7 @@ begin
   begin
     Result.Multiplier := Result.Multiplier * (1 shl Min(AGoCount - (AOptions.GoDoubleFromCount - 1), 10));
   end;
+  Result.GoMultiplier := Result.Multiplier;
 
   // 흔들기: 각 ×2
   if AShakeCount > 0 then

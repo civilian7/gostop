@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>루미 고스톱 — 플레이 영상</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px 20px 56px;
+    background: #1b241d;
+    color: #e8eee4;
+    font-family: "맑은 고딕", "Malgun Gothic", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  h1 { margin: 0 0 6px; font-size: 26px; color: #ffd54a; letter-spacing: -0.01em; }
+  .dek { margin: 0 0 24px; color: #a8b6a4; font-size: 15px; }
+  .player {
+    background: #12190f;
+    border: 1px solid #3a4a38;
+    border-radius: 12px;
+    padding: 10px;
+    overflow: hidden;
+  }
+  video { display: block; width: 100%; height: auto; border-radius: 6px; background: #000; }
+  .fallback {
+    margin-top: 14px;
+    padding: 12px 14px;
+    background: #22301f;
+    border: 1px solid #3a4a38;
+    border-radius: 8px;
+    font-size: 14px;
+    color: #cbd6c8;
+  }
+  a { color: #ffe082; }
+  .links { margin-top: 28px; font-size: 15px; }
+  .links a { margin-right: 18px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>루미 고스톱 — 플레이 영상</h1>
+    <p class="dek">3인 삼파전 진행 화면. 패 돌리기부터 먹기·고/스톱·정산까지.</p>
+
+    <div class="player">
+      <video controls playsinline preload="metadata"
+             poster="https://raw.githubusercontent.com/civilian7/gostop/main/docs/screenshots/title.png">
+        <source src="https://raw.githubusercontent.com/civilian7/gostop/main/docs/screenshots/playing.mp4" type="video/mp4">
+        브라우저가 video 태그를 지원하지 않습니다.
+      </video>
+    </div>
+
+    <div class="fallback">
+      재생이 안 되면
+      <a href="https://github.com/civilian7/gostop/blob/main/docs/screenshots/playing.mp4">GitHub에서 바로 보기</a>
+      또는
+      <a href="https://raw.githubusercontent.com/civilian7/gostop/main/docs/screenshots/playing.mp4">파일 내려받기</a>.
+    </div>
+
+    <div class="links">
+      <a href="https://github.com/civilian7/gostop#readme">← 프로젝트 README</a>
+      <a href="https://htmlpreview.github.io/?https://github.com/civilian7/gostop/blob/main/docs/gostop-guide.html">고스톱 완전정복</a>
+      <a href="https://htmlpreview.github.io/?https://github.com/civilian7/gostop/blob/main/docs/gostop-manual.html">사용설명서</a>
+    </div>
+  </div>
+</body>
+</html>

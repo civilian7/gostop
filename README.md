@@ -6,7 +6,9 @@
 
 ![타이틀 화면](docs/screenshots/title.png)
 
-<video src="docs/screenshots/playing.mp4" controls width="720">플레이 영상(docs/screenshots/playing.mp4)</video>
+▶ **[플레이 영상 보기](https://htmlpreview.github.io/?https://github.com/civilian7/gostop/blob/main/docs/demo.html)** — 3인 삼파전 진행 화면 (패 돌리기 → 먹기 → 고/스톱 → 정산)
+
+> GitHub README는 저장소 안의 동영상을 인라인으로 재생하지 못한다(자체 CSP의 `media-src` 제한). 위 링크는 가이드·설명서와 같은 htmlpreview 방식으로 열리는 재생 페이지다.
 
 ## 왜 만들었나
 

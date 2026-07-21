@@ -521,7 +521,6 @@ type
     procedure DrawTitleMenu;
     procedure OpenHelpDoc(const AFileName: string);
     procedure DrawSettings;
-    procedure DrawCfgValueButton(const ARect: TRectF; const AText: string);
     // 선택형 아바타 카드 렌더는 Gostop.Board.CardRender(TSelectCardRender)로 분리됨
     function  CfgScore: TScoreOptions;
     function  CfgRules: TRuleSet;
@@ -4781,46 +4780,69 @@ begin
   end;
 
   var LCols := 5;
-  var LSize := 64.0;
-  var LGap := 12.0;
+  var LSize := 104.0;    // 아바타 한 변(기존 64 → 크게)
+  var LNameH := 22.0;    // 아래 캐릭터 이름 줄
+  var LGap := 14.0;
+  var LCellH := LSize + LNameH;
   var LRows := (FAvatarPool.Count + LCols - 1) div LCols;
-  var LPanelW := LCols * LSize + (LCols - 1) * LGap + 40;
-  var LPanelH := LRows * (LSize + LGap) + 60;
+  var LPanelW := LCols * LSize + (LCols - 1) * LGap + 44;
+  var LPanelH := LRows * (LCellH + LGap) + 62;
   var LPanel := RectF(Width / 2 - LPanelW / 2, Height / 2 - LPanelH / 2,
     Width / 2 + LPanelW / 2, Height / 2 + LPanelH / 2);
 
-  Canvas.FillRound(LPanel, 12, $F0101010);
-  Canvas.StrokeRound(LPanel, 12, $60FFFFFF, 1);
-  DrawLabel(RectF(LPanel.Left, LPanel.Top + 6, LPanel.Right, LPanel.Top + 34), '내 아바타 선택', TAlphaColors.White, 17);
+  Canvas.FillRound(LPanel, 14, $F0101010);
+  Canvas.StrokeRound(LPanel, 14, $60FFFFFF, 1);
+  DrawLabel(RectF(LPanel.Left, LPanel.Top + 8, LPanel.Right, LPanel.Top + 38), '내 아바타 선택', TAlphaColors.Gold, 19);
 
   for var I := 0 to FAvatarPool.Count - 1 do
   begin
     var LRow := I div LCols;
     var LCol := I mod LCols;
-    var LX := LPanel.Left + 20 + LCol * (LSize + LGap);
-    var LY := LPanel.Top + 44 + LRow * (LSize + LGap);
-    var LR := RectF(LX, LY, LX + LSize, LY + LSize);
-    FAvatarRects.Add(LR);
-    var LBmp := FAvatarPool[I];
-    Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), LR, 1, False);
+    var LX := LPanel.Left + 22 + LCol * (LSize + LGap);
+    var LY := LPanel.Top + 48 + LRow * (LCellH + LGap);
+    var LAvR := RectF(LX, LY, LX + LSize, LY + LSize);
 
-    if (I = FSeatAvatar[spBottom]) or (I = FHumanAvatarIdx) then
+    // 히트영역은 아바타 + 이름 전체(더 큰 클릭 타깃)
+    FAvatarRects.Add(RectF(LX, LY, LX + LSize, LY + LCellH));
+
+    var LBmp := FAvatarPool[I];
+    Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), LAvR, 1, False);
+
+    // 현재 내 아바타=금색 / 호버=흰 강조 / 다른 자리 사용 중=회색
+    var LIsMine := (I = FSeatAvatar[spBottom]) or (I = FHumanAvatarIdx);
+    var LUsedByOther := False;
+    for var LP := spTop to spRight do
     begin
-      // 현재 내 아바타: 금색 테두리
-      Canvas.StrokeRound(LR, 8, $FFFFD54A, 3);
-    end
-    else
-    begin
-      // 다른 자리가 사용 중이면 회색 테두리(선택하면 그 자리는 자동 교체)
-      for var LP := spTop to spRight do
+      if (LP <> spBottom) and (FSeatAvatar[LP] = I) then
       begin
-        if (LP <> spBottom) and (FSeatAvatar[LP] = I) then
-        begin
-          Canvas.StrokeRound(LR, 8, $80B0B0B0, 2);
-          Break;
-        end;
+        LUsedByOther := True;
+        Break;
       end;
     end;
+
+    if LIsMine then
+    begin
+      Canvas.StrokeRound(LAvR, 10, $FFFFD54A, 3);
+    end
+    else
+    if IsHot(FAvatarRects[I]) then
+    begin
+      Canvas.StrokeRound(LAvR, 10, TAlphaColors.White, 2);
+    end
+    else
+    if LUsedByOther then
+    begin
+      Canvas.StrokeRound(LAvR, 10, $80B0B0B0, 2);
+    end;
+
+    // 캐릭터 이름(현재 내 아바타는 금색 굵게)
+    var LNameColor: TAlphaColor := $FFCFD6C8;
+    if LIsMine then
+    begin
+      LNameColor := TAlphaColors.Gold;
+    end;
+
+    DrawLabel(RectF(LX - 6, LAvR.Bottom + 1, LX + LSize + 6, LAvR.Bottom + LNameH), AvatarName(I), LNameColor, 12, LIsMine);
   end;
 end;
 
@@ -5078,23 +5100,16 @@ begin
 end;
 
 // 설정 행 값 순환(설정창에서 값 버튼 클릭)
-// 설정창의 아바타 '변경' 값 버튼(토글이 아닌 항목). 호버·눌림 상태를 반영한다.
-// 렌더 본문은 Gostop.Board.Widgets 로 분리됨. 호버/눌림만 계산해 위임.
-procedure TGostopBoard.DrawCfgValueButton(const ARect: TRectF; const AText: string);
-begin
-  TWidgetRender.CfgValueButton(Canvas, ARect, AText, IsHot(ARect), IsPressed(ARect));
-end;
-
 procedure TGostopBoard.DrawSettings;
 const
   CARD_ROW_H = 106.0;
   CARD_GAP = 12.0;
   CARD_AREA_MAX_W = 440.0;   // 인원수·난이도 카드 영역 최대 폭(패널을 넓혀도 카드가 늘어나지 않게)
+  AV_CARD_SZ = 130.0;        // 아바타 카드 한 변(정사각형 — 원본 128x128 비율 유지, 안 찌그러짐)
 begin
-  var LRowH := 42.0;
   var LPanelW := 480.0;
-  // 인원수·난이도 카드 2행 + 아바타 1행(룰 토글·닉네임 제거 — 표준 룰 고정)
-  var LPanelH := 56 + 2 * CARD_ROW_H + CARD_GAP * 3 + LRowH + 66;
+  // 인원수·난이도 카드 2행 + 정사각형 아바타 카드 1행(룰 토글·닉네임 제거 — 표준 룰 고정)
+  var LPanelH := 56 + 2 * CARD_ROW_H + AV_CARD_SZ + CARD_GAP * 2 + 72;
   var LPanel := RectF(Width / 2 - LPanelW / 2, Height / 2 - LPanelH / 2,
     Width / 2 + LPanelW / 2, Height / 2 + LPanelH / 2);
 
@@ -5153,23 +5168,20 @@ begin
       AI_SKILL_VALUES[LSeg] = FConfig.AiSkill, IsHot(LSegRect), IsPressed(LSegRect));
   end;
 
-  // 아바타: 한 행(라벨 + '변경' 버튼 안 썸네일), 값 영역은 오른쪽 정렬
+  // 아바타: 현재 내 아바타를 정사각형 큰 카드로 표시(클릭 → 선택 팝업). 원본이 정사각형이라 카드도
+  // 정사각형이어야 안 찌그러진다. 캡션 '변경'으로 클릭 가능함을 알리고, 선택 스타일(금색)로 강조.
   var LAvY := LCardY + CARD_ROW_H + CARD_GAP;
-  Canvas.Fill.Color := $FFE8EEE4;
-  TGostopFonts.Apply(Canvas, 16);
-  Canvas.FillText(RectF(LCardAreaL, LAvY, LCardAreaL + 200, LAvY + LRowH - 8), '아바타',
-    False, 1, [], TTextAlign.Leading, TTextAlign.Center);
+  var LAvCardL := (LPanel.Left + LPanel.Right) / 2 - AV_CARD_SZ / 2;
+  FCfgAvatarRect := RectF(LAvCardL, LAvY, LAvCardL + AV_CARD_SZ, LAvY + AV_CARD_SZ);
 
-  FCfgAvatarRect := RectF(LCardAreaR - 260, LAvY + 3, LCardAreaR, LAvY + LRowH - 8);
-  DrawCfgValueButton(FCfgAvatarRect, '변경');
-
+  var LMyAvBmp: TBitmap := nil;
   if Assigned(FAvatarPool) and (FHumanAvatarIdx >= 0) and (FHumanAvatarIdx < FAvatarPool.Count) then
   begin
-    var LBmp := FAvatarPool[FHumanAvatarIdx];
-    var LSide := FCfgAvatarRect.Height - 4;
-    var LTh := RectF(FCfgAvatarRect.Left + 6, FCfgAvatarRect.Top + 2, FCfgAvatarRect.Left + 6 + LSide, FCfgAvatarRect.Top + 2 + LSide);
-    Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), LTh, 1, False);
+    LMyAvBmp := FAvatarPool[FHumanAvatarIdx];
   end;
+
+  TSelectCardRender.Avatar(Canvas, FCfgAvatarRect, LMyAvBmp, '변경',
+    True, IsHot(FCfgAvatarRect), IsPressed(FCfgAvatarRect));
 
   // 취소 · 다음(대전 설정으로 진행)
   FBtnCfgCancel := DrawStdButton(RectF(Width / 2 - 150, LPanel.Bottom - 56, Width / 2 - 10, LPanel.Bottom - 16), '취소', dbkNeutral);

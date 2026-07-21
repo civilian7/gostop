@@ -41,7 +41,8 @@ implementation
 
 {$REGION 'uses'}
 uses
-  Gostop.Canvas.Helper;
+  Gostop.Canvas.Helper,
+  Gostop.Palette;
 {$ENDREGION}
 
 {$REGION 'TWidgetRender'}
@@ -53,25 +54,25 @@ begin
 
   if not AEnabled then
   begin
-    ACanvas.FillRound(ARect, 9, $60333A33);
-    ACanvas.StrokeRound(ARect, 9, $30FFFFFF, 1);
-    ACanvas.DrawLabel(ARect, ACaption, $806E786E, AFontSize);
+    ACanvas.FillRound(ARect, 9, TPalette.BtnDisabledFill);
+    ACanvas.StrokeRound(ARect, 9, TPalette.BorderFaint, 1);
+    ACanvas.DrawLabel(ARect, ACaption, TPalette.BtnDisabledText, AFontSize);
     Exit;
   end;
 
-  var LColor: TAlphaColor := $FF37474F;   // dbkNeutral
+  var LColor: TAlphaColor := TPalette.BtnNeutral;   // dbkNeutral
   case AKind of
     dbkPrimary:
       begin
-        LColor := $FF2E7D32;
+        LColor := TPalette.BtnPrimary;
       end;
     dbkDanger:
       begin
-        LColor := $FF8E2430;
+        LColor := TPalette.BtnDanger;
       end;
     dbkAccent:
       begin
-        LColor := $FFB8860B;
+        LColor := TPalette.GoldDeep;
       end;
   end;
 
@@ -88,15 +89,15 @@ begin
   end;
 
   ACanvas.FillRound(LFillR, 9, LColor);
-  ACanvas.StrokeRound(LFillR, 9, $50FFFFFF, 1);
+  ACanvas.StrokeRound(LFillR, 9, TPalette.BorderSoft, 1);
   ACanvas.DrawLabel(LFillR, ACaption, TAlphaColors.White, AFontSize);
 end;
 
 class procedure TWidgetRender.CfgValueButton(const ACanvas: TCanvas; const ARect: TRectF; const AText: string;
   const AHover, APressed: Boolean);
 begin
-  var LBtnColor: TAlphaColor := $FF2F4436;
-  var LBtnBorder: TAlphaColor := $60FFFFFF;
+  var LBtnColor: TAlphaColor := TPalette.PanelDark;
+  var LBtnBorder: TAlphaColor := TPalette.BorderMild;
   if APressed then
   begin
     LBtnColor := AdjustColor(LBtnColor, -14);
@@ -105,12 +106,12 @@ begin
   if AHover then
   begin
     LBtnColor := AdjustColor(LBtnColor, 18);
-    LBtnBorder := $90FFD54A;
+    LBtnBorder := TPalette.GoldHover;
   end;
 
   ACanvas.FillRound(ARect, 8, LBtnColor);
   ACanvas.StrokeRound(ARect, 8, LBtnBorder, 1);
-  ACanvas.DrawLabel(ARect, AText, $FFFFE082, 15);
+  ACanvas.DrawLabel(ARect, AText, TPalette.GoldText, 15);
 end;
 
 class procedure TWidgetRender.CfgToggle(const ACanvas: TCanvas; const ARect: TRectF;
@@ -122,13 +123,13 @@ begin
   var LCy := (ARect.Top + ARect.Bottom) / 2;
   var LTrack := RectF(ARect.Right - TRACK_W, LCy - TRACK_H / 2, ARect.Right, LCy + TRACK_H / 2);
 
-  var LTrackColor: TAlphaColor := $FF44504A;
+  var LTrackColor: TAlphaColor := TPalette.ToggleOff;
   if AOn then
   begin
-    LTrackColor := $FF2E7D32;
+    LTrackColor := TPalette.BtnPrimary;
   end;
 
-  var LBorder: TAlphaColor := $50FFFFFF;
+  var LBorder: TAlphaColor := TPalette.BorderSoft;
   if APressed then
   begin
     LTrackColor := AdjustColor(LTrackColor, -24);
@@ -137,7 +138,7 @@ begin
   if AHover then
   begin
     LTrackColor := AdjustColor(LTrackColor, 22);
-    LBorder := $90FFD54A;
+    LBorder := TPalette.GoldHover;
   end;
 
   ACanvas.FillRound(LTrack, TRACK_H / 2, LTrackColor);

@@ -37,7 +37,8 @@ implementation
 {$REGION 'uses'}
 uses
   System.Math,
-  Gostop.Canvas.Helper;
+  Gostop.Canvas.Helper,
+  Gostop.Palette;
 {$ENDREGION}
 
 {$REGION 'TSelectCardRender'}
@@ -46,7 +47,7 @@ class procedure TSelectCardRender.Shell(const ACanvas: TCanvas; const ARect: TRe
 begin
   if ASelected then
   begin
-    var LColor: TAlphaColor := $FF2E7D32;
+    var LColor: TAlphaColor := TPalette.BtnPrimary;
     if APressed then
     begin
       LColor := AdjustColor(LColor, -30);
@@ -58,12 +59,12 @@ begin
     end;
 
     ACanvas.FillRound(ARect, 10, LColor);
-    ACanvas.StrokeRound(ARect, 10, $FFFFD54A, 2.5);
+    ACanvas.StrokeRound(ARect, 10, TPalette.Gold, 2.5);
   end
   else
   begin
-    var LColor: TAlphaColor := $FF2F4436;
-    var LBorder: TAlphaColor := $50FFFFFF;
+    var LColor: TAlphaColor := TPalette.PanelDark;
+    var LBorder: TAlphaColor := TPalette.BorderSoft;
     if APressed then
     begin
       LColor := AdjustColor(LColor, -14);
@@ -72,7 +73,7 @@ begin
     if AHover then
     begin
       LColor := AdjustColor(LColor, 18);
-      LBorder := $90FFD54A;
+      LBorder := TPalette.GoldHover;
     end;
 
     ACanvas.FillRound(ARect, 10, LColor);
@@ -99,12 +100,12 @@ begin
   var LCapColor := TAlphaColors.White;
   if ASelected then
   begin
-    ACanvas.FillRound(LLabelR, 6, $B0B8860B);
+    ACanvas.FillRound(LLabelR, 6, TPalette.CardLabelSel);
     LCapColor := TAlphaColors.Gold;
   end
   else
   begin
-    ACanvas.FillRound(LLabelR, 6, $A0182018);
+    ACanvas.FillRound(LLabelR, 6, TPalette.CardLabelNorm);
   end;
 
   ACanvas.DrawLabel(LLabelR, ACaption, LCapColor, 14, ASelected);   // 선택된 카드는 굵게
@@ -140,7 +141,7 @@ begin
     end;
   end;
 
-  var LCapColor: TAlphaColor := $FFCBD6C8;
+  var LCapColor: TAlphaColor := TPalette.CaptionDim;
   if ASelected then
   begin
     LCapColor := TAlphaColors.White;

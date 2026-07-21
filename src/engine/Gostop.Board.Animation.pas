@@ -188,7 +188,8 @@ uses
   System.Math,
   System.Math.Vectors,
   Gostop.Canvas.Helper,
-  Gostop.Fonts;
+  Gostop.Fonts,
+  Gostop.Palette;
 {$ENDREGION}
 
 const
@@ -385,14 +386,14 @@ begin
     var LInner := RectF(LCx - LR0 * 0.80, LCy - LR0 * 0.80, LCx + LR0 * 0.80, LCy + LR0 * 0.80);
     var LFillAlpha := Round(LAlpha * $42);
     var LLineAlpha := Round(LAlpha * $FF);
-    var LLineColor := TAlphaColor((Cardinal(LLineAlpha) shl 24) or $00B01414);
+    var LLineColor := TAlphaColor((Cardinal(LLineAlpha) shl 24) or TPalette.StampLineRgb);
 
-    LCanvas.FillCircle(LOuter, TAlphaColor((Cardinal(LFillAlpha) shl 24) or $00C81E1E));
+    LCanvas.FillCircle(LOuter, TAlphaColor((Cardinal(LFillAlpha) shl 24) or TPalette.StampFillRgb));
     LCanvas.StrokeCircle(LOuter, LLineColor, System.Math.Max(3.0, LR0 * 0.06));
     LCanvas.StrokeCircle(LInner, LLineColor, System.Math.Max(2.0, LR0 * 0.03));
 
     LCanvas.Fill.Kind := TBrushKind.Solid;
-    LCanvas.Fill.Color := TAlphaColor((Cardinal(LLineAlpha) shl 24) or $00D42020);
+    LCanvas.Fill.Color := TAlphaColor((Cardinal(LLineAlpha) shl 24) or TPalette.StampTextRgb);
     TGostopFonts.Apply(LCanvas, LR0 * 0.42, True);
     LCanvas.FillText(LOuter, '나가리', False, 1, [], TTextAlign.Center, TTextAlign.Center);
   finally

@@ -37,14 +37,15 @@ uses
   System.Math,
   System.SysUtils,
   Gostop.Canvas.Helper,
-  Gostop.Fonts;
+  Gostop.Fonts,
+  Gostop.Palette;
 {$ENDREGION}
 
 {$REGION 'TOverlayRender'}
 class procedure TOverlayRender.SpeechBubble(const ACanvas: TCanvas; const AText: string; const AAvatarRect: TRectF;
   const ADirX: Single);
 const
-  BUBBLE_FILL = $F0F5EEDD;
+  BUBBLE_FILL = TPalette.BubbleFill;
 begin
   var LAvCx := (AAvatarRect.Left + AAvatarRect.Right) / 2;
   var LAvCy := (AAvatarRect.Top + AAvatarRect.Bottom) / 2;
@@ -61,7 +62,7 @@ begin
   var LR := RectF(LBx - LTextW / 2, LBy - LTextH / 2, LBx + LTextW / 2, LBy + LTextH / 2);
 
   ACanvas.FillRound(LR, 12, BUBBLE_FILL);
-  ACanvas.StrokeRound(LR, 12, $FF8A7048, 1.5);
+  ACanvas.StrokeRound(LR, 12, TPalette.BubbleBorder, 1.5);
 
   // 말꼬리: 말풍선에서 아바타를 향하는 작은 삼각형
   var LTailW := 14.0;
@@ -77,7 +78,7 @@ begin
   ACanvas.Fill.Color := BUBBLE_FILL;
   ACanvas.FillPolygon([LTailTip, LTailP1, LTailP2], 1);
 
-  ACanvas.Fill.Color := $FF3A2A18;
+  ACanvas.Fill.Color := TPalette.BubbleText;
   TGostopFonts.Apply(ACanvas, 14);
   ACanvas.FillText(LR, AText, True, 1, [], TTextAlign.Center, TTextAlign.Center);
 end;
@@ -93,16 +94,16 @@ begin
   var LRectW := ACanvas.TextWidth(AText) + 56;
   var LRectH := 78.0;
   var LRect := RectF(LMidX - LRectW / 2, LMidY - LRectH / 2, LMidX + LRectW / 2, LMidY + LRectH / 2);
-  ACanvas.FillRound(LRect, 16, $B0201008);
-  ACanvas.StrokeRound(LRect, 16, $FFFFD54A, 2);
-  ACanvas.DrawLabel(LRect, AText, $FFFFE14A, 42);
+  ACanvas.FillRound(LRect, 16, TPalette.BannerFill);
+  ACanvas.StrokeRound(LRect, 16, TPalette.Gold, 2);
+  ACanvas.DrawLabel(LRect, AText, TPalette.BannerText, 42);
 end;
 
 class procedure TOverlayRender.PauseOverlay(const ACanvas: TCanvas; const AScreenRect: TRectF);
 begin
   var LW := AScreenRect.Width;
   var LH := AScreenRect.Height;
-  ACanvas.FillRound(AScreenRect, 0, $A0000000);
+  ACanvas.FillRound(AScreenRect, 0, TPalette.OverlayDim);
   ACanvas.DrawLabel(RectF(0, LH * 0.44, LW, LH * 0.52), '일시정지', TAlphaColors.Gold, 40);
   ACanvas.DrawLabel(RectF(0, LH * 0.52, LW, LH * 0.57), '스페이스바 또는 하단 재개 버튼을 눌러 재개', TAlphaColors.White, 18);
 end;
@@ -112,8 +113,8 @@ class procedure TOverlayRender.CapturedCount(const ACanvas: TCanvas; const ACent
 begin
   var LR := RectF(ACenterX - ABadgeSize.Width / 2, ACenterY - ABadgeSize.Height / 2,
     ACenterX + ABadgeSize.Width / 2, ACenterY + ABadgeSize.Height / 2);
-  ACanvas.FillCircle(LR, $99787878);
-  ACanvas.DrawLabel(LR, ACount.ToString, $FFFFF4D0, ABadgeSize.Height * 0.56, True);
+  ACanvas.FillCircle(LR, TPalette.BadgeFill);
+  ACanvas.DrawLabel(LR, ACount.ToString, TPalette.BadgeText, ABadgeSize.Height * 0.56, True);
 end;
 {$ENDREGION}
 

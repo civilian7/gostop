@@ -13,6 +13,7 @@ uses
   Gostop.Characters in 'engine\Gostop.Characters.pas',
   Gostop.Settings in 'engine\Gostop.Settings.pas',
   Gostop.Board.Layout in 'engine\Gostop.Board.Layout.pas',
+  Gostop.Palette in 'engine\Gostop.Palette.pas',
   Gostop.Canvas.Helper in 'engine\Gostop.Canvas.Helper.pas',
   Gostop.Fonts in 'engine\Gostop.Fonts.pas',
   Gostop.FourPlayer in 'engine\Gostop.FourPlayer.pas',

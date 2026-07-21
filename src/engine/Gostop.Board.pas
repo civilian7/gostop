@@ -45,6 +45,7 @@ uses
   Gostop.Dialog.Negotiation,
   Gostop.Dialog.GameOver,
   Gostop.Dialog.Settings,
+  Gostop.Dialog.MatchSetup,
   Gostop.Canvas.Helper,
   Gostop.Fonts,
   Gostop.FourPlayer,
@@ -137,8 +138,10 @@ type
     FConfig: TGameConfig;        // 게임 룰·플레이어 설정(피박/광박/고박/보너스/금액/시드/난이도)
     FSettingsDlg: TSettingsDialog;
 
-    // 대전 설정 다이얼로그: 슬롯머신 연출로 AI 배정, 내 시트(P1~PN) 선택, 관전 모드
-    FMatchSetupOpen: Boolean;
+    // 대전 설정 — 슬롯머신 연출로 AI 배정, 관전 모드. 자기완결 다이얼로그(Gostop.Dialog.MatchSetup).
+    // 슬롯 스핀·배정·시작 로직은 보드 유지, 표시 행·관전 상태는 라이브 접근자로 다이얼로그에 전달.
+    FMatchSetupOpen: Boolean;                    // 대전 설정 진행 중(슬롯 타이머 게이트)
+    FMatchSetupDlg: TMatchSetupDialog;
     FSetupCount: Integer;                        // 시작할 인원(2/3/4)
     FSetupHumanRow: Integer;                     // 내 시트 행(0-기반), -1 = 관전(전원 AI)
     FSetupAvatar: array [0 .. 3] of Integer;     // 행별 배정 아바타(릴 타깃)
@@ -146,10 +149,6 @@ type
     FSlotRemain: array [0 .. 3] of Integer;      // 남은 스핀 스텝(0=정지)
     FSlotTick: Integer;
     FSlotTimer: TTimer;
-    FBtnSetupStart: TRectF;
-    FBtnSetupCancel: TRectF;
-    FBtnSetupSpin: TRectF;                       // 다시 돌리기
-    FBtnSetupWatch: TRectF;                      // 관전 모드 토글
 
     // 매치 배치(대전 설정 결과, 매치 동안 유지)
     FSpectator: Boolean;                         // 관전 모드(사람 없음, 전원 AI)
@@ -526,7 +525,9 @@ type
     procedure LoadSettings;
     procedure SaveSettings;
     procedure OpenMatchSetup(const ACount: Integer);
-    procedure DrawMatchSetup;
+    procedure ShowMatchSetupDialog;
+    function  MatchRowInfo(const ARow: Integer): TMatchRowInfo;
+    procedure ToggleSpectator;
     procedure StartMatchFromSetup;
     procedure StartSlotSpin(const AOnlyRow: Integer = -1);
     procedure SlotTick(Sender: TObject);
@@ -576,7 +577,6 @@ type
     // MouseDown 디스패치 분기(화면/상태별로 분리 — 각자 원래 항상 Exit로 끝나던 블록 그대로)
     procedure MouseDownGiri(const LPoint: TPointF);
     procedure MouseDownTitleArea(const LPoint: TPointF);
-    procedure MouseDownMatchSetupDialog(const LPoint: TPointF);
     procedure MouseDownTitleButtons(const LPoint: TPointF);
     procedure MouseDownAvatarPicker(const LPoint: TPointF);
     procedure MouseDownSeonPick(const LPoint: TPointF);
@@ -1219,6 +1219,11 @@ begin
   if Assigned(FSettingsDlg) then
   begin
     FSettingsDlg.Visible := False;
+  end;
+
+  if Assigned(FMatchSetupDlg) then
+  begin
+    FMatchSetupDlg.Visible := False;
   end;
 
   FHoverHand := -1;
@@ -5413,7 +5418,7 @@ procedure TGostopBoard.OpenMatchSetup(const ACount: Integer);
 begin
   FSetupCount := EnsureRange(ACount, 2, 4);
   LoadAvatarPool;
-  FSetupHumanRow := FSetupCount - 1;   // 기본: 마지막 시트가 나(클릭으로 변경/관전 가능)
+  FSetupHumanRow := FSetupCount - 1;   // 마지막 시트가 나(관전 모드로 전원 AI 가능)
   for var R := 0 to 3 do
   begin
     FSetupAvatar[R] := -1;
@@ -5422,7 +5427,104 @@ begin
   end;
 
   FMatchSetupOpen := True;
+  ShowMatchSetupDialog;
   StartSlotSpin;
+end;
+
+// 대전 설정 다이얼로그를 띄운다(최초 1회 생성). 표시 행·관전 상태는 라이브 접근자로, 버튼은 콜백으로.
+procedure TGostopBoard.ShowMatchSetupDialog;
+begin
+  if FMatchSetupDlg = nil then
+  begin
+    FMatchSetupDlg := TMatchSetupDialog.Create(Self);   // Owner=보드(자동 해제)
+    FMatchSetupDlg.Parent := Self;                       // Parent 먼저 지정
+    FMatchSetupDlg.Align := TAlignLayout.Contents;       // 보드 전체를 덮는 모달 오버레이
+  end;
+
+  var LModel: TMatchSetupModel;
+  LModel.Title := Format('대전 설정 — %s (%d인)', [GAME_MODE_LABELS[FSetupCount], FSetupCount]);
+  LModel.Count := FSetupCount;
+  LModel.RowInfo :=
+    function(ARow: Integer): TMatchRowInfo
+    begin
+      Result := MatchRowInfo(ARow);
+    end;
+  LModel.IsSpectator :=
+    function: Boolean
+    begin
+      Result := FSetupHumanRow < 0;
+    end;
+  LModel.OnSpin :=
+    procedure
+    begin
+      StartSlotSpin;
+      Repaint;
+    end;
+  LModel.OnWatch :=
+    procedure
+    begin
+      ToggleSpectator;
+    end;
+  LModel.OnStart :=
+    procedure
+    begin
+      FMatchSetupDlg.Visible := False;
+      StartMatchFromSetup;
+    end;
+  LModel.OnCancel :=
+    procedure
+    begin
+      FMatchSetupDlg.Visible := False;
+      FSlotTimer.Enabled := False;
+      FMatchSetupOpen := False;
+      Repaint;
+    end;
+
+  FMatchSetupDlg.Present(LModel);
+end;
+
+// 한 좌석 행의 라이브 표시 데이터(릴 아바타·이름·휴먼 여부) — 다이얼로그가 매 프레임 호출한다.
+function TGostopBoard.MatchRowInfo(const ARow: Integer): TMatchRowInfo;
+begin
+  Result.IsHuman := ARow = FSetupHumanRow;
+  var LAvIdx := FSlotDisp[ARow];
+  if Result.IsHuman then
+  begin
+    LAvIdx := FHumanAvatarIdx;
+    Result.Name := '나';
+  end
+  else
+  begin
+    Result.Name := AvatarName(LAvIdx);
+    if FSlotRemain[ARow] > 0 then
+    begin
+      Result.Name := Result.Name + ' …';
+    end;
+  end;
+
+  Result.AvatarBmp := nil;
+  if Assigned(FAvatarPool) and (LAvIdx >= 0) and (LAvIdx < FAvatarPool.Count) then
+  begin
+    Result.AvatarBmp := FAvatarPool[LAvIdx];
+  end;
+end;
+
+// 관전 모드 토글: 켜면 내 시트도 AI로 채워 슬롯을 다시 돌리고, 끄면 마지막 시트를 내 자리로 복귀.
+procedure TGostopBoard.ToggleSpectator;
+begin
+  if FSetupHumanRow >= 0 then
+  begin
+    var LOld := FSetupHumanRow;
+    FSetupHumanRow := -1;
+    StartSlotSpin(LOld);
+  end
+  else
+  begin
+    FSetupHumanRow := FSetupCount - 1;
+    FSetupAvatar[FSetupHumanRow] := -1;
+    FSlotRemain[FSetupHumanRow] := 0;
+  end;
+
   Repaint;
 end;
 
@@ -5610,106 +5712,6 @@ begin
 
   FMatchSetupOpen := False;
   NewGame(FSetupCount, FConfig.AiSkill);
-end;
-
-// 대전 설정 다이얼로그(슬롯머신): 행 클릭=내 시트, 난이도 클릭=순환, 관전 토글
-procedure TGostopBoard.DrawMatchSetup;
-begin
-  // 일관된 여백·행 높이로 정돈
-  const LPad = 22.0;        // 패널 좌우 안여백
-  const LRowH = 60.0;       // 행 높이(간격 포함)
-  const LRowGap = 10.0;     // 행 사이 간격
-  const LBtnH = 40.0;       // 버튼 높이
-  const LBtnGap = 16.0;     // 버튼 사이 간격
-  const LRowGap2 = 12.0;    // 버튼 행 사이 간격
-
-  // 제목(48) + 행들 + 버튼2행 + 하단여백. 휴먼 좌석은 항상 마지막 행 고정(선택 불가)
-  var LPanelH := 48 + FSetupCount * LRowH + 12 + LBtnH + LRowGap2 + LBtnH + 22;
-  var LPanel := DrawStdDialog(Format('대전 설정 — %s (%d인)', [GAME_MODE_LABELS[FSetupCount], FSetupCount]), 500.0, LPanelH);
-  var LCx := (LPanel.Left + LPanel.Right) / 2;
-
-  for var R := 0 to FSetupCount - 1 do
-  begin
-    var LY := LPanel.Top + 50 + R * LRowH;
-    var LRow := RectF(LPanel.Left + LPad, LY, LPanel.Right - LPad, LY + LRowH - LRowGap);
-
-    // 행 배경 — 내 시트 행(항상 마지막 행)만 금테 강조. 좌석 선택 기능은 없음(휴먼 고정)
-    Canvas.Fill.Color := $FF20301F;
-    if R = FSetupHumanRow then
-    begin
-      Canvas.Fill.Color := $FF2F4A2E;
-    end;
-
-    Canvas.FillRect(LRow, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-    if R = FSetupHumanRow then
-    begin
-      Canvas.Stroke.Color := $FFFFD54A;
-      Canvas.Stroke.Thickness := 2;
-      Canvas.DrawRect(LRow, 10, 10, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-    end;
-
-    // 시트 라벨(세로 중앙)
-    DrawLabel(RectF(LRow.Left + 12, LRow.Top, LRow.Left + 48, LRow.Bottom), Format('P%d', [R + 1]), $FFB8C4B8, 15);
-
-    // 아바타(릴) — 세로 중앙 정렬
-    var LAvIdx := FSlotDisp[R];
-    var LName := '';
-    if R = FSetupHumanRow then
-    begin
-      LAvIdx := FHumanAvatarIdx;
-      LName := FConfig.Nickname + ' (나)';
-    end
-    else
-    begin
-      LName := AvatarName(LAvIdx);
-      if FSlotRemain[R] > 0 then
-      begin
-        LName := LName + ' …';
-      end;
-    end;
-
-    var LAvSize := LRow.Height - 12;
-    var LAvY := LRow.Top + (LRow.Height - LAvSize) / 2;
-    var LAv := RectF(LRow.Left + 54, LAvY, LRow.Left + 54 + LAvSize, LAvY + LAvSize);
-    if Assigned(FAvatarPool) and (LAvIdx >= 0) and (LAvIdx < FAvatarPool.Count) then
-    begin
-      var LBmp := FAvatarPool[LAvIdx];
-      Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), LAv, 1, False);
-    end;
-
-    Canvas.StrokeRound(LAv, 6, $80FFFFFF, 1);
-
-    // 이름(아바타 오른쪽 ~ 행 끝까지, 세로 중앙). AI는 모두 '새게임'에서 정한 동일 레벨이라
-    // 좌석별 난이도 선택은 없음(휴먼만 다름)
-    Canvas.Fill.Color := TAlphaColors.White;
-    TGostopFonts.Apply(Canvas, 16);
-    Canvas.FillText(RectF(LAv.Right + 14, LRow.Top, LRow.Right - 12, LRow.Bottom), LName,
-      False, 1, [], TTextAlign.Leading, TTextAlign.Center);
-  end;
-
-  var LBY := LPanel.Top + 50 + FSetupCount * LRowH + 12;
-
-  // 보조 버튼 행: [다시 돌리기] [관전 모드] — 중앙 정렬 한 쌍
-  var LBtnW := 160.0;
-  FBtnSetupSpin := DrawStdButton(RectF(LCx - LBtnW - LBtnGap / 2, LBY, LCx - LBtnGap / 2, LBY + LBtnH), '다시 돌리기', dbkNeutral);
-
-  var LWatchRect := RectF(LCx + LBtnGap / 2, LBY, LCx + LBtnGap / 2 + LBtnW, LBY + LBtnH);
-  if FSetupHumanRow < 0 then
-  begin
-    FBtnSetupWatch := DrawStdButton(LWatchRect, '관전 모드: 켬', dbkAccent);
-  end
-  else
-  begin
-    FBtnSetupWatch := DrawStdButton(LWatchRect, '관전 모드: 끔', dbkNeutral);
-  end;
-
-  LBY := LBY + LBtnH + LRowGap2;
-
-  // 주 버튼 행: [시작] [취소] — 중앙 정렬 한 쌍(보조 버튼과 같은 폭)
-  FBtnSetupStart := DrawStdButton(RectF(LCx - LBtnW - LBtnGap / 2, LBY, LCx - LBtnGap / 2, LBY + LBtnH), '시작', dbkPrimary);
-  FBtnSetupCancel := DrawStdButton(RectF(LCx + LBtnGap / 2, LBY, LCx + LBtnGap / 2 + LBtnW, LBY + LBtnH), '취소', dbkDanger);
-
-  EndStdDialog;
 end;
 
 // 타이틀 메뉴(게임 없음 상태): 로고 + 이어하기/새게임/끝내기 3버튼
@@ -6984,20 +6986,12 @@ begin
 
   if FGame = nil then
   begin
-    // 게임풍 타이틀 메뉴(대전 설정/설정/종료)
-    if FMatchSetupOpen then
+    // 타이틀 메뉴는 항상 배경으로 그린다(설정·대전설정·프로그램정보 다이얼로그는 그 위 자식 컨트롤).
+    DrawTitleMenu;
+    // 아바타 피커만 보드-그림(설정 다이얼로그가 숨은 채 그 위에 뜬다)
+    if FAvatarPicking then
     begin
-      DrawMatchSetup;
-    end
-    else
-    begin
-      // 타이틀 메뉴는 항상 배경으로 그린다(설정·프로그램정보 다이얼로그는 그 위 자식 컨트롤).
-      DrawTitleMenu;
-      // 아바타 피커만 보드-그림(설정 다이얼로그가 숨은 채 그 위에 뜬다)
-      if FAvatarPicking then
-      begin
-        DrawAvatarPicker;
-      end;
+      DrawAvatarPicker;
     end;
 
     Exit;
@@ -8521,58 +8515,9 @@ begin
     Exit;
   end;
 
-  if FMatchSetupOpen then
-  begin
-    MouseDownMatchSetupDialog(LPoint);
-    Exit;
-  end;
+  // 대전설정 다이얼로그는 자식 컨트롤(FMatchSetupDlg)이 클릭을 직접 받는다.
 
   MouseDownTitleButtons(LPoint);
-end;
-
-procedure TGostopBoard.MouseDownMatchSetupDialog(const LPoint: TPointF);
-begin
-  if FBtnSetupSpin.Contains(LPoint) then
-  begin
-    TGostopAudio.Instance.Play('ui_click');
-    StartSlotSpin;
-    Repaint;
-  end
-  else
-  if FBtnSetupWatch.Contains(LPoint) then
-  begin
-    TGostopAudio.Instance.Play('ui_click');
-    if FSetupHumanRow >= 0 then
-    begin
-      // 관전 켬: 내 시트도 AI로 채움
-      var LOld := FSetupHumanRow;
-      FSetupHumanRow := -1;
-      StartSlotSpin(LOld);
-    end
-    else
-    begin
-      // 관전 끔: 마지막 시트에 복귀
-      FSetupHumanRow := FSetupCount - 1;
-      FSetupAvatar[FSetupHumanRow] := -1;
-      FSlotRemain[FSetupHumanRow] := 0;
-    end;
-
-    Repaint;
-  end
-  else
-  if FBtnSetupStart.Contains(LPoint) then
-  begin
-    TGostopAudio.Instance.Play('ui_click');
-    StartMatchFromSetup;
-  end
-  else
-  if FBtnSetupCancel.Contains(LPoint) then
-  begin
-    TGostopAudio.Instance.Play('ui_click');
-    FSlotTimer.Enabled := False;
-    FMatchSetupOpen := False;
-    Repaint;
-  end;
 end;
 
 procedure TGostopBoard.MouseDownTitleButtons(const LPoint: TPointF);

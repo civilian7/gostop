@@ -1,4 +1,4 @@
-unit Gostop.Dialog;
+﻿unit Gostop.Dialog;
 
 // 다이얼로그 기반 클래스. 보드 god-class 에서 각 모달 화면을 자기완결 컴포넌트로 분리하기 위한 공용
 // 컨트롤이다. TControl 로 보드 위에 얹히는 full-client 모달 오버레이 — 딤·목함 패널·팝인 애니·표준
@@ -52,6 +52,10 @@ type
     property Rect: TRectF read FRect write FRect;
     /// <summary>활성 여부(비활성은 회색 표시 + 클릭 무시).</summary>
     property Enabled: Boolean read FEnabled write FEnabled;
+    /// <summary>캡션(상태에 따라 바뀌는 버튼은 매 프레임 갱신 — 예: 관전 모드 켬/끔).</summary>
+    property Caption: string read FCaption write FCaption;
+    /// <summary>종류(색). 상태에 따라 바뀌면 매 프레임 갱신.</summary>
+    property Kind: TDlgBtnKind read FKind write FKind;
   end;
 
   /// <summary>

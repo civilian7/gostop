@@ -37,6 +37,7 @@ uses
   Gostop.Dialog.Negotiation in 'engine\Gostop.Dialog.Negotiation.pas',
   Gostop.Dialog.GameOver in 'engine\Gostop.Dialog.GameOver.pas',
   Gostop.Dialog.Settings in 'engine\Gostop.Dialog.Settings.pas',
+  Gostop.Dialog.MatchSetup in 'engine\Gostop.Dialog.MatchSetup.pas',
   Gostop.Board in 'engine\Gostop.Board.pas',
   Main in 'Main.pas' {frmMain};
 

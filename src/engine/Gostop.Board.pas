@@ -6048,30 +6048,20 @@ begin
   var LAv := SeatAvatarRect(APos);
   var LInfo := RectF(LBox.Left + 8, LAv.Bottom + 6, LBox.Right - 8, LBox.Bottom - 4);
 
-  // 아바타 그리기 — 피 뺏긴 직후 3초는 화남 표정(아바타 액터가 관리, 없으면 평상시로 폴백)
-  var LAvDrawn := False;
+  // 아바타 그리기 — 표정→비트맵 선택은 아바타 액터가 소유(자기완결). 보드는 후보 비트맵만 뽑아 넘긴다.
   var LAvIdx := FSeatAvatar[APos];
+  var LNormalBmp: TBitmap := nil;
+  var LAngryBmp: TBitmap := nil;
   if Assigned(FAvatarPool) and (LAvIdx >= 0) and (LAvIdx < FAvatarPool.Count) then
   begin
-    var LBmp: TBitmap := nil;
-    if (FAvatarActors[APos].Expression = aeAngry) and Assigned(FAvatarAngryPool) and (LAvIdx < FAvatarAngryPool.Count) then
+    LNormalBmp := FAvatarPool[LAvIdx];
+    if Assigned(FAvatarAngryPool) and (LAvIdx < FAvatarAngryPool.Count) then
     begin
-      LBmp := FAvatarAngryPool[LAvIdx];
+      LAngryBmp := FAvatarAngryPool[LAvIdx];
     end;
-
-    if not Assigned(LBmp) then
-    begin
-      LBmp := FAvatarPool[LAvIdx];
-    end;
-
-    Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), LAv, 1, False);
-    LAvDrawn := True;
   end;
 
-  if (not LAvDrawn) and Assigned(FAvatars[APos]) then
-  begin
-    Canvas.DrawBitmap(FAvatars[APos], RectF(0, 0, FAvatars[APos].Width, FAvatars[APos].Height), LAv, 1, False);
-  end;
+  FAvatarActors[APos].Draw(Canvas, LAv, LNormalBmp, LAngryBmp, FAvatars[APos]);
 
   // 아바타가 카드 상단을 그대로 채우므로 예전처럼 네모 테두리를 두르지 않는다
   // (테두리가 있으면 '카드 안의 작은 상자'처럼 보인다)

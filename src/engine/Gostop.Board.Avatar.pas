@@ -9,6 +9,8 @@ interface
 
 {$REGION 'uses'}
 uses
+  System.Types,
+  FMX.Graphics,
   Gostop.Board.Animation;
 {$ENDREGION}
 
@@ -41,6 +43,13 @@ type
     procedure Reset;
     /// <summary>홀드 애니가 완료 시 호출 — 자기가 등록한 세대일 때만 원복(더 새 홀드가 있으면 무시).</summary>
     procedure RestoreIfCurrent(const AGen: Integer);
+    /// <summary>
+    ///   현재 표정에 맞는 아바타 비트맵을 골라 그린다. 표정→비트맵 매핑을 액터가 소유한다(자기완결).
+    ///   보드는 인덱스로 뽑은 후보 비트맵만 넘긴다(풀 소유는 보드 — 슬롯·피커·저장이 공유하므로).
+    ///   화남 표정이고 화남 비트맵이 있으면 그것을, 없으면 평상시, 그것도 없으면 폴백을 쓴다.
+    /// </summary>
+    procedure Draw(const ACanvas: TCanvas; const ARect: TRectF;
+      const ANormalBmp, AAngryBmp, AFallbackBmp: TBitmap);
     property Expression: TAvatarExpression read FExpression;
   end;
 
@@ -117,6 +126,31 @@ begin
   if AGen = FHoldGen then
   begin
     FExpression := aeNormal;
+  end;
+end;
+
+procedure TAvatarActor.Draw(const ACanvas: TCanvas; const ARect: TRectF;
+  const ANormalBmp, AAngryBmp, AFallbackBmp: TBitmap);
+begin
+  var LBmp: TBitmap := nil;
+  if (FExpression = aeAngry) and Assigned(AAngryBmp) then
+  begin
+    LBmp := AAngryBmp;
+  end;
+
+  if not Assigned(LBmp) then
+  begin
+    LBmp := ANormalBmp;
+  end;
+
+  if not Assigned(LBmp) then
+  begin
+    LBmp := AFallbackBmp;
+  end;
+
+  if Assigned(LBmp) then
+  begin
+    ACanvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), ARect, 1, False);
   end;
 end;
 {$ENDREGION}

@@ -38,6 +38,7 @@ uses
   Gostop.Board.Dialog,
   Gostop.Board.Widgets,
   Gostop.Board.OverlayRender,
+  Gostop.Dialog.ProgramInfo,
   Gostop.Canvas.Helper,
   Gostop.Fonts,
   Gostop.FourPlayer,
@@ -121,9 +122,9 @@ type
     FCreditRect: TRectF;       // 우하단 제작자 크레딧(클릭=GitHub)
     FOnExitRequest: TNotifyEvent;
 
-    // 프로그램 정보 다이얼로그(타이틀 화면 전용 오버레이)
-    FInfoOpen: Boolean;
-    FBtnInfoClose: TRectF;
+    // 프로그램 정보 다이얼로그(타이틀 화면 전용) — 자기완결 컴포넌트로 분리(Gostop.Dialog.ProgramInfo).
+    // 최초 열 때 생성해 보드 자식으로 얹고, 이후엔 Popup/Dismiss 로 표시/숨김만 한다.
+    FInfoDlg: TProgramInfoDialog;
 
     // 게임 룰·플레이어 설정('새게임' 다이얼로그 1단계: 인원수+룰+닉네임+아바타, INI 유지)
     FConfig: TGameConfig;        // 게임 룰·플레이어 설정(피박/광박/고박/보너스/금액/시드/난이도/닉네임)
@@ -511,7 +512,6 @@ type
     procedure PaintGame;
     procedure DrawPauseOverlay;
     procedure DrawTitleMenu;
-    procedure DrawProgramInfo;
     procedure OpenHelpDoc(const AFileName: string);
     procedure DrawSettings;
     procedure DrawCfgToggle(const ARect: TRectF; const AOn: Boolean);
@@ -583,7 +583,6 @@ type
     procedure MouseDownSettingsDialog(const LPoint: TPointF);
     procedure MouseDownMatchSetupDialog(const LPoint: TPointF);
     procedure MouseDownTitleButtons(const LPoint: TPointF);
-    procedure MouseDownProgramInfo(const LPoint: TPointF);
     procedure MouseDownAvatarPicker(const LPoint: TPointF);
     procedure MouseDownSeonPick(const LPoint: TPointF);
     procedure MouseDownBonusDraw(const LPoint: TPointF);
@@ -5861,53 +5860,6 @@ begin
 end;
 
 // 타이틀 화면 '프로그램정보' 버튼의 오버레이 다이얼로그: 버전 + 오픈소스 출처 + 저작권
-procedure TGostopBoard.DrawProgramInfo;
-begin
-  var LPanel := DrawStdDialog('프로그램 정보', 480, 360);
-  var LY := LPanel.Top + 66;
-
-  DrawLabel(RectF(LPanel.Left, LY, LPanel.Right, LY + 28), '루미고스톱 v1.0.3', TAlphaColors.Gold, 18);
-  LY := LY + 40;
-
-  Canvas.Fill.Kind := TBrushKind.Solid;
-  Canvas.Fill.Color := $FFE2C674;
-  TGostopFonts.Apply(Canvas, 14);
-  Canvas.FillText(RectF(LPanel.Left + 28, LY, LPanel.Right - 28, LY + 20), '오픈소스',
-    False, 1, [], TTextAlign.Leading, TTextAlign.Center);
-  LY := LY + 28;
-
-  // 이름(위 줄) · 출처(아래 줄, 들여쓰기+옅은 색) 두 줄로 표시
-  var LOsNames: TArray<string> := ['화투 카드 이미지', '효과음'];
-  var LOsSources: TArray<string> := [
-    'Wikimedia Commons "Category:Hwatu" (CC BY-SA 4.0)',
-    'Kenney.nl Casino / Interface / Impact Audio (CC0)'
-  ];
-
-  for var I := 0 to High(LOsNames) do
-  begin
-    Canvas.Fill.Kind := TBrushKind.Solid;
-    Canvas.Fill.Color := $FFEFEFE0;
-    TGostopFonts.Apply(Canvas, 12.5);
-    Canvas.FillText(RectF(LPanel.Left + 28, LY, LPanel.Right - 28, LY + 18), '- ' + LOsNames[I],
-      False, 1, [], TTextAlign.Leading, TTextAlign.Leading);
-    LY := LY + 20;
-
-    Canvas.Fill.Color := $FF8A968A;
-    TGostopFonts.Apply(Canvas, 11);
-    Canvas.FillText(RectF(LPanel.Left + 42, LY, LPanel.Right - 28, LY + 32), LOsSources[I],
-      True, 1, [], TTextAlign.Leading, TTextAlign.Leading);
-    LY := LY + 36;
-  end;
-
-  LY := LY + 8;
-  DrawLabel(RectF(LPanel.Left, LY, LPanel.Right, LY + 20), '(c) 2024-2026 copyright in fullbit computing.', $FF8A968A, 12);
-
-  FBtnInfoClose := DrawStdButton(RectF(LPanel.Left + LPanel.Width / 2 - 70, LPanel.Bottom - 54,
-    LPanel.Left + LPanel.Width / 2 + 70, LPanel.Bottom - 16), '닫기', dbkNeutral);
-
-  EndStdDialog;
-end;
-
 // 참여 자리의 정보 패널 일괄 그리기(선 뽑기·딜·플레이 공용)
 procedure TGostopBoard.DrawPanels;
 begin
@@ -7340,10 +7292,7 @@ begin
     else
     begin
       DrawTitleMenu;
-      if FInfoOpen then
-      begin
-        DrawProgramInfo;
-      end;
+      // 프로그램 정보는 자식 컨트롤(FInfoDlg)이 스스로 그린다 — 여기서 그리지 않는다.
     end;
 
     Exit;
@@ -8894,12 +8843,7 @@ end;
 // 타이틀 화면(게임 없음) 클릭 디스패치: 프로그램정보 → 설정창 → 대전설정 다이얼로그 → 타이틀 버튼 순
 procedure TGostopBoard.MouseDownTitleArea(const LPoint: TPointF);
 begin
-  if FInfoOpen then
-  begin
-    MouseDownProgramInfo(LPoint);
-    Exit;
-  end;
-
+  // 프로그램 정보 다이얼로그는 자식 컨트롤(FInfoDlg)이 클릭을 직접 받으므로 여기서 처리하지 않는다.
   if FSettingsOpen then
   begin
     MouseDownSettingsDialog(LPoint);
@@ -9115,18 +9059,14 @@ begin
   if FBtnMenuInfo.Contains(LPoint) then
   begin
     TGostopAudio.Instance.Play('ui_click');
-    FInfoOpen := True;
-    Repaint;
-  end;
-end;
+    if FInfoDlg = nil then
+    begin
+      FInfoDlg := TProgramInfoDialog.Create(Self);   // Owner=보드(자동 해제)
+      FInfoDlg.Parent := Self;                        // Parent 먼저 지정
+      FInfoDlg.Align := TAlignLayout.Contents;        // 보드 전체를 덮는 모달 오버레이
+    end;
 
-procedure TGostopBoard.MouseDownProgramInfo(const LPoint: TPointF);
-begin
-  if FBtnInfoClose.Contains(LPoint) then
-  begin
-    TGostopAudio.Instance.Play('ui_click');
-    FInfoOpen := False;
-    Repaint;
+    FInfoDlg.Popup;
   end;
 end;
 

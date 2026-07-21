@@ -240,12 +240,9 @@ type
     FGwangCards: TArray<THwatuCard>;   // 판매자가 판 광 패
     FGwangTimer: TTimer;               // 발표 후 자동 진행
 
-    // 오링(파산) 좌석 신규 플레이어 교체 연출(최대 동시 2명, 화면 밖에서 등장→빈자리로)
-    FReplacingSeats: TArray<TSeatPos>;   // 이번에 교체 중인 물리 좌석(1~2명)
-    FReplaceNewAvatar: TArray<Integer>;  // FReplacingSeats와 인덱스 대응하는 신규 아바타
-    FReplaceProgress: Single;            // 등장 애니 진행률(0~1)
-    FReplaceTimer: TTimer;
-    FReplacePendingStartPos: TSeatPos;   // 애니 완료 후 이어갈 NewGame의 선 위치
+    // 오링(파산) 좌석 신규 플레이어 교체 연출(최대 동시 2명, 화면 밖에서 등장→빈자리로).
+    // 진행·렌더는 TSeatEntranceAnimation(애니 매니저)이 맡고, 여기서는 입력·렌더 게이팅만 한다.
+    FReplacing: Boolean;   // 등장 연출 진행 중(입력 차단·게임오버 억제 가드)
 
     // 선 뽑기(밤일낮장) — 새 매치 시작 시 각자 카드 1장을 뒤집어 선 결정
     FGiriPhase: Boolean;                           // 기리(딜 전 말번 커팅) 진행 중
@@ -406,8 +403,6 @@ type
     function  PickReplacementAvatar(const AExtraExclude: Integer): Integer;
     function  SeatAvatarRect(const APos: TSeatPos): TRectF;
     procedure BeginSeatReplacement(const AStartPos: TSeatPos);
-    procedure ReplaceTimerTick(Sender: TObject);
-    procedure DrawSeatReplacement;
     procedure NegAnimTick(Sender: TObject);
     procedure ProceedAfterSeon;
     procedure BeginSeonPick;
@@ -1008,10 +1003,6 @@ begin
   FGwangTimer.Interval := 2600;   // 광 판매 발표 표시 시간
   FGwangTimer.Enabled := False;
   FGwangTimer.OnTimer := GwangTimerTick;
-  FReplaceTimer := TTimer.Create(Self);
-  FReplaceTimer.Interval := 16;   // ~60fps
-  FReplaceTimer.Enabled := False;
-  FReplaceTimer.OnTimer := ReplaceTimerTick;
   FGameOverTimer := TTimer.Create(Self);
   FGameOverTimer.Interval := 16;   // ~60fps(숫자 축소 애니메이션용)
   FGameOverTimer.Enabled := False;
@@ -1193,11 +1184,6 @@ begin
   end;
 
   FGwangShow := False;
-  if Assigned(FReplaceTimer) then
-  begin
-    FReplaceTimer.Enabled := False;
-  end;
-
   if Assigned(FGameOverTimer) then
   begin
     FGameOverTimer.Enabled := False;
@@ -1209,7 +1195,7 @@ begin
   end;
   FGameOverReady := False;
 
-  FReplacingSeats := nil;
+  FReplacing := False;   // 등장 연출 애니는 위 FAnimMgr.Clear 가 제거
   FHoverHand := -1;
   FHoverBonus := -1;
   FHoverGiri := -1;
@@ -5431,9 +5417,15 @@ begin
 end;
 
 // 오링(파산)된 상대 자리를 새 캐릭터로 교체(최대 동시 2명). 없으면 즉시 다음 판 진행.
+// 진행·렌더는 TSeatEntranceAnimation(애니 매니저)이 맡고, 등장이 끝나면 OnDone 에서 매치 필드를
+// 리셋하고 다음 판을 시작한다(도메인은 보드가 처리 — 애니는 시각 연출만).
 procedure TGostopBoard.BeginSeatReplacement(const AStartPos: TSeatPos);
+var
+  LBroke: TArray<TSeatPos>;      // 클로저가 캡처하므로 var 블록에 둔다
+  LNewAvatars: TArray<Integer>;  // 클로저가 캡처
+  LStartPos: TSeatPos;           // 클로저가 캡처
 begin
-  var LBroke: TArray<TSeatPos> := nil;
+  LBroke := nil;
   for var LPos in ActivePhysicalSeats do
   begin
     if (LPos <> spBottom) and (FMoney[LPos] <= 0) then
@@ -5446,109 +5438,60 @@ begin
     end;
   end;
 
-  FReplacePendingStartPos := AStartPos;
   if Length(LBroke) = 0 then
   begin
     NewGame(FPlayerCount, FAiSkill, AStartPos, False);
     Exit;
   end;
 
-  FReplacingSeats := LBroke;
-  SetLength(FReplaceNewAvatar, Length(LBroke));
+  LStartPos := AStartPos;
+  SetLength(LNewAvatars, Length(LBroke));
   var LExtra := -1;
   for var I := 0 to High(LBroke) do
   begin
-    FReplaceNewAvatar[I] := PickReplacementAvatar(LExtra);
-    LExtra := FReplaceNewAvatar[I];
+    LNewAvatars[I] := PickReplacementAvatar(LExtra);
+    LExtra := LNewAvatars[I];
     FSeatAvatar[LBroke[I]] := -1;   // 등장 전까지 자리 비움(패널에 이전 아바타 안 보이게)
   end;
 
-  FReplaceProgress := 0;
+  // 등장 애니에 넘길 시각 스냅샷(도착 좌석 사각형·비트맵·등장 방향) — 게임 상태 비의존
+  var LEntrants: TArray<TSeatEntrant>;
+  SetLength(LEntrants, Length(LBroke));
+  for var I := 0 to High(LBroke) do
+  begin
+    LEntrants[I].Target := SeatAvatarRect(LBroke[I]);
+    LEntrants[I].FromLeft := (Length(LBroke) = 2) and (I = 0);   // 2명 중 첫 번째만 왼쪽에서
+    LEntrants[I].Bmp := nil;
+    if Assigned(FAvatarPool) and (LNewAvatars[I] >= 0) and (LNewAvatars[I] < FAvatarPool.Count) then
+    begin
+      LEntrants[I].Bmp := FAvatarPool[LNewAvatars[I]];
+    end;
+  end;
+
+  FReplacing := True;
+  var LAnim := TSeatEntranceAnimation.Create(Self, LocalRect, LEntrants);
+  LAnim.OnDone :=
+    procedure
+    begin
+      // 등장 완료 — 신규 캐릭터 확정(아바타·시드머니·난이도·전적 리셋) 후 다음 판 진행.
+      for var I := 0 to High(LBroke) do
+      begin
+        var LPos := LBroke[I];
+        FSeatAvatar[LPos] := LNewAvatars[I];
+        FSeatSkill[LPos] := FConfig.AiSkill;   // 휴먼 제외 전원 동일 게임 레벨 유지
+        FMoney[LPos] := FConfig.SeedMoney;
+        FWins[LPos] := 0;
+        FLosses[LPos] := 0;
+        FGaveUpLast[LPos] := False;
+      end;
+
+      FReplacing := False;
+      NewGame(FPlayerCount, FAiSkill, LStartPos, False);
+    end;
+
+  FAnimMgr.Add(LAnim);
   TGostopAudio.Instance.Play('sfx_negotiate');
-  FReplaceTimer.Enabled := True;
   Repaint;
-end;
-
-// 등장 애니 진행 → 완료되면 신규 캐릭터 확정(아바타·시드머니·난이도·전적 리셋) 후 다음 판 진행
-procedure TGostopBoard.ReplaceTimerTick(Sender: TObject);
-begin
-  if FPaused then
-  begin
-    Exit;
-  end;
-
-  if Length(FReplacingSeats) = 0 then
-  begin
-    FReplaceTimer.Enabled := False;
-    Exit;
-  end;
-
-  FReplaceProgress := FReplaceProgress + 0.025 * FGameSpeed;
-  if FReplaceProgress < 1 then
-  begin
-    Repaint;
-    Exit;
-  end;
-
-  FReplaceTimer.Enabled := False;
-  for var I := 0 to High(FReplacingSeats) do
-  begin
-    var LPos := FReplacingSeats[I];
-    FSeatAvatar[LPos] := FReplaceNewAvatar[I];
-    FSeatSkill[LPos] := FConfig.AiSkill;   // 휴먼 제외 전원 동일 게임 레벨 유지
-    FMoney[LPos] := FConfig.SeedMoney;
-    FWins[LPos] := 0;
-    FLosses[LPos] := 0;
-    FGaveUpLast[LPos] := False;
-  end;
-
-  FReplacingSeats := nil;
-  FReplaceNewAvatar := nil;
-  NewGame(FPlayerCount, FAiSkill, FReplacePendingStartPos, False);
-end;
-
-// 새 도전자 등장 연출: 화면 밖(1명=오른쪽, 2명=좌우)에서 자기 자리로 아바타가 이동해 온다
-procedure TGostopBoard.DrawSeatReplacement;
-begin
-  if Length(FReplacingSeats) = 0 then
-  begin
-    Exit;
-  end;
-
-  Canvas.FillRound(LocalRect, 0, $60000000);
-  DrawLabel(RectF(0, Height * 0.10, Width, Height * 0.10 + 40), '새로운 도전자 등장!', TAlphaColors.Gold, 26);
-
-  var LT := EnsureRange(FReplaceProgress, 0, 1);
-  LT := 1 - Power(1 - LT, 3);   // ease-out
-
-  for var I := 0 to High(FReplacingSeats) do
-  begin
-    var LPos := FReplacingSeats[I];
-    var LTarget := SeatAvatarRect(LPos);
-
-    var LFromRight := True;
-    if (Length(FReplacingSeats) = 2) and (I = 0) then
-    begin
-      LFromRight := False;   // 2명 중 첫 번째는 왼쪽에서 등장
-    end;
-
-    var LStartCx := Width + LTarget.Width;
-    if not LFromRight then
-    begin
-      LStartCx := -LTarget.Width;
-    end;
-
-    var LCx := LStartCx + (((LTarget.Left + LTarget.Right) / 2) - LStartCx) * LT;
-    var LCy := (LTarget.Top + LTarget.Bottom) / 2;
-    var LR := RectF(LCx - LTarget.Width / 2, LCy - LTarget.Height / 2, LCx + LTarget.Width / 2, LCy + LTarget.Height / 2);
-
-    if Assigned(FAvatarPool) and (FReplaceNewAvatar[I] >= 0) and (FReplaceNewAvatar[I] < FAvatarPool.Count) then
-    begin
-      Canvas.DrawBitmap(FAvatarPool[FReplaceNewAvatar[I]], RectF(0, 0, FAvatarPool[FReplaceNewAvatar[I]].Width,
-        FAvatarPool[FReplaceNewAvatar[I]].Height), LR, 1, False);
-      Canvas.StrokeRound(LR, 8, $FFFFD54A, 2);
-    end;
-  end;
 end;
 
 // 대전 설정 열기: 기본 시트(마지막 행=나), AI 행 슬롯머신 스핀 시작
@@ -7074,7 +7017,7 @@ end;
 // 현재 마우스 위치가 이 영역 위에 있는가(호버 판정 공용). 애니메이션 중엔 입력을 안 받으므로 호버도 끔
 function TGostopBoard.IsHot(const ARect: TRectF): Boolean;
 begin
-  Result := (not Assigned(FDisplay)) and (not FDealing) and (not FShuffling) and (Length(FReplacingSeats) = 0) and ARect.Contains(FMousePos);
+  Result := (not Assigned(FDisplay)) and (not FDealing) and (not FShuffling) and (not FReplacing) and ARect.Contains(FMousePos);
 end;
 
 // 이 영역을 누른 채 마우스 버튼이 눌려 있는가(눌림 효과 공용)
@@ -7459,7 +7402,7 @@ begin
   else
   begin
     // 연출이 아직 남아 정산창을 미루는 중(FGameOverPending)이면 그리지 않는다
-    if (FGame.Phase = gpFinished) and (not FGameOverPending) and (Length(FReplacingSeats) = 0) then
+    if (FGame.Phase = gpFinished) and (not FGameOverPending) and (not FReplacing) then
     begin
       DrawGameOver;
     end;
@@ -7487,12 +7430,7 @@ begin
   begin
     DrawAvatarPicker;
   end;
-
-  // 오링 좌석 신규 캐릭터 등장 연출(모든 것 위에 표시)
-  if Length(FReplacingSeats) > 0 then
-  begin
-    DrawSeatReplacement;
-  end;
+  // 오링 좌석 신규 캐릭터 등장 연출(TSeatEntranceAnimation)은 Paint 의 FAnimMgr.DrawAll 이 최상단에 그린다.
 end;
 
 // 실제 화면 그리기(PaintGame) 후, 일시정지 중이면 그 위에 딤+안내를 얹는다(모든 단계 공통)
@@ -8804,7 +8742,7 @@ begin
   end;
 
   // 애니메이션 진행 중엔 그 외 입력 무시(턴 애니·딜 애니·오링 좌석 교체 애니)
-  if Assigned(FDisplay) or FDealing or FShuffling or (Length(FReplacingSeats) > 0) then
+  if Assigned(FDisplay) or FDealing or FShuffling or FReplacing then
   begin
     Exit;
   end;

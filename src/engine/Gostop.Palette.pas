@@ -51,6 +51,7 @@ type
     // 배너·오버레이·배지
     BannerFill = TAlphaColor($B0201008);   // 특수상황 배너 배경
     OverlayDim = TAlphaColor($A0000000);   // 일시정지 딤
+    EntranceDim = TAlphaColor($60000000);  // 새 도전자 등장 딤(일시정지보다 옅게)
     BadgeFill  = TAlphaColor($99787878);   // 획득 장수 배지 배경
     BadgeText  = TAlphaColor($FFFFF4D0);   // 배지 숫자(크림)
 

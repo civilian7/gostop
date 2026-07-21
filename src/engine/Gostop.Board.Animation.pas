@@ -189,16 +189,21 @@ type
   end;
 
   /// <summary>
-  ///   오링(파산)된 상대 자리에 새 캐릭터가 등장하는 연출. 화면 밖(왼쪽/오른쪽)에서 아바타가 자기
-  ///   자리로 ease-out 이동해 온다. 딤 배경 + '새로운 도전자 등장!' 안내를 스스로 그리는 오버레이형.
-  ///   좌표·비트맵 스냅샷만 받으므로 게임 상태에 의존하지 않는 자기완결형이며, 완료 시 매니저가 OnDone
-  ///   을 호출하면 보드가 매치 필드 리셋 + 다음 판 진입(도메인)을 처리한다.
+  ///   오링(파산)된 상대 자리에 새 캐릭터가 등장하는 연출. 도전자를 한 명씩 순차로 소개한다 —
+  ///   화면 밖에서 중앙으로 큰 그림으로 입장(+'선수 입장~' 안내) → 1초 대기 → 빈 좌석으로 축소 이동.
+  ///   2명이면 이 소개를 두 번 반복하고, 이미 도착한 도전자는 자기 자리에 계속 유지한다. 딤 배경을
+  ///   스스로 그리는 오버레이형이며, 좌표·비트맵 스냅샷만 받아 게임 상태에 의존하지 않는 자기완결형.
+  ///   완료 시 매니저가 OnDone 을 호출하면 보드가 매치 필드 리셋 + 다음 판 진입(도메인)을 처리한다.
   /// </summary>
   TSeatEntranceAnimation = class(TBoardAnimation)
   strict private
-    FT: Single;                        // 진행도 0~1
-    FBounds: TRectF;                   // 보드 전체 영역(딤·안내·화면 밖 시작점 기준)
+    FElapsed: Single;                  // 전체 경과(ms) — 도전자 1명당 ENTRANCE_PER_MS 씩 순차 소비
+    FBounds: TRectF;                   // 보드 전체 영역(딤·중앙 대형·화면 밖 시작점 기준)
     FEntrants: TArray<TSeatEntrant>;
+    function  LargeRect: TRectF;                                    // 중앙 대형 아바타 사각형
+    procedure DrawAvatar(const ARect: TRectF; const ABmp: TBitmap); // 테두리 포함 아바타 1장
+    procedure DrawMessage(const AAlpha: Single);                    // '선수 입장~'(중앙 대형 아래)
+    procedure DrawCurrent(const AIndex: Integer; const ALocalMs: Single);
   public
     constructor Create(const AHost: IAnimationHost; const ABounds: TRectF; const AEntrants: TArray<TSeatEntrant>);
     procedure Update(const ADeltaMs: Single); override;
@@ -249,9 +254,12 @@ const
   SHAKE_CYCLES = 4.0;               // 지속 시간 동안의 좌우 왕복 횟수
   SHAKE_AMP_RATIO = 0.34;           // 진폭 = 카드 폭 × 이 비율(High-DPI에서도 비율 유지)
 
-  // 새 도전자 등장 연출 — 원본은 16ms 틱마다 진행 0.025(×배속) → 40틱에 완주. 델타 기반으로 동일 환산.
-  ENTRANCE_DURATION_MS = 640.0;
-  ENTRANCE_LABEL_Y = 0.10;          // 안내 문구 세로 위치(보드 높이 비율)
+  // 새 도전자 등장 연출(도전자 1명당 3구간을 순차 진행).
+  ENTRANCE_CENTER_IN_MS = 400.0;    // 화면 밖 → 중앙 대형 슬라이드-인
+  ENTRANCE_HOLD_MS = 1000.0;        // 중앙에서 '선수 입장~' 대기(1초)
+  ENTRANCE_TO_SEAT_MS = 500.0;      // 중앙 대형 → 빈 좌석 축소 이동
+  ENTRANCE_PER_MS = 1900.0;         // 도전자 1명당 총 시간(위 3구간 합)
+  ENTRANCE_LARGE_RATIO = 0.42;      // 중앙 대형 아바타 크기 = min(보드폭,높이) × 이 비율
 
 {$REGION 'TBoardAnimation'}
 constructor TBoardAnimation.Create(const AHost: IAnimationHost);
@@ -615,20 +623,95 @@ begin
   inherited Create(AHost);
   FBounds := ABounds;
   FEntrants := AEntrants;
-  FT := 0;
+  FElapsed := 0;
 end;
 
 procedure TSeatEntranceAnimation.Update(const ADeltaMs: Single);
 begin
-  FT := FT + ADeltaMs / ENTRANCE_DURATION_MS;
-  if FT >= 1 then
+  FElapsed := FElapsed + ADeltaMs;
+  if FElapsed >= Length(FEntrants) * ENTRANCE_PER_MS then
   begin
-    FT := 1;
     FDone := True;
   end;
 end;
 
-// 화면 밖에서 각 아바타가 자기 좌석으로 ease-out 이동해 온다. 원본 소유 딤·안내를 스스로 그린다.
+// 중앙 대형 아바타 사각형(보드 중앙, 아래에 메시지 자리를 남기려 살짝 위로).
+function TSeatEntranceAnimation.LargeRect: TRectF;
+begin
+  var LSz := System.Math.Min(FBounds.Width, FBounds.Height) * ENTRANCE_LARGE_RATIO;
+  var LCx := (FBounds.Left + FBounds.Right) / 2;
+  var LCy := (FBounds.Top + FBounds.Bottom) / 2 - LSz * 0.10;
+  Result := RectF(LCx - LSz / 2, LCy - LSz / 2, LCx + LSz / 2, LCy + LSz / 2);
+end;
+
+procedure TSeatEntranceAnimation.DrawAvatar(const ARect: TRectF; const ABmp: TBitmap);
+begin
+  if not Assigned(ABmp) then
+  begin
+    Exit;
+  end;
+
+  var LCanvas := FHost.GetCanvas;
+  LCanvas.DrawBitmap(ABmp, RectF(0, 0, ABmp.Width, ABmp.Height), ARect, 1, False);
+  LCanvas.StrokeRound(ARect, 8, TPalette.Gold, 2);
+end;
+
+// '선수 입장~' — 중앙 대형 아바타 바로 아래에 고정 표시(좌석 이동 구간에 AAlpha 로 페이드아웃).
+procedure TSeatEntranceAnimation.DrawMessage(const AAlpha: Single);
+begin
+  var LA := EnsureRange(AAlpha, 0, 1);
+  if LA <= 0 then
+  begin
+    Exit;
+  end;
+
+  var LColor := TAlphaColor((Cardinal(Round(LA * $FF)) shl 24) or (Cardinal(TAlphaColors.Gold) and $00FFFFFF));
+  var LTop := LargeRect.Bottom + 18;
+  FHost.GetCanvas.DrawLabel(RectF(FBounds.Left, LTop, FBounds.Right, LTop + 44), '선수 입장~', LColor, 32);
+end;
+
+// 현재 소개 중인 도전자를 로컬 경과(ALocalMs)에 따라 3구간으로 그린다: 입장 → 대기 → 좌석 이동.
+procedure TSeatEntranceAnimation.DrawCurrent(const AIndex: Integer; const ALocalMs: Single);
+begin
+  var LE := FEntrants[AIndex];
+  var LLarge := LargeRect;
+
+  // 1) 화면 밖 → 중앙 대형(가로 슬라이드-인)
+  if ALocalMs < ENTRANCE_CENTER_IN_MS then
+  begin
+    var LT := 1 - Power(1 - ALocalMs / ENTRANCE_CENTER_IN_MS, 3);
+    var LLargeCx := (LLarge.Left + LLarge.Right) / 2;
+    var LStartCx := FBounds.Right + LLarge.Width;
+    if LE.FromLeft then
+    begin
+      LStartCx := FBounds.Left - LLarge.Width;
+    end;
+
+    var LDx := (LStartCx + (LLargeCx - LStartCx) * LT) - LLargeCx;
+    DrawAvatar(RectF(LLarge.Left + LDx, LLarge.Top, LLarge.Right + LDx, LLarge.Bottom), LE.Bmp);
+    DrawMessage(1);
+    Exit;
+  end;
+
+  // 2) 중앙 대형 유지 + 메시지(1초 대기)
+  if ALocalMs < ENTRANCE_CENTER_IN_MS + ENTRANCE_HOLD_MS then
+  begin
+    DrawAvatar(LLarge, LE.Bmp);
+    DrawMessage(1);
+    Exit;
+  end;
+
+  // 3) 중앙 대형 → 빈 좌석(위치·크기 함께 보간), 메시지 페이드아웃
+  var LT := 1 - Power(1 - (ALocalMs - ENTRANCE_CENTER_IN_MS - ENTRANCE_HOLD_MS) / ENTRANCE_TO_SEAT_MS, 3);
+  DrawAvatar(RectF(
+    LLarge.Left   + (LE.Target.Left   - LLarge.Left)   * LT,
+    LLarge.Top    + (LE.Target.Top    - LLarge.Top)    * LT,
+    LLarge.Right  + (LE.Target.Right  - LLarge.Right)  * LT,
+    LLarge.Bottom + (LE.Target.Bottom - LLarge.Bottom) * LT), LE.Bmp);
+  DrawMessage(1 - LT);
+end;
+
+// 딤 → 이미 도착한 도전자(정적) → 현재 소개 중인 도전자 순으로 그린다.
 procedure TSeatEntranceAnimation.Draw;
 begin
   if Length(FEntrants) = 0 then
@@ -636,36 +719,22 @@ begin
     Exit;
   end;
 
-  var LCanvas := FHost.GetCanvas;
-  LCanvas.FillRound(FBounds, 0, TPalette.EntranceDim);
-  LCanvas.DrawLabel(RectF(FBounds.Left, FBounds.Top + FBounds.Height * ENTRANCE_LABEL_Y,
-    FBounds.Right, FBounds.Top + FBounds.Height * ENTRANCE_LABEL_Y + 40),
-    '새로운 도전자 등장!', TAlphaColors.Gold, 26);
+  FHost.GetCanvas.FillRound(FBounds, 0, TPalette.EntranceDim);
 
-  var LEase := 1 - Power(1 - EnsureRange(FT, 0, 1), 3);   // ease-out
+  var LCur := Trunc(FElapsed / ENTRANCE_PER_MS);
 
-  for var I := 0 to High(FEntrants) do
+  // 이미 소개를 마친 도전자는 자기 좌석에 계속 유지(다음 도전자 연출 중 사라지지 않게)
+  for var I := 0 to LCur - 1 do
   begin
-    var LE := FEntrants[I];
-
-    // 화면 밖 시작점: 왼쪽 등장이면 좌측 밖, 아니면 우측 밖(카드 폭만큼 여유)
-    var LStartCx := FBounds.Right + LE.Target.Width;
-    if LE.FromLeft then
+    if I <= High(FEntrants) then
     begin
-      LStartCx := FBounds.Left - LE.Target.Width;
+      DrawAvatar(FEntrants[I].Target, FEntrants[I].Bmp);
     end;
+  end;
 
-    var LTargetCx := (LE.Target.Left + LE.Target.Right) / 2;
-    var LCx := LStartCx + (LTargetCx - LStartCx) * LEase;
-    var LCy := (LE.Target.Top + LE.Target.Bottom) / 2;
-    var LR := RectF(LCx - LE.Target.Width / 2, LCy - LE.Target.Height / 2,
-      LCx + LE.Target.Width / 2, LCy + LE.Target.Height / 2);
-
-    if Assigned(LE.Bmp) then
-    begin
-      LCanvas.DrawBitmap(LE.Bmp, RectF(0, 0, LE.Bmp.Width, LE.Bmp.Height), LR, 1, False);
-      LCanvas.StrokeRound(LR, 8, TPalette.Gold, 2);
-    end;
+  if LCur <= High(FEntrants) then
+  begin
+    DrawCurrent(LCur, FElapsed - LCur * ENTRANCE_PER_MS);
   end;
 end;
 {$ENDREGION}

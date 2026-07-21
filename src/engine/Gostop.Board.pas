@@ -131,11 +131,10 @@ type
     // 최초 열 때 생성해 보드 자식으로 얹고, 이후엔 Popup/Dismiss 로 표시/숨김만 한다.
     FInfoDlg: TProgramInfoDialog;
 
-    // 게임 룰·플레이어 설정('새게임' 다이얼로그 1단계: 인원수+룰+닉네임+아바타, INI 유지)
-    FConfig: TGameConfig;        // 게임 룰·플레이어 설정(피박/광박/고박/보너스/금액/시드/난이도/닉네임)
-    FNickEdit: TEdit;            // 닉네임 입력용(설정창에서만 표시, IME 지원)
+    // 게임 룰·플레이어 설정('새게임' 다이얼로그 1단계: 인원수+룰+아바타, INI 유지)
+    FConfig: TGameConfig;        // 게임 룰·플레이어 설정(피박/광박/고박/보너스/금액/시드/난이도)
     FSettingsOpen: Boolean;      // 설정창 표시 중
-    FCfgRects: array [0 .. 8] of TRectF;   // 설정 행 값 영역(0~6=토글, 7=닉네임, 8=아바타)
+    FCfgAvatarRect: TRectF;      // 아바타 '변경' 값 영역(룰 토글·닉네임은 제거됨 — 표준 룰 고정)
     FCfgCountRects: array [0 .. 2] of TRectF;  // 상단 인원수 카드(맞고/삼파전/광팔어유) 클릭 영역
     FCfgSkillRects: array [0 .. 3] of TRectF;  // 상단 AI 난이도 카드(병아리/선수/타짜/신의손) 클릭 영역
     FBtnCfgCancel: TRectF;      // 설정창 '취소'(타이틀로 복귀)
@@ -522,19 +521,14 @@ type
     procedure DrawTitleMenu;
     procedure OpenHelpDoc(const AFileName: string);
     procedure DrawSettings;
-    procedure DrawCfgToggle(const ARect: TRectF; const AOn: Boolean);
     procedure DrawCfgValueButton(const ARect: TRectF; const AText: string);
     // 선택형 아바타 카드 렌더는 Gostop.Board.CardRender(TSelectCardRender)로 분리됨
-    procedure CycleCfg(const AIndex: Integer);
     function  CfgScore: TScoreOptions;
     function  CfgRules: TRuleSet;
     function  CfgDeckOptions: TDeckOptions;
     function  SettingsPath: string;
     procedure LoadSettings;
     procedure SaveSettings;
-    procedure BeginNickEdit(const ARow: TRectF);
-    procedure ApplyNickEdit;
-    procedure NickEditKeyDown(Sender: TObject; var Key: Word; var KeyChar: WideChar; Shift: TShiftState);
     procedure OpenMatchSetup(const ACount: Integer);
     procedure DrawMatchSetup;
     procedure StartMatchFromSetup;
@@ -5067,53 +5061,6 @@ begin
   end;
 end;
 
-// 닉네임 인라인 편집 시작(설정창 행 위에 TEdit 표시 — 한글 IME 지원)
-procedure TGostopBoard.BeginNickEdit(const ARow: TRectF);
-begin
-  if FNickEdit = nil then
-  begin
-    FNickEdit := TEdit.Create(Self);
-    FNickEdit.Parent := Self;   // Parent 먼저 지정
-    FNickEdit.MaxLength := 10;
-    FNickEdit.OnKeyDown := NickEditKeyDown;
-  end;
-
-  FNickEdit.SetBounds(ARow.Left, ARow.Top, ARow.Width, ARow.Height);
-  FNickEdit.Text := FConfig.Nickname;
-  FNickEdit.Visible := True;
-  FNickEdit.SetFocus;
-  FNickEdit.SelectAll;
-end;
-
-// 닉네임 편집 확정(Enter/확인 버튼)
-procedure TGostopBoard.ApplyNickEdit;
-begin
-  if (FNickEdit = nil) or (not FNickEdit.Visible) then
-  begin
-    Exit;
-  end;
-
-  var LName := Trim(FNickEdit.Text);
-  if LName = '' then
-  begin
-    LName := '나';
-  end;
-
-  FConfig.Nickname := LName;
-  FNickEdit.Visible := False;
-  SaveSettings;
-  Repaint;
-end;
-
-procedure TGostopBoard.NickEditKeyDown(Sender: TObject; var Key: Word; var KeyChar: WideChar; Shift: TShiftState);
-begin
-  if Key = vkReturn then
-  begin
-    Key := 0;
-    ApplyNickEdit;
-  end;
-end;
-
 // 설정을 반영한 점수 옵션
 function TGostopBoard.CfgScore: TScoreOptions;
 begin
@@ -5131,68 +5078,23 @@ begin
 end;
 
 // 설정 행 값 순환(설정창에서 값 버튼 클릭)
-procedure TGostopBoard.CycleCfg(const AIndex: Integer);
-begin
-  case AIndex of
-    0:
-      begin
-        FConfig.Pibak := not FConfig.Pibak;
-      end;
-    1:
-      begin
-        FConfig.Gwangbak := not FConfig.Gwangbak;
-      end;
-    2:
-      begin
-        FConfig.Meongbak := not FConfig.Meongbak;
-      end;
-    3:
-      begin
-        FConfig.Gobak := not FConfig.Gobak;
-      end;
-    4:
-      begin
-        FConfig.ReverseGo := not FConfig.ReverseGo;
-      end;
-    5:
-      begin
-        FConfig.Bonus := not FConfig.Bonus;
-      end;
-    6:
-      begin
-        FConfig.Speech := not FConfig.Speech;
-      end;
-  end;
-
-  SaveSettings;
-end;
-
-// 설정창의 값 버튼(닉네임·아바타처럼 토글이 아닌 항목). 호버·눌림 상태를 반영한다.
+// 설정창의 아바타 '변경' 값 버튼(토글이 아닌 항목). 호버·눌림 상태를 반영한다.
 // 렌더 본문은 Gostop.Board.Widgets 로 분리됨. 호버/눌림만 계산해 위임.
 procedure TGostopBoard.DrawCfgValueButton(const ARect: TRectF; const AText: string);
 begin
   TWidgetRender.CfgValueButton(Canvas, ARect, AText, IsHot(ARect), IsPressed(ARect));
 end;
 
-// 게임 룰·플레이어 설정창(게임 시작 전 타이틀에서만)
-// 켬/끔 설정을 나타내는 슬라이드 토글 스위치(값 영역 오른쪽 정렬로 그림)
-procedure TGostopBoard.DrawCfgToggle(const ARect: TRectF; const AOn: Boolean);
-begin
-  TWidgetRender.CfgToggle(Canvas, ARect, AOn, IsHot(ARect), IsPressed(ARect));
-end;
-
 procedure TGostopBoard.DrawSettings;
 const
-  // 0~6=켬/끔 토글, 7=닉네임, 8=아바타(점당금액·시드머니는 시스템 자동 결정이라 UI 없음)
-  GRID_ROWS = 4;         // 규칙 토글 7개를 한 행에 2개씩 놓은 행 수
   CARD_ROW_H = 106.0;
   CARD_GAP = 12.0;
   CARD_AREA_MAX_W = 440.0;   // 인원수·난이도 카드 영역 최대 폭(패널을 넓혀도 카드가 늘어나지 않게)
 begin
   var LRowH := 42.0;
   var LPanelW := 480.0;
-  // 토글 그리드 4행 + 닉네임·아바타 2행
-  var LPanelH := 56 + 2 * CARD_ROW_H + CARD_GAP * 3 + (GRID_ROWS + 2) * LRowH + 66;
+  // 인원수·난이도 카드 2행 + 아바타 1행(룰 토글·닉네임 제거 — 표준 룰 고정)
+  var LPanelH := 56 + 2 * CARD_ROW_H + CARD_GAP * 3 + LRowH + 66;
   var LPanel := RectF(Width / 2 - LPanelW / 2, Height / 2 - LPanelH / 2,
     Width / 2 + LPanelW / 2, Height / 2 + LPanelH / 2);
 
@@ -5200,10 +5102,8 @@ begin
   Canvas.StrokeRound(LPanel, 14, $FFFFD54A, 2);
   DrawLabel(RectF(LPanel.Left, LPanel.Top + 12, LPanel.Right, LPanel.Top + 46), '새게임', TAlphaColors.Gold, 22);
 
-  // 상단 카드 영역: 라벨 없이 화투 카드 삽화로 인원수(3장)·AI 난이도(4장)를 한 번에 보여줌.
-  // 열 개수는 다르지만(3장/4장) 두 줄 모두 같은 전체 폭에 맞춰 카드 폭만 달라진다.
-  // 카드 영역은 패널 폭과 무관하게 상한을 두고 가운데 정렬한다.
-  // 패널이 넓어졌다고 카드까지 늘리면 정사각형 아바타가 가로로 눌린다.
+  // 상단 카드 영역: 라벨 없이 아바타 삽화로 인원수(3장)·AI 난이도(4장)를 보여줌. 열 개수는 다르지만
+  // 두 줄 모두 같은 전체 폭에 맞춰 카드 폭만 달라진다. 카드 영역은 패널 폭과 무관하게 상한 + 가운데 정렬.
   var LCardAreaW := Min(LPanel.Width - 40, CARD_AREA_MAX_W);
   var LCardAreaL := (LPanel.Left + LPanel.Right) / 2 - LCardAreaW / 2;
   var LCardAreaR := LCardAreaL + LCardAreaW;
@@ -5253,94 +5153,21 @@ begin
       AI_SKILL_VALUES[LSeg] = FConfig.AiSkill, IsHot(LSegRect), IsPressed(LSegRect));
   end;
 
-  var LRowsTop := LCardY + CARD_ROW_H + CARD_GAP;
+  // 아바타: 한 행(라벨 + '변경' 버튼 안 썸네일), 값 영역은 오른쪽 정렬
+  var LAvY := LCardY + CARD_ROW_H + CARD_GAP;
+  Canvas.Fill.Color := $FFE8EEE4;
+  TGostopFonts.Apply(Canvas, 16);
+  Canvas.FillText(RectF(LCardAreaL, LAvY, LCardAreaL + 200, LAvY + LRowH - 8), '아바타',
+    False, 1, [], TTextAlign.Leading, TTextAlign.Center);
 
-  // 항목: 라벨(왼쪽) + 값(오른쪽). 0~6=켬/끔 토글, 7=닉네임, 8=아바타
-  var LLabels: array [0 .. 8] of string;
-  LLabels[0] := '피박';
-  LLabels[1] := '광박';
-  LLabels[2] := '멍박';
-  LLabels[3] := '고박 (×2)';
-  LLabels[4] := '역고 (×4)';
-  LLabels[5] := '보너스패';
-  LLabels[6] := '말풍선';
-  LLabels[7] := '닉네임';
-  LLabels[8] := '아바타';
+  FCfgAvatarRect := RectF(LCardAreaR - 260, LAvY + 3, LCardAreaR, LAvY + LRowH - 8);
+  DrawCfgValueButton(FCfgAvatarRect, '변경');
 
-  var LToggleOn: array [0 .. 6] of Boolean;
-  LToggleOn[0] := FConfig.Pibak;
-  LToggleOn[1] := FConfig.Gwangbak;
-  LToggleOn[2] := FConfig.Meongbak;
-  LToggleOn[3] := FConfig.Gobak;
-  LToggleOn[4] := FConfig.ReverseGo;
-  LToggleOn[5] := FConfig.Bonus;
-  LToggleOn[6] := FConfig.Speech;
-
-  // 규칙 토글만 한 행에 2개씩. 닉네임·아바타는 값이 길고 성격이 달라 기존대로 한 행에 하나씩.
-  var LGrid: array [0 .. GRID_ROWS - 1, 0 .. 1] of Integer;
-  LGrid[0, 0] := 0;  LGrid[0, 1] := 1;   // 피박   | 광박
-  LGrid[1, 0] := 2;  LGrid[1, 1] := 3;   // 멍박   | 고박
-  LGrid[2, 0] := 4;  LGrid[2, 1] := 5;   // 역고   | 보너스패
-  LGrid[3, 0] := 6;  LGrid[3, 1] := -1;  // 말풍선 | (빈 칸)
-
-  // 항목 영역은 위쪽 난이도 카드와 같은 폭·같은 좌우 끝으로 맞춘다(세로선이 어긋나지 않게)
-  var LRowsL := LCardAreaL;
-  var LRowsR := LCardAreaR;
-  var LColGap := 24.0;
-  var LColW := (LRowsR - LRowsL - LColGap) / 2;
-
-  for var LRow := 0 to GRID_ROWS - 1 do
-  begin
-    var LY := LRowsTop + LRow * LRowH;
-    for var LCol := 0 to 1 do
-    begin
-      var LIdx := LGrid[LRow, LCol];
-      if LIdx < 0 then
-      begin
-        Continue;
-      end;
-
-      var LCellL := LRowsL + LCol * (LColW + LColGap);
-      var LCellR := LCellL + LColW;
-
-      Canvas.Fill.Color := $FFE8EEE4;
-      TGostopFonts.Apply(Canvas, 16);
-      Canvas.FillText(RectF(LCellL, LY, LCellR - 108, LY + LRowH - 8), LLabels[LIdx],
-        False, 1, [], TTextAlign.Leading, TTextAlign.Center);
-
-      var LValueArea := RectF(LCellR - 104, LY + 3, LCellR, LY + LRowH - 8);
-      FCfgRects[LIdx] := LValueArea;
-      DrawCfgToggle(LValueArea, LToggleOn[LIdx]);
-    end;
-  end;
-
-  // 닉네임·아바타: 한 행에 하나씩(전체 폭), 값 영역은 오른쪽 정렬
-  for var LI := 7 to 8 do
-  begin
-    var LY := LRowsTop + (GRID_ROWS + (LI - 7)) * LRowH;
-    Canvas.Fill.Color := $FFE8EEE4;
-    TGostopFonts.Apply(Canvas, 16);
-    Canvas.FillText(RectF(LRowsL, LY, LRowsL + 200, LY + LRowH - 8), LLabels[LI],
-      False, 1, [], TTextAlign.Leading, TTextAlign.Center);
-
-    FCfgRects[LI] := RectF(LRowsR - 260, LY + 3, LRowsR, LY + LRowH - 8);
-    if LI = 7 then
-    begin
-      DrawCfgValueButton(FCfgRects[LI], FConfig.Nickname);
-    end
-    else
-    begin
-      DrawCfgValueButton(FCfgRects[LI], '변경');
-    end;
-  end;
-
-  // 아바타 값 버튼 안에 현재 아바타 썸네일을 얹는다
-  LoadAvatarPool;
   if Assigned(FAvatarPool) and (FHumanAvatarIdx >= 0) and (FHumanAvatarIdx < FAvatarPool.Count) then
   begin
     var LBmp := FAvatarPool[FHumanAvatarIdx];
-    var LSide := FCfgRects[8].Height - 4;
-    var LTh := RectF(FCfgRects[8].Left + 6, FCfgRects[8].Top + 2, FCfgRects[8].Left + 6 + LSide, FCfgRects[8].Top + 2 + LSide);
+    var LSide := FCfgAvatarRect.Height - 4;
+    var LTh := RectF(FCfgAvatarRect.Left + 6, FCfgAvatarRect.Top + 2, FCfgAvatarRect.Left + 6 + LSide, FCfgAvatarRect.Top + 2 + LSide);
     Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), LTh, 1, False);
   end;
 
@@ -7322,7 +7149,7 @@ end;
 
 function TGostopBoard.IsTextInputActive: Boolean;
 begin
-  Result := Assigned(FNickEdit) and FNickEdit.Visible and FNickEdit.IsFocused;
+  Result := False;   // 텍스트 입력 컨트롤 없음(닉네임 입력 제거됨) — 스페이스바 등 단축키가 항상 동작
 end;
 
 function TGostopBoard.FloorMatchOrdinal(const AFloorIndex, AMonth: Integer): Integer;
@@ -8736,41 +8563,23 @@ begin
     end;
   end;
 
-  for var I := 0 to High(FCfgRects) do
+  // 아바타: 선택 오버레이 열기
+  if FCfgAvatarRect.Contains(LPoint) then
   begin
-    if FCfgRects[I].Contains(LPoint) then
+    TGostopAudio.Instance.Play('ui_click');
+    LoadAvatarPool;
+    if FAvatarPool.Count > 0 then
     begin
-      TGostopAudio.Instance.Play('ui_click');
-      if I <= 6 then
-      begin
-        CycleCfg(I);
-      end
-      else
-      if I = 7 then
-      begin
-        // 닉네임: 행 위에 입력창 표시
-        BeginNickEdit(FCfgRects[7]);
-      end
-      else
-      begin
-        // 아바타: 선택 오버레이 열기
-        ApplyNickEdit;
-        LoadAvatarPool;
-        if FAvatarPool.Count > 0 then
-        begin
-          FAvatarPicking := True;
-        end;
-      end;
-
-      Repaint;
-      Exit;
+      FAvatarPicking := True;
     end;
+
+    Repaint;
+    Exit;
   end;
 
   if FBtnCfgCancel.Contains(LPoint) then
   begin
     TGostopAudio.Instance.Play('ui_click');
-    ApplyNickEdit;
     FSettingsOpen := False;
     Repaint;
   end
@@ -8778,7 +8587,6 @@ begin
   if FBtnCfgNext.Contains(LPoint) then
   begin
     TGostopAudio.Instance.Play('ui_click');
-    ApplyNickEdit;
     FSettingsOpen := False;
     OpenMatchSetup(FSetupCount);
   end;

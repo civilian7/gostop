@@ -159,15 +159,9 @@ end;
 
 procedure TGameConfig.LoadFrom(const AIni: TIniFile);
 begin
-  Pibak := AIni.ReadBool('Rules', 'Pibak', Pibak);
-  Gwangbak := AIni.ReadBool('Rules', 'Gwangbak', Gwangbak);
-  Meongbak := AIni.ReadBool('Rules', 'Meongbak', Meongbak);
-  Gobak := AIni.ReadBool('Rules', 'Gobak', Gobak);
-  ReverseGo := AIni.ReadBool('Rules', 'ReverseGo', ReverseGo);
-  Bonus := AIni.ReadBool('Rules', 'Bonus', Bonus);
-  Speech := AIni.ReadBool('Rules', 'Speech', Speech);
-  // MoneyPerPoint(AiSkill로 자동 유도)·SeedMoney(시스템 고정값)는 사용자 설정이 아니므로
-  // INI에서 읽지 않는다(과거 저장된 값이 남아있어도 무시 — Reset의 기본값을 그대로 유지)
+  // 게임 룰(피박/광박/멍박/고박/역고/보너스패/말풍선)은 표준 룰로 고정 — 더 이상 사용자 설정이 아니므로
+  // INI에서 읽지 않는다(Reset의 기본값 True 를 그대로 유지). MoneyPerPoint(AiSkill 자동 유도)·SeedMoney
+  // (시스템 고정값)도 동일하게 INI 무시.
   AiSkill := AIni.ReadInteger('Rules', 'AiSkill', AiSkill);
   Nickname := AIni.ReadString('Player', 'Nickname', Nickname);
   KillCount := AIni.ReadInteger('Player', 'KillCount', KillCount);
@@ -176,13 +170,7 @@ end;
 
 procedure TGameConfig.SaveTo(const AIni: TIniFile);
 begin
-  AIni.WriteBool('Rules', 'Pibak', Pibak);
-  AIni.WriteBool('Rules', 'Gwangbak', Gwangbak);
-  AIni.WriteBool('Rules', 'Meongbak', Meongbak);
-  AIni.WriteBool('Rules', 'Gobak', Gobak);
-  AIni.WriteBool('Rules', 'ReverseGo', ReverseGo);
-  AIni.WriteBool('Rules', 'Bonus', Bonus);
-  AIni.WriteBool('Rules', 'Speech', Speech);
+  // 룰은 표준 고정이라 저장하지 않는다(위 LoadFrom 참조).
   AIni.WriteInteger('Rules', 'AiSkill', AiSkill);
   AIni.WriteString('Player', 'Nickname', Nickname);
   AIni.WriteInteger('Player', 'KillCount', KillCount);

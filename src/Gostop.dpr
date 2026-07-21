@@ -24,6 +24,7 @@ uses
   Gostop.Board.Settlement in 'engine\Gostop.Board.Settlement.pas',
   Gostop.Board.Animation in 'engine\Gostop.Board.Animation.pas',
   Gostop.Board.CardRender in 'engine\Gostop.Board.CardRender.pas',
+  Gostop.Board.Widgets in 'engine\Gostop.Board.Widgets.pas',
   Gostop.Board in 'engine\Gostop.Board.pas',
   Main in 'Main.pas' {frmMain};
 

@@ -34,6 +34,7 @@ uses
   Gostop.Board.Layout,
   Gostop.Board.Animation,
   Gostop.Board.CardRender,
+  Gostop.Board.Widgets,
   Gostop.Canvas.Helper,
   Gostop.Fonts,
   Gostop.FourPlayer,
@@ -52,14 +53,7 @@ type
     seTie        // 동점 → 재경합 대기
   );
 
-  /// <summary>표준 다이얼로그 버튼 종류(색상 통일).</summary>
-  TDlgBtnKind = (
-    dbkNeutral,   // 회색(기본)
-    dbkPrimary,   // 녹색(긍정/확인)
-    dbkDanger,    // 빨강(취소/부정)
-    dbkAccent     // 금색(강조)
-  );
-
+  // TDlgBtnKind 는 Gostop.Board.Widgets 유닛으로 이동(버튼 렌더러가 소유). uses 로 참조한다.
   // TDealFly 는 Gostop.Board.Animation 유닛으로 이동(딜 애니가 소유). uses 로 참조한다.
 
   /// <summary>
@@ -5108,65 +5102,17 @@ begin
 end;
 
 // 설정창의 값 버튼(닉네임·아바타처럼 토글이 아닌 항목). 호버·눌림 상태를 반영한다.
+// 렌더 본문은 Gostop.Board.Widgets 로 분리됨. 호버/눌림만 계산해 위임.
 procedure TGostopBoard.DrawCfgValueButton(const ARect: TRectF; const AText: string);
 begin
-  var LBtnColor: TAlphaColor := $FF2F4436;
-  var LBtnBorder: TAlphaColor := $60FFFFFF;
-  if IsPressed(ARect) then
-  begin
-    LBtnColor := AdjustColor(LBtnColor, -14);
-  end
-  else
-  if IsHot(ARect) then
-  begin
-    LBtnColor := AdjustColor(LBtnColor, 18);
-    LBtnBorder := $90FFD54A;
-  end;
-
-  Canvas.FillRound(ARect, 8, LBtnColor);
-  Canvas.StrokeRound(ARect, 8, LBtnBorder, 1);
-  DrawLabel(ARect, AText, $FFFFE082, 15);
+  TWidgetRender.CfgValueButton(Canvas, ARect, AText, IsHot(ARect), IsPressed(ARect));
 end;
 
 // 게임 룰·플레이어 설정창(게임 시작 전 타이틀에서만)
 // 켬/끔 설정을 나타내는 슬라이드 토글 스위치(값 영역 오른쪽 정렬로 그림)
 procedure TGostopBoard.DrawCfgToggle(const ARect: TRectF; const AOn: Boolean);
-const
-  TRACK_W = 50.0;
-  TRACK_H = 26.0;
 begin
-  var LCy := (ARect.Top + ARect.Bottom) / 2;
-  var LTrack := RectF(ARect.Right - TRACK_W, LCy - TRACK_H / 2, ARect.Right, LCy + TRACK_H / 2);
-
-  var LTrackColor: TAlphaColor := $FF44504A;
-  if AOn then
-  begin
-    LTrackColor := $FF2E7D32;
-  end;
-
-  var LBorder: TAlphaColor := $50FFFFFF;
-  if IsPressed(ARect) then
-  begin
-    LTrackColor := AdjustColor(LTrackColor, -24);
-  end
-  else
-  if IsHot(ARect) then
-  begin
-    LTrackColor := AdjustColor(LTrackColor, 22);
-    LBorder := $90FFD54A;
-  end;
-
-  Canvas.FillRound(LTrack, TRACK_H / 2, LTrackColor);
-  Canvas.StrokeRound(LTrack, TRACK_H / 2, LBorder, 1);
-
-  var LKnobD := TRACK_H - 6;
-  var LKnobX := LTrack.Left + 3;
-  if AOn then
-  begin
-    LKnobX := LTrack.Right - 3 - LKnobD;
-  end;
-
-  Canvas.FillCircle(RectF(LKnobX, LTrack.Top + 3, LKnobX + LKnobD, LTrack.Top + 3 + LKnobD), TAlphaColors.White);
+  TWidgetRender.CfgToggle(Canvas, ARect, AOn, IsHot(ARect), IsPressed(ARect));
 end;
 
 procedure TGostopBoard.DrawSettings;
@@ -7201,50 +7147,12 @@ begin
 end;
 
 // 표준 다이얼로그 버튼: 종류별 색상 통일 + 호버(밝게)·눌림(어둡게+눌림 느낌)·비활성(회색조) 효과. rect 반환(클릭 판정용)
+// 렌더 본문은 Gostop.Board.Widgets(TWidgetRender.StdButton)로 분리됨. 여기서는 호버/눌림만 계산해 위임.
 function TGostopBoard.DrawStdButton(const ARect: TRectF; const ACaption: string; const AKind: TDlgBtnKind;
   const AEnabled: Boolean; const AFontSize: Single): TRectF;
 begin
-  Result := ARect;
-
-  if not AEnabled then
-  begin
-    Canvas.FillRound(ARect, 9, $60333A33);
-    Canvas.StrokeRound(ARect, 9, $30FFFFFF, 1);
-    DrawLabel(ARect, ACaption, $806E786E, AFontSize);
-    Exit;
-  end;
-
-  var LColor := $FF37474F;   // dbkNeutral
-  case AKind of
-    dbkPrimary:
-      begin
-        LColor := $FF2E7D32;
-      end;
-    dbkDanger:
-      begin
-        LColor := $FF8E2430;
-      end;
-    dbkAccent:
-      begin
-        LColor := $FFB8860B;
-      end;
-  end;
-
-  var LFillR := ARect;
-  if IsPressed(ARect) then
-  begin
-    LColor := AdjustColor(LColor, -30);
-    LFillR := RectF(ARect.Left + 2, ARect.Top + 2, ARect.Right - 1, ARect.Bottom - 1);   // 눌림: 살짝 안쪽으로 눌린 느낌
-  end
-  else
-  if IsHot(ARect) then
-  begin
-    LColor := AdjustColor(LColor, 24);
-  end;
-
-  Canvas.FillRound(LFillR, 9, LColor);
-  Canvas.StrokeRound(LFillR, 9, $50FFFFFF, 1);
-  DrawLabel(LFillR, ACaption, TAlphaColors.White, AFontSize);
+  Result := TWidgetRender.StdButton(Canvas, ARect, ACaption, AKind, AEnabled, AFontSize,
+    IsHot(ARect), IsPressed(ARect));
 end;
 
 // 사람이 지금 쇼당을 걸 수 있는가(3인·내 차례·손패로 두 상대 완성 위협)

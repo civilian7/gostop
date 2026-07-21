@@ -33,6 +33,7 @@ uses
   Gostop.Settings,
   Gostop.Board.Layout,
   Gostop.Board.Animation,
+  Gostop.Board.CardRender,
   Gostop.Canvas.Helper,
   Gostop.Fonts,
   Gostop.FourPlayer,
@@ -526,9 +527,7 @@ type
     procedure DrawSettings;
     procedure DrawCfgToggle(const ARect: TRectF; const AOn: Boolean);
     procedure DrawCfgValueButton(const ARect: TRectF; const AText: string);
-    procedure DrawCardShell(const ARect: TRectF; const ASelected: Boolean);
-    procedure DrawAvatarCard(const ARect: TRectF; const ABitmap: TBitmap; const ACaption: string; const ASelected: Boolean);
-    procedure DrawAvatarStackCard(const ARect: TRectF; const ACount: Integer; const ACaption: string; const ASelected: Boolean);
+    // 선택형 아바타 카드 렌더는 Gostop.Board.CardRender(TSelectCardRender)로 분리됨
     procedure CycleCfg(const AIndex: Integer);
     function  CfgScore: TScoreOptions;
     function  CfgRules: TRuleSet;
@@ -3670,10 +3669,7 @@ end;
 procedure TGostopBoard.DrawLabel(const R: TRectF; const AText: string; const AColor: TAlphaColor;
   const ASize: Single; const ABold: Boolean);
 begin
-  Canvas.Fill.Kind := TBrushKind.Solid;
-  Canvas.Fill.Color := AColor;
-  TGostopFonts.Apply(Canvas, ASize, ABold);
-  Canvas.FillText(R, AText, False, 1, [], TTextAlign.Center, TTextAlign.Center);
+  Canvas.DrawLabel(R, AText, AColor, ASize, ABold);   // Gostop.Canvas.Helper 로 공용화(위임)
 end;
 
 procedure TGostopBoard.DrawFront(const R: TRectF; const AAssetId: string);
@@ -5173,117 +5169,6 @@ begin
   Canvas.FillCircle(RectF(LKnobX, LTrack.Top + 3, LKnobX + LKnobD, LTrack.Top + 3 + LKnobD), TAlphaColors.White);
 end;
 
-// 선택형 카드 버튼의 배경·테두리(선택 시 금색 강조, 아님 기본 패널색)
-procedure TGostopBoard.DrawCardShell(const ARect: TRectF; const ASelected: Boolean);
-begin
-  var LHover := IsHot(ARect);
-  var LPressed := IsPressed(ARect);
-  if ASelected then
-  begin
-    var LColor: TAlphaColor := $FF2E7D32;
-    if LPressed then
-    begin
-      LColor := AdjustColor(LColor, -30);
-    end
-    else
-    if LHover then
-    begin
-      LColor := AdjustColor(LColor, 20);
-    end;
-
-    Canvas.FillRound(ARect, 10, LColor);
-    Canvas.StrokeRound(ARect, 10, $FFFFD54A, 2.5);
-  end
-  else
-  begin
-    var LColor: TAlphaColor := $FF2F4436;
-    var LBorder: TAlphaColor := $50FFFFFF;
-    if LPressed then
-    begin
-      LColor := AdjustColor(LColor, -14);
-    end
-    else
-    if LHover then
-    begin
-      LColor := AdjustColor(LColor, 18);
-      LBorder := $90FFD54A;
-    end;
-
-    Canvas.FillRound(ARect, 10, LColor);
-    Canvas.StrokeRound(ARect, 10, LBorder, 1);
-  end;
-end;
-
-// 아바타 1장이 박스 전체를 채우고 명칭은 하단에 오버레이로 얹는 선택형 카드(AI 난이도 등)
-procedure TGostopBoard.DrawAvatarCard(const ARect: TRectF; const ABitmap: TBitmap; const ACaption: string; const ASelected: Boolean);
-const
-  INSET = 3.0;
-  LABEL_H = 26.0;
-begin
-  DrawCardShell(ARect, ASelected);
-
-  var LImgR := RectF(ARect.Left + INSET, ARect.Top + INSET, ARect.Right - INSET, ARect.Bottom - INSET);
-  if Assigned(ABitmap) then
-  begin
-    Canvas.DrawBitmap(ABitmap, RectF(0, 0, ABitmap.Width, ABitmap.Height), LImgR, 1, False);
-  end;
-
-  // 하단 반투명 스크림 + 명칭 오버레이(선택 시 금색 톤으로 강조)
-  var LLabelR := RectF(LImgR.Left, LImgR.Bottom - LABEL_H, LImgR.Right, LImgR.Bottom);
-  var LCapColor := TAlphaColors.White;
-  if ASelected then
-  begin
-    Canvas.FillRound(LLabelR, 6, $B0B8860B);
-    LCapColor := TAlphaColors.Gold;
-  end
-  else
-  begin
-    Canvas.FillRound(LLabelR, 6, $A0182018);
-  end;
-
-  DrawLabel(LLabelR, ACaption, LCapColor, 14, ASelected);   // 선택된 카드는 굵게
-end;
-
-// 아바타 N장을 겹쳐 표시 + 캡션이 있는 선택형 카드(인원수처럼 '몇 명'을 나타낼 때)
-procedure TGostopBoard.DrawAvatarStackCard(const ARect: TRectF; const ACount: Integer; const ACaption: string; const ASelected: Boolean);
-const
-  CAPTION_H = 24.0;
-begin
-  DrawCardShell(ARect, ASelected);
-  LoadAvatarPool;
-
-  var LAvSize := ARect.Height - CAPTION_H - 14;
-  var LStep := LAvSize * 0.6;
-  var LTotalW := LAvSize + LStep * (ACount - 1);
-  if LTotalW > ARect.Width - 12 then
-  begin
-    // 폭이 부족하면 겹침 간격을 좁혀서라도 맞춘다
-    LStep := (ARect.Width - 12 - LAvSize) / Max(1, ACount - 1);
-    LTotalW := LAvSize + LStep * (ACount - 1);
-  end;
-
-  var LStartX := (ARect.Left + ARect.Right) / 2 - LTotalW / 2;
-  var LAvY := ARect.Top + 8;
-  if Assigned(FAvatarPool) and (FAvatarPool.Count > 0) then
-  begin
-    for var K := 0 to ACount - 1 do
-    begin
-      var LBmp := FAvatarPool[K mod FAvatarPool.Count];
-      var LAvR := RectF(LStartX + K * LStep, LAvY, LStartX + K * LStep + LAvSize, LAvY + LAvSize);
-      Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), LAvR, 1, False);
-    end;
-  end;
-
-  var LCapColor := $FFCBD6C8;
-  if ASelected then
-  begin
-    LCapColor := TAlphaColors.White;
-  end;
-
-  DrawLabel(RectF(ARect.Left, LAvY + LAvSize + 2, ARect.Right, ARect.Bottom - 4), ACaption,
-    LCapColor, 13, ASelected);   // 선택된 카드는 굵게
-end;
-
 procedure TGostopBoard.DrawSettings;
 const
   // 0~6=켬/끔 토글, 7=닉네임, 8=아바타(점당금액·시드머니는 시스템 자동 결정이라 UI 없음)
@@ -5314,13 +5199,27 @@ begin
 
   var LSeg3Gap := CARD_GAP;
   var LSeg3W := (LCardAreaW - LSeg3Gap * 2) / 3;
+  LoadAvatarPool;
   for var LSeg := 0 to 2 do
   begin
     var LSegCount := LSeg + 2;
     var LSegRect := RectF(LCardAreaL + LSeg * (LSeg3W + LSeg3Gap), LCardY,
       LCardAreaL + LSeg * (LSeg3W + LSeg3Gap) + LSeg3W, LCardY + CARD_ROW_H);
     FCfgCountRects[LSeg] := LSegRect;
-    DrawAvatarStackCard(LSegRect, LSegCount, GAME_MODE_LABELS[LSegCount], LSegCount = FSetupCount);
+
+    // 인원수만큼 아바타를 풀에서 뽑아 렌더러에 넘긴다(렌더러는 게임 상태를 모른다)
+    var LStackAv: TArray<TBitmap>;
+    SetLength(LStackAv, LSegCount);
+    if Assigned(FAvatarPool) and (FAvatarPool.Count > 0) then
+    begin
+      for var K := 0 to LSegCount - 1 do
+      begin
+        LStackAv[K] := FAvatarPool[K mod FAvatarPool.Count];
+      end;
+    end;
+
+    TSelectCardRender.AvatarStack(Canvas, LSegRect, LStackAv, GAME_MODE_LABELS[LSegCount],
+      LSegCount = FSetupCount, IsHot(LSegRect), IsPressed(LSegRect));
   end;
 
   LCardY := LCardY + CARD_ROW_H + CARD_GAP;
@@ -5338,7 +5237,8 @@ begin
       LSkillBmp := FSkillAvatarPool[LSeg];
     end;
 
-    DrawAvatarCard(LSegRect, LSkillBmp, AI_SKILL_LABELS[LSeg], AI_SKILL_VALUES[LSeg] = FConfig.AiSkill);
+    TSelectCardRender.Avatar(Canvas, LSegRect, LSkillBmp, AI_SKILL_LABELS[LSeg],
+      AI_SKILL_VALUES[LSeg] = FConfig.AiSkill, IsHot(LSegRect), IsPressed(LSegRect));
   end;
 
   var LRowsTop := LCardY + CARD_ROW_H + CARD_GAP;
@@ -7281,14 +7181,11 @@ begin
   Canvas.SetMatrix(FDialogPreMatrix);
 end;
 
-// AARRGGBB 색상의 RGB 채널을 ADelta만큼 밝게(양수)/어둡게(음수) 조정(호버·눌림 효과 공용)
+// AARRGGBB 색상의 RGB 채널을 ADelta만큼 밝게(양수)/어둡게(음수) 조정(호버·눌림 효과 공용).
+// Gostop.Canvas.Helper 로 공용화(위임) — 외부 렌더 유닛과 같은 구현을 공유한다.
 function TGostopBoard.AdjustColor(const AColor: TAlphaColor; const ADelta: Integer): TAlphaColor;
 begin
-  var LRec := TAlphaColorRec(AColor);
-  LRec.R := EnsureRange(LRec.R + ADelta, 0, 255);
-  LRec.G := EnsureRange(LRec.G + ADelta, 0, 255);
-  LRec.B := EnsureRange(LRec.B + ADelta, 0, 255);
-  Result := LRec.Color;
+  Result := Gostop.Canvas.Helper.AdjustColor(AColor, ADelta);
 end;
 
 // 현재 마우스 위치가 이 영역 위에 있는가(호버 판정 공용). 애니메이션 중엔 입력을 안 받으므로 호버도 끔

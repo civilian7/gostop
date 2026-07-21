@@ -26,12 +26,33 @@ type
     procedure FillCircle(const R: TRectF; const AColor: TAlphaColor);
     /// <summary>단색 테두리 타원/원.</summary>
     procedure StrokeCircle(const R: TRectF; const AColor: TAlphaColor; const AThickness: Single = 1);
+    /// <summary>사각형 안에 게임 전역 글꼴로 가운데 정렬 텍스트를 그린다(색·크기·굵기 지정).</summary>
+    procedure DrawLabel(const R: TRectF; const AText: string; const AColor: TAlphaColor;
+      const ASize: Single; const ABold: Boolean = False);
   end;
+
+/// <summary>색의 RGB 각 채널을 ADelta 만큼 밝게(양수)/어둡게(음수) 조정한다(hover·pressed 명암용).</summary>
+function AdjustColor(const AColor: TAlphaColor; const ADelta: Integer): TAlphaColor;
 
 implementation
 
+{$REGION 'uses'}
+uses
+  System.Math,
+  Gostop.Fonts;
+{$ENDREGION}
+
 const
   ALL_CORNERS = [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight];
+
+function AdjustColor(const AColor: TAlphaColor; const ADelta: Integer): TAlphaColor;
+begin
+  var LRec := TAlphaColorRec(AColor);
+  LRec.R := EnsureRange(LRec.R + ADelta, 0, 255);
+  LRec.G := EnsureRange(LRec.G + ADelta, 0, 255);
+  LRec.B := EnsureRange(LRec.B + ADelta, 0, 255);
+  Result := LRec.Color;
+end;
 
 {$REGION 'TGostopCanvasHelper'}
 procedure TGostopCanvasHelper.FillRound(const R: TRectF; const ARadius: Single; const AColor: TAlphaColor);
@@ -62,6 +83,15 @@ begin
   Self.Stroke.Color := AColor;
   Self.Stroke.Thickness := AThickness;
   Self.DrawEllipse(R, 1);
+end;
+
+procedure TGostopCanvasHelper.DrawLabel(const R: TRectF; const AText: string; const AColor: TAlphaColor;
+  const ASize: Single; const ABold: Boolean);
+begin
+  Self.Fill.Kind := TBrushKind.Solid;
+  Self.Fill.Color := AColor;
+  TGostopFonts.Apply(Self, ASize, ABold);
+  Self.FillText(R, AText, False, 1, [], TTextAlign.Center, TTextAlign.Center);
 end;
 {$ENDREGION}
 

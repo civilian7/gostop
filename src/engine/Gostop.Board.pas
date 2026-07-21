@@ -32,6 +32,7 @@ uses
   Gostop.Characters,
   Gostop.Settings,
   Gostop.Board.Layout,
+  Gostop.Board.Animation,
   Gostop.Canvas.Helper,
   Gostop.Fonts,
   Gostop.FourPlayer,
@@ -58,16 +59,7 @@ type
     dbkAccent     // 금색(강조)
   );
 
-  /// <summary>딜(패 돌리기) 애니메이션에서 날아가는 카드 1장.</summary>
-  TDealFly = record
-    Target: TPointF;     // 착지 지점(중심)
-    Card: THwatuCard;    // 바닥 카드의 앞면 표시용(손패는 미사용)
-    IsFloor: Boolean;    // True=바닥, False=손패(뒷면)
-    Reveal: Boolean;     // True면 바닥패가 앞면으로 착지(4인은 1장만 True, 나머지는 뒷면 유지)
-    Pos: TSeatPos;       // 손패 대상 자리
-    Angle: Single;       // 착지 각도(좌/우 자리는 90/270)
-    Scale: Single;       // 카드 크기 배율
-  end;
+  // TDealFly 는 Gostop.Board.Animation 유닛으로 이동(딜 애니가 소유). uses 로 참조한다.
 
   /// <summary>
   ///   한 자리의 획득 패 부채 배치값. 그리기와 좌표 질의가 같은 값을 쓰도록 한 곳에서 계산한다.
@@ -89,7 +81,7 @@ type
   ///   고스톱 플레이 보드(FMX 커스텀 컨트롤). 2/3/4인 모드·좌석 배치(반시계)·렌더링·클릭 입력·AI 진행·
   ///   4인 광팔기 협상·고/스톱을 모두 담당한다. 사람은 항상 아래 자리, 나머지는 AI.
   /// </summary>
-  TGostopBoard = class(TControl)
+  TGostopBoard = class(TControl, IAnimationHost)
   private
     FImages: TCardImageCache;
     FFeltTile: TBitmap;
@@ -230,10 +222,9 @@ type
     FNegAnimTimer: TTimer;     // 협상 광 패 흔들림 애니(주기적 Repaint)
     FNegAnimPhase: Single;     // 흔들림 위상(0~2π 누적)
 
-    // 흔들기·폭탄 연출: 바닥패·뒷패가 좌우로 진동한다
-    FShakeTimer: TTimer;       // 진동 진행(주기적 Repaint)
-    FShakeT: Single;           // 진행도 0~1. 1 이상이면 연출 종료(정지 상태)
-    FShakeAmp: Single;         // 진폭 배율(흔들기 1.0, 폭탄은 더 크게)
+    // 흔들기·폭탄 연출: 바닥패·뒷패가 좌우로 진동한다. 실제 진행은 TShakeAnimation(매니저)이 맡고
+    // 여기서는 참조만 둔다(오프셋 조회·정산 지연 판정용). 없으면 nil.
+    FShakeAnim: TShakeAnimation;
 
     // 4인: 광을 팔거나 죽어서 빠지는 자리의 손패가 뒷패로 합쳐지는 연출
     FFoldTimer: TTimer;
@@ -310,28 +301,24 @@ type
     FGukjinMoveT: Single;                       // 0~1 진행도
     FGukjinMoveTimer: TTimer;
 
+    // 애니메이션 매니저 — 등록된 연출들을 단일 타이머로 구동한다(Gostop.Board.Animation).
+    // 보드가 비대해져 개별 연출을 점진 이관 중이며, 나가리(무승부)가 첫 입주자다.
+    // 나가리는 손패 소진·쇼당 모두 Winner<0 로 정산 직전 한 지점에서 시작된다.
+    FAnimMgr: TAnimationManager;
+    FNagariAnim: TNagariAnimation;   // 진행 중인 나가리 연출(없으면 nil). 바닥패 스킵·정산 지연 판정에 쓴다
+    FNagariAnimDone: Boolean;        // 이번 판에서 이미 나가리 연출을 시작했는지(중복 방지)
+
     // 표준 다이얼로그(DrawStdDialog) 등장 팝인 애니메이션 — 모든 팝업에 공용
     FDialogPopTimer: TTimer;
     FDialogPopT: Single;         // 0~1, 현재 다이얼로그의 등장 진행도(1=정착)
     FDialogPopKey: string;       // 마지막에 그린 다이얼로그 식별 키(제목+크기) — 바뀌면 새로 등장한 것으로 판단
     FDialogPreMatrix: TMatrix;   // DrawStdDialog 진입 전 매트릭스(EndStdDialog에서 복원)
 
-    // 딜(패 돌리기) 애니메이션 — 뒷패에서 각 자리·바닥으로 카드가 날아가며 분배
+    // 딜(패 돌리기) 단계 게이팅 플래그(입력·렌더 가드). 실제 연출은 TDealAnimation(매니저)
     FDealing: Boolean;
-    FDealTimer: TTimer;
-    FDealFlies: TArray<TDealFly>;   // 분배 순서대로의 카드 목록
-    FDealLanded: Integer;           // 착지 완료 장수
-    FDealT: Single;                 // 현재 카드 비행 진행(0~1)
-    FDealOnDone: TProc;             // 완료 후 진행(플레이 시작/협상)
 
-    // 셔플 연출(딜 직전) — 바닥에 뒷면 카드가 랜덤 배치로 깜빡이며 반복돼 "섞는" 느낌을 줌
+    // 셔플 연출(딜 직전) 단계 게이팅 플래그(입력·렌더 가드). 실제 연출은 TShuffleAnimation(매니저)
     FShuffling: Boolean;
-    FShuffleTimer: TTimer;
-    FShuffleElapsed: Single;         // 전체 경과 시간(초)
-    FShuffleFlicker: Single;         // 다음 재배치까지 남은 시간(초)
-    FShufflePts: TArray<TPointF>;    // 카드별 랜덤 위치
-    FShuffleAngles: TArray<Single>;  // 카드별 랜덤 각도
-    FShuffleOnDone: TProc;           // 완료 후 진행(실제 딜 애니메이션 시작)
 
     // 단계 애니메이션(놓기→뒤집기→먹기)
     FDisplay: TGameState;            // 애니 중 표시용 상태(진행 중일 때만, 아니면 nil)
@@ -444,14 +431,9 @@ type
     procedure SeonFinish;
     procedure SeonTimerTick(Sender: TObject);
     procedure DrawSeonPick;
-    procedure RandomizeShuffleLayout;
     procedure BeginShuffleEffect(const AOnDone: TProc);
-    procedure ShuffleTimerTick(Sender: TObject);
-    procedure DrawShuffle;
     procedure BeginDealAnimation(const AFloor: TArray<THwatuCard>; const ACounts: TArray<Integer>; const AOnDone: TProc);
     function  DealDeckPoint: TPointF;
-    procedure DealTick(Sender: TObject);
-    procedure DrawDeal;
     procedure StartBonusPick(const AStockIndex: Integer);
     procedure PickTick(Sender: TObject);
     procedure DrawBonusDraw;
@@ -473,8 +455,14 @@ type
     procedure DrawFlyerCard(const ACenter: TPointF; const AAssetId: string; const AFlip: Boolean;
       const AProgress: Single; const ASquashY: Single = 1.0);
     procedure DrawEffectBanner;
+    procedure BeginNagariAnim;
+    // IAnimationHost 구현(Gostop.Board.Animation) — 나머지(CenterRegion·CardSize·ShakeOffsetX·
+    // DrawCardRotated·BeginShakeEffect)는 기존 메서드가 그대로 인터페이스 계약을 만족한다.
+    function  GetCanvas: TCanvas;
+    function  GetGameSpeed: Single;
+    procedure PlaySound(const AName: string);
+    procedure RequestRepaint;
     procedure BeginShakeEffect(const AAmplitude: Single = 1.0);
-    procedure ShakeTimerTick(Sender: TObject);
     function  ShakeOffsetX: Single;
     procedure ForceSpeech(const ASeat: TSeatPos; const AText: string);
     procedure MaybeShowSpeech;
@@ -1006,14 +994,6 @@ begin
   FSeonTimer.Interval := 600;
   FSeonTimer.Enabled := False;
   FSeonTimer.OnTimer := SeonTimerTick;
-  FDealTimer := TTimer.Create(Self);
-  FDealTimer.Interval := 16;   // ~60fps
-  FDealTimer.Enabled := False;
-  FDealTimer.OnTimer := DealTick;
-  FShuffleTimer := TTimer.Create(Self);
-  FShuffleTimer.Interval := 16;   // ~60fps
-  FShuffleTimer.Enabled := False;
-  FShuffleTimer.OnTimer := ShuffleTimerTick;
   FDialogPopTimer := TTimer.Create(Self);
   FDialogPopTimer.Interval := 16;   // ~60fps
   FDialogPopTimer.Enabled := False;
@@ -1055,12 +1035,10 @@ begin
   FNegAnimTimer.Interval := 33;   // ~30fps 흔들림
   FNegAnimTimer.Enabled := False;
   FNegAnimTimer.OnTimer := NegAnimTick;
-  FShakeTimer := TTimer.Create(Self);
-  FShakeTimer.Interval := 16;   // ~60fps 진동
-  FShakeTimer.Enabled := False;
-  FShakeTimer.OnTimer := ShakeTimerTick;
-  FShakeT := 1;                 // 정지 상태로 시작
-  FShakeAmp := 1.0;
+  FShakeAnim := nil;
+
+  FAnimMgr := TAnimationManager.Create(Self);   // Self 를 IAnimationHost 로 전달
+  FNagariAnim := nil;
   FFoldTimer := TTimer.Create(Self);
   FFoldTimer.Interval := 16;    // ~60fps
   FFoldTimer.Enabled := False;
@@ -1106,6 +1084,8 @@ begin
   FreeAndNil(FHandRects);
   FreeAndNil(FGiriRects);
   FreeAndNil(FGiriDeck);
+  FNagariAnim := nil;         // 매니저가 소유(OwnsObjects) — 아래 매니저 해제 시 함께 정리
+  FreeAndNil(FAnimMgr);
   inherited Destroy;
 end;
 
@@ -1158,23 +1138,8 @@ begin
 
   FSeonPicking := False;
   FreeAndNil(FSeonDeck);
-  if Assigned(FDealTimer) then
-  begin
-    FDealTimer.Enabled := False;
-  end;
-
-  FDealing := False;
-  FDealFlies := nil;
-  FDealOnDone := nil;
-  if Assigned(FShuffleTimer) then
-  begin
-    FShuffleTimer.Enabled := False;
-  end;
-
-  FShuffling := False;
-  FShufflePts := nil;
-  FShuffleAngles := nil;
-  FShuffleOnDone := nil;
+  FDealing := False;     // 실제 딜 애니는 아래 FAnimMgr.Clear 가 정리
+  FShuffling := False;   // 실제 셔플 애니는 아래 FAnimMgr.Clear 가 정리
   if Assigned(FPickTimer) then
   begin
     FPickTimer.Enabled := False;
@@ -1193,12 +1158,7 @@ begin
     FNegAnimTimer.Enabled := False;
   end;
 
-  if Assigned(FShakeTimer) then
-  begin
-    FShakeTimer.Enabled := False;
-  end;
-
-  FShakeT := 1;   // 흔들림 오프셋 제거(다음 판이 밀린 채 시작하지 않게)
+  FShakeAnim := nil;   // 흔들림 오프셋 제거(실제 애니는 아래 FAnimMgr.Clear 가 정리)
   if Assigned(FFoldTimer) then
   begin
     FFoldTimer.Enabled := False;
@@ -1222,6 +1182,15 @@ begin
   begin
     FGukjinAsPi[LP] := False;
   end;
+
+  // 나가리 연출 등 진행 중인 애니메이션도 판마다 초기화(잔상·중복 시작 방지)
+  if Assigned(FAnimMgr) then
+  begin
+    FAnimMgr.Clear;
+  end;
+
+  FNagariAnim := nil;
+  FNagariAnimDone := False;
 
   if Assigned(FGwangTimer) then
   begin
@@ -2182,94 +2151,30 @@ begin
   end;
 end;
 
-const
-  SHUFFLE_DURATION_SECONDS = 1.1;   // 셔플 연출 총 길이(초)
-  SHUFFLE_FLICKER_SECONDS = 0.14;   // 재배치 주기(초)
-  SHUFFLE_CARD_COUNT = 12;          // 흩어져 보일 카드 장수
-
-// 셔플 카드들의 위치·각도를 중앙(바닥) 영역 한가운데에 밀집된 형태로 새로 무작위 배치
-procedure TGostopBoard.RandomizeShuffleLayout;
-begin
-  var LCen := CenterRegion;
-  var CS := CardSize;
-  var LMidX := (LCen.Left + LCen.Right) / 2;
-  var LMidY := (LCen.Top + LCen.Bottom) / 2;
-  var LSpreadX := CS.Width * 0.55;    // 카드 다발이 뭉쳐 보이도록 좁은 반경
-  var LSpreadY := CS.Height * 0.45;
-  SetLength(FShufflePts, SHUFFLE_CARD_COUNT);
-  SetLength(FShuffleAngles, SHUFFLE_CARD_COUNT);
-  for var I := 0 to SHUFFLE_CARD_COUNT - 1 do
-  begin
-    var LX := LMidX + (Random - 0.5) * LSpreadX;
-    var LY := LMidY + (Random - 0.5) * LSpreadY;
-    FShufflePts[I] := PointF(LX, LY);
-    FShuffleAngles[I] := Random * 50 - 25;   // -25~+25도, 흐트러진 느낌
-  end;
-end;
-
-// 딜 애니메이션 시작 전, 바닥에 뒷면 카드가 랜덤 배치로 깜빡이며 반복돼 "섞는" 연출을 준다
+// 딜 애니메이션 시작 전, 바닥에 뒷면 카드가 랜덤 배치로 깜빡이며 반복돼 "섞는" 연출을 준다.
+// 실제 진행·렌더는 TShuffleAnimation(매니저)이 맡고, 여기서는 단계 플래그·상태문구·시작음만 세운다.
 procedure TGostopBoard.BeginShuffleEffect(const AOnDone: TProc);
+var
+  LOnDone: TProc;   // 클로저가 캡처하므로 var 블록에 둔다
 begin
-  FShuffleElapsed := 0;
-  FShuffleFlicker := 0;
-  RandomizeShuffleLayout;
-  FShuffleOnDone := AOnDone;
+  LOnDone := AOnDone;
   FShuffling := True;
   FStatus := '패를 섞는 중...';
   TGostopAudio.Instance.Play('card_deal');
-  FShuffleTimer.Enabled := True;
-  Repaint;
-end;
 
-procedure TGostopBoard.ShuffleTimerTick(Sender: TObject);
-begin
-  if FPaused then
-  begin
-    Exit;
-  end;
-
-  if not FShuffling then
-  begin
-    FShuffleTimer.Enabled := False;
-    Exit;
-  end;
-
-  var LDt := (FShuffleTimer.Interval / 1000) * FGameSpeed;
-  FShuffleElapsed := FShuffleElapsed + LDt;
-  FShuffleFlicker := FShuffleFlicker + LDt;
-  if FShuffleFlicker >= SHUFFLE_FLICKER_SECONDS then
-  begin
-    FShuffleFlicker := 0;
-    RandomizeShuffleLayout;
-    TGostopAudio.Instance.Play('card_flip');
-  end;
-
-  if FShuffleElapsed >= SHUFFLE_DURATION_SECONDS then
-  begin
-    FShuffling := False;
-    FShuffleTimer.Enabled := False;
-    var LDone := FShuffleOnDone;
-    FShuffleOnDone := nil;
-    if Assigned(LDone) then
+  var LAnim := TShuffleAnimation.Create(Self);
+  LAnim.OnDone :=
+    procedure
     begin
-      LDone();
+      FShuffling := False;
+      if Assigned(LOnDone) then
+      begin
+        LOnDone();   // 실제 딜 애니메이션 시작
+      end;
     end;
 
-    Exit;
-  end;
-
+  FAnimMgr.Add(LAnim);
   Repaint;
-end;
-
-procedure TGostopBoard.DrawShuffle;
-begin
-  DrawPanels;
-
-  var CS := CardSize;
-  for var I := 0 to High(FShufflePts) do
-  begin
-    DrawCardRotated(FShufflePts[I].X, FShufflePts[I].Y, CS.Width * 0.6, CS.Height * 0.6, FShuffleAngles[I], '', True);
-  end;
 end;
 
 // 뒷패 위치 — 중앙 영역 우측(라이브 보드의 뒷패 위치와 이어지는 느낌)
@@ -2282,6 +2187,8 @@ procedure TGostopBoard.BeginDealAnimation(const AFloor: TArray<THwatuCard>; cons
 var
   LFlies: TList<TDealFly>;
   LTotal: array [TSeatPos] of Integer;
+  LFliesArr: TArray<TDealFly>;
+  LOnDone: TProc;   // 클로저가 캡처하므로 var 블록에 둔다
 
   // 자리 APos의 AIndex번째 손패(총 ATotal장) 착지 정보 — 아바타 카드로 빨려들어가듯 날아감
   function HandFly(const APos: TSeatPos; const AIndex, ATotal: Integer): TDealFly;
@@ -2344,6 +2251,7 @@ var
   end;
 
 begin
+  LOnDone := AOnDone;
   LFlies := TList<TDealFly>.Create;
   try
     for var LP := spTop to spRight do
@@ -2390,96 +2298,28 @@ begin
       end;
     end;
 
-    FDealFlies := LFlies.ToArray;
+    LFliesArr := LFlies.ToArray;
   finally
     LFlies.Free;
   end;
 
-  FDealLanded := 0;
-  FDealT := 0;
-  FDealOnDone := AOnDone;
   FDealing := True;
   FStatus := '패를 나누는 중...';
   TGostopAudio.Instance.Play('card_deal');
-  FDealTimer.Enabled := True;
-  Repaint;
-end;
 
-procedure TGostopBoard.DealTick(Sender: TObject);
-begin
-  if FPaused then
-  begin
-    Exit;
-  end;
-
-  if not FDealing then
-  begin
-    FDealTimer.Enabled := False;
-    Exit;
-  end;
-
-  FDealT := FDealT + 0.22 * FGameSpeed;
-  if FDealT >= 1 then
-  begin
-    FDealT := 0;
-    Inc(FDealLanded);
-    TGostopAudio.Instance.Play('card_place');
-    if FDealLanded >= Length(FDealFlies) then
+  var LAnim := TDealAnimation.Create(Self, LFliesArr);
+  LAnim.OnDone :=
+    procedure
     begin
       FDealing := False;
-      FDealTimer.Enabled := False;
-      var LDone := FDealOnDone;
-      FDealOnDone := nil;
-      if Assigned(LDone) then
+      if Assigned(LOnDone) then
       begin
-        LDone();
+        LOnDone();   // 플레이 시작/협상 진행
       end;
-
-      Exit;
     end;
-  end;
 
+  FAnimMgr.Add(LAnim);
   Repaint;
-end;
-
-procedure TGostopBoard.DrawDeal;
-begin
-  // 자리 영역(포커테이블식)
-  for var LP := spTop to spRight do
-  begin
-    DrawRegion(SeatRegion(LP), False);
-  end;
-
-  // 딜 중에도 아바타·정보 패널 유지
-  DrawPanels;
-
-  var CS := CardSize;
-  var LDeckPt := DealDeckPoint;
-
-  // 뒷패 스택(뒷면 겹침)
-  for var I := 2 downto 0 do
-  begin
-    DrawCardRotated(LDeckPt.X - I * 2, LDeckPt.Y - I * 2, CS.Width * 0.8, CS.Height * 0.8, 0, '', True);
-  end;
-
-  // 착지한 카드
-  for var I := 0 to FDealLanded - 1 do
-  begin
-    var LF := FDealFlies[I];
-    DrawCardRotated(LF.Target.X, LF.Target.Y, CS.Width * LF.Scale, CS.Height * LF.Scale, LF.Angle,
-      LF.Card.AssetId, not (LF.IsFloor and LF.Reveal));
-  end;
-
-  // 비행 중 카드(뒷패 → 착지 지점, ease-out. 공개되는 바닥 카드만 중간에 앞면으로 플립)
-  if FDealLanded <= High(FDealFlies) then
-  begin
-    var LF := FDealFlies[FDealLanded];
-    var LE := 1 - Sqr(1 - FDealT);
-    var LX := LDeckPt.X + (LF.Target.X - LDeckPt.X) * LE;
-    var LY := LDeckPt.Y + (LF.Target.Y - LDeckPt.Y) * LE;
-    var LBack := (not LF.IsFloor) or (not LF.Reveal) or (FDealT < 0.5);
-    DrawCardRotated(LX, LY, CS.Width * LF.Scale, CS.Height * LF.Scale, LF.Angle * LE, LF.Card.AssetId, LBack);
-  end;
 end;
 
 // 보너스 뽑기: 펼쳐진 뒷패에서 AStockIndex 카드를 집어 현재 차례 자리로 날리는 애니 시작
@@ -3550,11 +3390,11 @@ end;
 function TGostopBoard.PresentationBusy: Boolean;
 begin
   Result := (FEffectText <> '') or FEffectGap or (Length(FEffectQueue) > 0) or
-    (Assigned(FEffectTimer) and FEffectTimer.Enabled) or (FShakeT < 1) or FGukjinMoveActive;
+    (Assigned(FEffectTimer) and FEffectTimer.Enabled) or (FShakeAnim <> nil) or FGukjinMoveActive or (FNagariAnim <> nil);
 end;
 
 // 판이 끝났을 때의 정산창 진입. 연출이 남아 있으면 미루고, 그 연출이 끝나는 시점
-// (EffectTimerTick·ShakeTimerTick·GukjinMoveTick)에 다시 불려 그때 진입한다.
+// (EffectTimerTick·GukjinMoveTick·흔들기/나가리 애니의 OnDone)에 다시 불려 그때 진입한다.
 procedure TGostopBoard.MaybeBeginGameOver;
 begin
   if (not FGameOverPending) or (FGame = nil) then
@@ -3580,6 +3420,15 @@ begin
     end;
   end;
 
+  // 나가리(무승부)면 정산창 직전에 먹은 패 던지기 + '나가리' 도장 연출을 먼저 보여준다. 연출이
+  // 시작되면 PresentationBusy 가 참이 되어 정산창이 미뤄지고, 끝날 때 OnDone 이 여길 다시 부른다.
+  if (FGame.Winner < 0) and (not FNagariAnimDone) then
+  begin
+    FNagariAnimDone := True;
+    BeginNagariAnim;
+    Exit;
+  end;
+
   FGameOverPending := False;
   BuildFinalSummary;   // 여기서 이번 판 정산이 FMoney에 반영된다
 
@@ -3596,7 +3445,7 @@ begin
 
   if FGame.Winner < 0 then
   begin
-    TGostopAudio.Instance.Play('draw');
+    // 나가리는 도장 쾅 순간(BeginNagariAnim → NagariTimerTick)에 이미 'draw' 소리를 냈으므로 생략
   end
   else
   if FGame.Winner = FHumanIndex then
@@ -7753,17 +7602,16 @@ begin
     Exit;
   end;
 
-  // 셔플 연출 단계(딜 직전)
+  // 셔플 연출 단계(딜 직전) — 실제 렌더는 FAnimMgr.DrawAll(Paint 최상단)의 TShuffleAnimation 이 맡는다.
+  // 여기서는 게임 요소를 그리지 않고 빠져나간다.
   if FShuffling then
   begin
-    DrawShuffle;
     Exit;
   end;
 
-  // 딜(패 돌리기) 애니메이션 단계
+  // 딜(패 돌리기) 애니메이션 단계 — 실제 렌더는 FAnimMgr.DrawAll 의 TDealAnimation 이 맡는다.
   if FDealing then
   begin
-    DrawDeal;
     Exit;
   end;
 
@@ -7917,6 +7765,12 @@ begin
   // PaintGame 은 협상·광판매 발표·타이틀 단계에서 일찍 Exit 하므로 그 안에서 그리면
   // 해당 단계에 큐잉된 배너(연사 강제참가 안내 등)가 표시되지 못하고 그대로 만료된다.
   DrawEffectBanner;
+
+  // 매니저에 등록된 애니메이션(현재 나가리 흩기·도장)을 최상단에 그린다
+  if Assigned(FAnimMgr) then
+  begin
+    FAnimMgr.DrawAll;
+  end;
 
   if FPaused then
   begin
@@ -8206,47 +8060,108 @@ begin
   DrawLabel(LRect, FEffectText, $FFFFE14A, 42);
 end;
 
-const
-  SHAKE_DURATION_MS = 700.0;   // 진동 지속 시간
-  SHAKE_CYCLES = 4.0;          // 지속 시간 동안의 좌우 왕복 횟수
-  SHAKE_AMP_RATIO = 0.34;      // 진폭 = 카드 폭 × 이 비율(High-DPI에서도 비율 유지)
-
-// 흔들기 연출의 현재 좌우 오프셋(px). 감쇠 사인파 — 왕복하며 진폭이 0으로 수렴한다.
-function TGostopBoard.ShakeOffsetX: Single;
+// 나가리(무승부) 연출을 시작한다. 모든 좌석의 먹은 패를 스냅샷으로 떠, 각 좌석 아바타에서
+// 중앙 바닥으로 던지는 좌표(출발·도착·시차)를 애니(TNagariAnimation)에 넘긴다. 이후 렌더는
+// 애니가 스스로 하고, 바닥패·먹은패 원본은 기존 렌더가 그대로 그린다(오버레이 방식).
+procedure TGostopBoard.BeginNagariAnim;
 begin
-  if FShakeT >= 1 then
-  begin
-    Exit(0);
+  var LCen := CenterRegion;
+  var LMidX := (LCen.Left + LCen.Right) / 2;
+  var LMidY := (LCen.Top + LCen.Bottom) / 2;
+  var LSpreadX := LCen.Width * 0.34;
+  var LSpreadY := LCen.Height * 0.30;
+  var LCS := CardSize;
+
+  // 모든 좌석의 먹은 패를 모아, 각자 아바타에서 중앙 바닥의 무작위 지점으로 시차를 두고 던진다
+  var LList := TList<TNagariCard>.Create;
+  try
+    for var I := 0 to FGame.PlayerCount - 1 do
+    begin
+      var LFrom := CapturedAnchor(I);
+      var LCaptured := FGame.Player(I).Captured;
+      for var J := 0 to LCaptured.Count - 1 do
+      begin
+        var LItem: TNagariCard;
+        LItem.AssetId := LCaptured[J].AssetId;
+        LItem.FromX := LFrom.X + (Random - 0.5) * LCS.Width * 0.6;
+        LItem.FromY := LFrom.Y + (Random - 0.5) * LCS.Height * 0.4;
+        LItem.ToX := LMidX + (Random - 0.5) * 2 * LSpreadX;
+        LItem.ToY := LMidY + (Random - 0.5) * 2 * LSpreadY;
+        LItem.Delay := Random * 0.34;         // 애니의 NAGARI_THROW_WINDOW 와 맞춤(우르르 시차)
+        LItem.Rot := (Random - 0.5) * 120;    // -60~60도
+        LList.Add(LItem);
+      end;
+    end;
+
+    FNagariAnim := TNagariAnimation.Create(Self, LList.ToArray);
+  finally
+    LList.Free;
   end;
 
-  var LAmp := CardSize.Width * SHAKE_AMP_RATIO * FShakeAmp * (1 - FShakeT);
-  Result := LAmp * Sin(FShakeT * 2 * Pi * SHAKE_CYCLES);
+  FNagariAnim.OnDone :=
+    procedure
+    begin
+      FNagariAnim := nil;   // 매니저가 이미 애니 객체를 해제한 상태 — 참조만 끊는다
+      MaybeBeginGameOver;   // 미뤄둔 정산창으로 이어간다
+    end;
+
+  FAnimMgr.Add(FNagariAnim);
+  Repaint;
+end;
+
+// --- IAnimationHost 구현(Gostop.Board.Animation) ---
+function TGostopBoard.GetCanvas: TCanvas;
+begin
+  Result := Canvas;
+end;
+
+function TGostopBoard.GetGameSpeed: Single;
+begin
+  Result := FGameSpeed;
+end;
+
+procedure TGostopBoard.PlaySound(const AName: string);
+begin
+  TGostopAudio.Instance.Play(AName);
+end;
+
+procedure TGostopBoard.RequestRepaint;
+begin
+  Repaint;
+end;
+
+// 흔들기 연출의 현재 좌우 오프셋(px). 진행 중 흔들기 애니가 있으면 그 값을, 없으면 0을 준다.
+function TGostopBoard.ShakeOffsetX: Single;
+begin
+  if FShakeAnim <> nil then
+  begin
+    Result := FShakeAnim.OffsetX;
+  end
+  else
+  begin
+    Result := 0;
+  end;
 end;
 
 // 판을 흔드는 연출 시작(바닥패·뒷패가 함께 좌우로 진동). 이미 진행 중이면 처음부터 다시.
 // AAmplitude: 진폭 배율 — 흔들기는 1.0, 폭탄처럼 더 센 연출은 그 이상.
 procedure TGostopBoard.BeginShakeEffect(const AAmplitude: Single);
 begin
-  FShakeAmp := AAmplitude;
-  FShakeT := 0;
-  FShakeTimer.Enabled := False;
-  FShakeTimer.Enabled := True;
-  Repaint;
-end;
-
-procedure TGostopBoard.ShakeTimerTick(Sender: TObject);
-begin
-  if FPaused then
+  if FShakeAnim <> nil then
   begin
-    Exit;
-  end;
-
-  FShakeT := FShakeT + (FShakeTimer.Interval / SHAKE_DURATION_MS) * FGameSpeed;
-  if FShakeT >= 1 then
+    FShakeAnim.Restart(AAmplitude);   // 진행 중이면 처음부터 다시 흔든다
+  end
+  else
   begin
-    FShakeT := 1;   // 오프셋 0으로 복귀
-    FShakeTimer.Enabled := False;
-    MaybeBeginGameOver;   // 흔들림이 끝났으니 미뤄둔 정산창이 있으면 지금 띄운다
+    FShakeAnim := TShakeAnimation.Create(Self, AAmplitude);
+    FShakeAnim.OnDone :=
+      procedure
+      begin
+        FShakeAnim := nil;
+        MaybeBeginGameOver;   // 흔들림이 끝났으니 미뤄둔 정산창이 있으면 지금 띄운다
+      end;
+
+    FAnimMgr.Add(FShakeAnim);
   end;
 
   Repaint;

@@ -356,10 +356,8 @@ type
     // FAvatarActors[pos].HoldExpression 명령만 하면 지정시간 뒤 알아서 평상시로 돌아온다.
     FAvatarActors: array [TSeatPos] of TAvatarActor;
 
-    // 캐릭터 말풍선(턴 시작마다 일정 확률로 그 좌석 캐릭터의 대사를 잠깐 띄움)
-    FSpeechText: string;
-    FSpeechSeat: TSeatPos;
-    FSpeechTimer: TTimer;
+    // 캐릭터 말풍선(턴 시작마다 일정 확률로 그 좌석 캐릭터의 대사를 잠깐 띄움). 말풍선 상태·타이밍은
+    // 좌석별 아바타 액터가 소유하고, 여기서는 "언제 말할지" 트리거 중복 방지 인덱스만 남긴다.
     FLastSpeechGameIndex: Integer;   // 마지막으로 말풍선을 시도한 게임 인덱스(같은 턴 중복 방지)
 
     // 입력/렌더 보조
@@ -465,7 +463,6 @@ type
     function  ShakeOffsetX: Single;
     procedure ForceSpeech(const ASeat: TSeatPos; const AText: string);
     procedure MaybeShowSpeech;
-    procedure SpeechTimerTick(Sender: TObject);
     procedure DrawSpeechBubble;
     procedure EffectTimerTick(Sender: TObject);
     procedure CollectTurnEffects;
@@ -977,10 +974,6 @@ begin
   FEffectTimer.Interval := 1500;
   FEffectTimer.Enabled := False;
   FEffectTimer.OnTimer := EffectTimerTick;
-  FSpeechTimer := TTimer.Create(Self);
-  FSpeechTimer.Interval := 3200;
-  FSpeechTimer.Enabled := False;
-  FSpeechTimer.OnTimer := SpeechTimerTick;
   FLastSpeechGameIndex := -1;
   FSeonTimer := TTimer.Create(Self);
   FSeonTimer.Interval := 600;
@@ -1130,13 +1123,7 @@ begin
       FAvatarActors[LP].Reset;   // 표정 평상시로(홀드 애니는 아래 FAnimMgr.Clear 가 제거)
     end;
   end;
-  FSpeechText := '';
-  if Assigned(FSpeechTimer) then
-  begin
-    FSpeechTimer.Enabled := False;
-  end;
-
-  FLastSpeechGameIndex := -1;
+  FLastSpeechGameIndex := -1;   // 말풍선 상태 자체는 위 아바타 액터 Reset 이 이미 지움
   FResultRows := nil;
   FResultTitle := '';
   if Assigned(FSeonTimer) then
@@ -7898,10 +7885,7 @@ begin
     Exit;   // 말풍선 옵션 꺼짐
   end;
 
-  FSpeechSeat := ASeat;
-  FSpeechText := AText;
-  FSpeechTimer.Enabled := False;
-  FSpeechTimer.Enabled := True;
+  FAvatarActors[ASeat].ShowSpeech(AText, 3.2);   // 좌석 아바타가 표시·3.2초 뒤 사라짐을 스스로 처리
 end;
 
 // 턴이 새로 시작될 때(같은 턴 안에서 AfterAction이 여러 번 불려도 한 번만) 일정 확률로 그
@@ -7938,43 +7922,31 @@ begin
     Exit;
   end;
 
-  FSpeechSeat := LSeat;
-  FSpeechText := TGostopCharacters.QuoteOf(LAvIdx, Random(LQCount));
-  FSpeechTimer.Enabled := False;
-  FSpeechTimer.Enabled := True;
+  FAvatarActors[LSeat].ShowSpeech(TGostopCharacters.QuoteOf(LAvIdx, Random(LQCount)), 3.2);
 end;
 
-procedure TGostopBoard.SpeechTimerTick(Sender: TObject);
-begin
-  if FPaused then
-  begin
-    Exit;
-  end;
-
-  FSpeechTimer.Enabled := False;
-  FSpeechText := '';
-  Repaint;
-end;
-
-// 좌석 아바타 옆, 카드 영역과 겹치지 않는 "빈" 쪽에 대사 말풍선 + 꼬리를 그린다.
-// PlayerPanelRect 배치상 손패는 항상 아바타의 특정 한쪽에 붙어 있으므로(P1=왼쪽·P3=오른쪽·
-// P2=아래·P4=위), 그 반대쪽이 상대적으로 비어 있는 방향이다.
+// 좌석 아바타 옆, 카드 영역과 겹치지 않는 "빈" 쪽에 대사 말풍선 + 꼬리를 그린다. 좌석마다 아바타
+// 액터가 자기 말풍선을 소유하므로 전 좌석을 순회해 표시 중인 것만 그린다(여러 좌석 동시 가능).
 // 렌더 본문은 Gostop.Board.OverlayRender 로 분리됨. 텍스트·아바타rect·방향만 뽑아 위임.
 procedure TGostopBoard.DrawSpeechBubble;
 begin
-  if FSpeechText = '' then
+  for var LP := Low(TSeatPos) to High(TSeatPos) do
   begin
-    Exit;
-  end;
+    var LText := FAvatarActors[LP].SpeechText;
+    if LText = '' then
+    begin
+      Continue;
+    end;
 
-  // P1(spTop)·P2(spLeft)는 오른쪽(+1), P3(spBottom)·P4(spRight)는 왼쪽(-1)으로 고정
-  var LDirX: Single := -1;
-  if FSpeechSeat in [spTop, spLeft] then
-  begin
-    LDirX := 1;
-  end;
+    // P1(spTop)·P2(spLeft)는 오른쪽(+1), P3(spBottom)·P4(spRight)는 왼쪽(-1)으로 고정
+    var LDirX: Single := -1;
+    if LP in [spTop, spLeft] then
+    begin
+      LDirX := 1;
+    end;
 
-  TOverlayRender.SpeechBubble(Canvas, FSpeechText, SeatAvatarRect(FSpeechSeat), LDirX);
+    TOverlayRender.SpeechBubble(Canvas, LText, SeatAvatarRect(LP), LDirX);
+  end;
 end;
 
 procedure TGostopBoard.PlayTurnSound;

@@ -181,6 +181,20 @@ type
     procedure Draw; override;     // 그리는 것 없음(no-op)
   end;
 
+  /// <summary>
+  ///   지정 시간(초)이 지나면 완료되는 순수 지연 애니(그리는 것 없음). 완료 시 매니저가 OnDone 을
+  ///   호출하므로 "N초 뒤 무엇을 하기"를 OnDone 클로저로 선언적으로 표현할 수 있다(개별 타이머 없이).
+  ///   아바타 표정 홀드·말풍선 표시 시간 등에 공용으로 쓰인다.
+  /// </summary>
+  TDelayAnimation = class(TBoardAnimation)
+  strict private
+    FRemainMs: Single;
+  public
+    constructor Create(const ASeconds: Single);
+    procedure Update(const ADeltaMs: Single); override;
+    procedure Draw; override;
+  end;
+
 implementation
 
 {$REGION 'uses'}
@@ -564,6 +578,28 @@ end;
 procedure TShakeAnimation.Draw;
 begin
   // 그리는 것 없음 — OffsetX 값만 제공한다
+end;
+{$ENDREGION}
+
+{$REGION 'TDelayAnimation'}
+constructor TDelayAnimation.Create(const ASeconds: Single);
+begin
+  inherited Create(nil);   // 호스트 불필요(Draw 없음)
+  FRemainMs := ASeconds * 1000;
+end;
+
+procedure TDelayAnimation.Update(const ADeltaMs: Single);
+begin
+  FRemainMs := FRemainMs - ADeltaMs;
+  if FRemainMs <= 0 then
+  begin
+    FDone := True;   // 완료 시 매니저가 OnDone 을 호출한다
+  end;
+end;
+
+procedure TDelayAnimation.Draw;
+begin
+  // 그리는 것 없음 — 시간만 잰다
 end;
 {$ENDREGION}
 

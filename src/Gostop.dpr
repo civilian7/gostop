@@ -31,6 +31,7 @@ uses
   Gostop.Board.OverlayRender in 'engine\Gostop.Board.OverlayRender.pas',
   Gostop.Dialog in 'engine\Gostop.Dialog.pas',
   Gostop.Dialog.ProgramInfo in 'engine\Gostop.Dialog.ProgramInfo.pas',
+  Gostop.Dialog.GoStop in 'engine\Gostop.Dialog.GoStop.pas',
   Gostop.Board in 'engine\Gostop.Board.pas',
   Main in 'Main.pas' {frmMain};
 

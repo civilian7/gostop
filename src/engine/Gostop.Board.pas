@@ -39,6 +39,7 @@ uses
   Gostop.Board.Widgets,
   Gostop.Board.OverlayRender,
   Gostop.Dialog.ProgramInfo,
+  Gostop.Dialog.GoStop,
   Gostop.Canvas.Helper,
   Gostop.Fonts,
   Gostop.FourPlayer,
@@ -213,8 +214,8 @@ type
     FGameOverRemain: Single;    // 남은 시간(초, 실수 — 숫자 축소 애니메이션용)
     FGameOverSw: TStopwatch;    // 카운트다운을 벽시계로 재기 위한 스톱워치
     FGameOverLastSec: Double;   // 직전 틱에서 읽은 경과 초(일시정지 구간을 빼기 위함)
-    FBtnGo: TRectF;
-    FBtnStop: TRectF;
+    // 고·스톱 결정 다이얼로그(자기완결 컴포넌트) — 표시/숨김은 AfterAction 이 게임 상태로 동기화
+    FGoStopDlg: TGoStopPromptDialog;
     FNextStartPos: TSeatPos;   // 선(P1)의 물리 위치. 반시계로 P1→P2→P3→P4 배정
     FHumanLogical: Integer;    // 4인에서 사람의 논리 좌석(0=선,1=P2,2=P3,3=P4)
     FNegIsSell: Boolean;       // 협상 버튼이 광팔기(True) / 참가·포기(False)
@@ -557,7 +558,7 @@ type
     procedure GameOverContinue;
     procedure GameOverQuit;
     procedure GameOverTimerTick(Sender: TObject);
-    procedure DrawGoStopPrompt;
+    procedure ShowGoStopDialog;
     procedure DrawShodangButton;
     function  HumanCanShodang: Boolean;
     procedure HumanCallShodang;
@@ -587,7 +588,6 @@ type
     procedure MouseDownSeonPick(const LPoint: TPointF);
     procedure MouseDownBonusDraw(const LPoint: TPointF);
     procedure MouseDownGameOver(const LPoint: TPointF);
-    procedure MouseDownGoStopPrompt(const LPoint: TPointF);
     procedure MouseDownFlipChoice(const LPoint: TPointF);
     procedure MouseDownNegotiation(const LPoint: TPointF);
     procedure MouseDownFloorChoice(const LPoint: TPointF);
@@ -3442,6 +3442,13 @@ end;
 
 procedure TGostopBoard.AfterAction;
 begin
+  // 고·스톱 다이얼로그는 아래 "사람 차례 + 고/스톱 대기" 분기에서만 다시 띄운다 — 그 외 상태(AI 차례·
+  // 종료·자동진행·보너스 등)에선 여기서 숨긴다. AfterAction 이 모든 액션의 단일 퍼널이므로 한 곳에서 동기화.
+  if Assigned(FGoStopDlg) and FGoStopDlg.Visible then
+  begin
+    FGoStopDlg.Visible := False;
+  end;
+
   if FGame = nil then
   begin
     FStatus := '새 게임을 시작하세요';
@@ -3477,6 +3484,7 @@ begin
     if FAwaitingGoStop then
     begin
       FStatus := Format('%d점! 고냐, 스톱이냐!', [FEngine.ScoreOf(FHumanIndex).Total]);
+      ShowGoStopDialog;
     end
     else
     if FGame.Phase = gpAwaitingBonusDraw then
@@ -6856,20 +6864,26 @@ begin
   EndStdDialog;
 end;
 
-procedure TGostopBoard.DrawGoStopPrompt;
+// 고·스톱 다이얼로그를 현재 점수로 띄운다(최초 1회 생성해 보드 자식으로 얹음). 결과는 HumanGo/HumanStop
+// 콜백으로 돌아온다. 숨김은 AfterAction 시작부에서 게임 상태에 맞춰 처리한다.
+procedure TGostopBoard.ShowGoStopDialog;
 begin
-  var LScore := FEngine.ScoreOf(FHumanIndex).Total;
-  var LPanel := DrawStdDialog(Format('%d점! 고냐, 스톱이냐!', [LScore]), Max(Width * 0.34, 340.0), 128.0);
+  if FGoStopDlg = nil then
+  begin
+    FGoStopDlg := TGoStopPromptDialog.Create(Self);   // Owner=보드(자동 해제)
+    FGoStopDlg.Parent := Self;                   // Parent 먼저 지정
+    FGoStopDlg.Align := TAlignLayout.Contents;   // 보드 전체를 덮는 모달 오버레이
+  end;
 
-  var LBtnW := 120.0;
-  var LBtnH := 46.0;
-  var LGap := 24.0;
-  var LCX := (LPanel.Left + LPanel.Right) / 2;
-  var LBtnY := LPanel.Bottom - LBtnH - 16;
-  FBtnGo := DrawStdButton(RectF(LCX - LBtnW - LGap / 2, LBtnY, LCX - LGap / 2, LBtnY + LBtnH), '고', dbkPrimary);
-  FBtnStop := DrawStdButton(RectF(LCX + LGap / 2, LBtnY, LCX + LGap / 2 + LBtnW, LBtnY + LBtnH), '스톱', dbkDanger);
-
-  EndStdDialog;
+  FGoStopDlg.Present(FEngine.ScoreOf(FHumanIndex).Total,
+    procedure
+    begin
+      HumanGo;
+    end,
+    procedure
+    begin
+      HumanStop;
+    end);
 end;
 
 // 다이얼로그 등장 팝인 진행 타이머(등장 시작~정착까지 매 프레임 재생)
@@ -7356,10 +7370,7 @@ begin
       DrawGameOver;
     end;
 
-    if FAwaitingGoStop and (FGame.Phase = gpAwaitingGoStop) and (FGame.Current = FHumanIndex) then
-    begin
-      DrawGoStopPrompt;
-    end;
+    // 고·스톱 프롬프트는 자식 컨트롤(FGoStopDlg)이 스스로 그린다(표시/숨김은 AfterAction 이 동기화).
 
     // 사람 차례에 쇼당 가능하면 '쇼당!' 버튼 제시
     DrawShodangButton;
@@ -8747,12 +8758,7 @@ begin
     Exit;
   end;
 
-  // 고/스톱 대기: 보드 팝업의 고/스톱 버튼
-  if FAwaitingGoStop and (FGame <> nil) and (FGame.Phase = gpAwaitingGoStop) then
-  begin
-    MouseDownGoStopPrompt(LPoint);
-    Exit;
-  end;
+  // 고/스톱 대기는 자식 컨트롤(FGoStopDlg)이 클릭을 직접 받으므로 여기서 처리하지 않는다.
 
   // 쇼당 걸기 버튼(사람 차례에 가능할 때만 표시됨)
   if (not FBtnShodang.IsEmpty) and FBtnShodang.Contains(LPoint) and HumanCanShodang then
@@ -9143,19 +9149,6 @@ begin
   begin
     TGostopAudio.Instance.Play('ui_click');
     GameOverQuit;
-  end;
-end;
-
-procedure TGostopBoard.MouseDownGoStopPrompt(const LPoint: TPointF);
-begin
-  if FBtnGo.Contains(LPoint) then
-  begin
-    HumanGo;
-  end
-  else
-  if FBtnStop.Contains(LPoint) then
-  begin
-    HumanStop;
   end;
 end;
 

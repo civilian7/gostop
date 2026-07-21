@@ -60,6 +60,13 @@ type
     procedure DrawContent(const ACanvas: TCanvas; const APanel: TRectF); virtual; abstract;
     /// <summary>제목·패널 크기를 설정한다(보통 서브클래스 생성자에서 1회 호출).</summary>
     procedure SetupDialog(const ATitle: string; const AWidth, AHeight: Single);
+    /// <summary>
+    ///   패널 폭/높이. 기본은 SetupDialog 값이지만, 컨트롤 크기에 비례하는 동적 폭이 필요하면
+    ///   오버라이드한다 — Paint 시점에 호출되므로 이때 컨트롤은 이미 올바른 크기(보드 전체)이다.
+    ///   (SetupDialog 는 Present 시점에 불려 컨트롤이 아직 리사이즈 전일 수 있어 Width 가 부정확하다.)
+    /// </summary>
+    function  PanelWidth: Single; virtual;
+    function  PanelHeight: Single; virtual;
     /// <summary>DrawContent 안에서 버튼을 등록한다 — base 가 호버/눌림 렌더 + 클릭 시 AOnClick 을 호출한다.</summary>
     procedure AddButton(const ARect: TRectF; const ACaption: string; const AKind: TDlgBtnKind;
       const AOnClick: TProc; const AEnabled: Boolean = True);
@@ -120,6 +127,16 @@ begin
   FPanelH := AHeight;
 end;
 
+function TGostopDialog.PanelWidth: Single;
+begin
+  Result := FPanelW;
+end;
+
+function TGostopDialog.PanelHeight: Single;
+begin
+  Result := FPanelH;
+end;
+
 procedure TGostopDialog.Popup;
 begin
   Visible := True;
@@ -176,7 +193,7 @@ end;
 procedure TGostopDialog.Paint;
 begin
   var LPreMatrix: TMatrix;
-  var LPanel := TDialogFrame.Draw(Canvas, LocalRect, FTitle, FPanelW, FPanelH, FPopT, LPreMatrix);
+  var LPanel := TDialogFrame.Draw(Canvas, LocalRect, FTitle, PanelWidth, PanelHeight, FPopT, LPreMatrix);
 
   FButtons.Clear;
   DrawContent(Canvas, LPanel);   // 본문 + AddButton 등록(버튼 rect 는 여기서 채워짐)

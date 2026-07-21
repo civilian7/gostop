@@ -42,6 +42,7 @@ uses
   Gostop.Dialog.GoStop,
   Gostop.Dialog.Shodang,
   Gostop.Dialog.GwangSale,
+  Gostop.Dialog.Negotiation,
   Gostop.Canvas.Helper,
   Gostop.Fonts,
   Gostop.FourPlayer,
@@ -183,6 +184,7 @@ type
 
     // 4인 광팔기
     FNegotiating: Boolean;
+    FNegDlg: TNegotiationDialog;   // 참가/포기 결정 다이얼로그(자기완결 컴포넌트)
     FTable4: TTableState;
     FSeatMap: TArray<Integer>;       // 게임 인덱스 → 물리 좌석(0..3)
     FSitOutSeat: Integer;
@@ -393,6 +395,8 @@ type
     procedure StartNegotiation;
     procedure StartNegotiationDeal;
     procedure BeginNegotiationPrompt;
+    procedure ShowNegotiationDialog;
+    procedure NegotiationDecide(const AJoin: Boolean);
     function  SeatPosOfLogical(const ALogical: Integer): TSeatPos;
     function  IsHumanSeat(const ALogical: Integer): Boolean;
     function  AiGiveUp(const ALogicalSeat: Integer): Boolean;
@@ -1212,6 +1216,11 @@ begin
   if Assigned(FGwangDlg) then
   begin
     FGwangDlg.Visible := False;
+  end;
+
+  if Assigned(FNegDlg) then
+  begin
+    FNegDlg.Visible := False;
   end;
 
   FHoverHand := -1;
@@ -2579,11 +2588,77 @@ begin
   FNegIsSell := False;
   FNegotiating := True;
 
-  Repaint;
+  ShowNegotiationDialog;
   if Assigned(FOnStateChanged) then
   begin
     FOnStateChanged(Self);
   end;
+end;
+
+// 참가/포기 다이얼로그를 내 손패(정렬 + 팔 수 있는 패 들어올림)와 함께 띄운다(최초 1회 생성).
+// 결과는 NegotiationDecide 콜백으로 돌아온다. 숨김은 ResolveNegotiation·ClearGame 에서 처리한다.
+procedure TGostopBoard.ShowNegotiationDialog;
+begin
+  if FNegDlg = nil then
+  begin
+    FNegDlg := TNegotiationDialog.Create(Self);   // Owner=보드(자동 해제)
+    FNegDlg.Parent := Self;                        // Parent 먼저 지정
+    FNegDlg.Align := TAlignLayout.Contents;        // 보드 전체를 덮는 모달 오버레이
+  end;
+
+  var LHandAssets: TArray<string> := nil;
+  var LRaiseIds: TArray<string> := nil;
+  if (FTable4 <> nil) and (FTable4.PlayerCount = 4) then
+  begin
+    var LHand := FTable4.Hand(FHumanLogical);
+    for var LIdx in SortedIndices(LHand) do
+    begin
+      LHandAssets := LHandAssets + [LHand[LIdx].AssetId];
+    end;
+
+    for var LSaleCard in TFourPlayer.SaleCards(LHand, CfgScore) do
+    begin
+      LRaiseIds := LRaiseIds + [LSaleCard.AssetId];
+    end;
+  end;
+
+  var LCS := CardSize;
+  FNegDlg.Present(LHandAssets, LRaiseIds, LCS.Width, LCS.Height, FImages,
+    procedure(AJoin: Boolean)
+    begin
+      NegotiationDecide(AJoin);
+    end);
+end;
+
+// 사람의 참가(AJoin=True)/포기 결정 → 좌석 참가 판정 후 협상 해결. (기존 MouseDownNegotiation 의 참가/포기
+// 분기를 그대로 옮긴 것. 광팔기(FNegIsSell) 결정은 MouseDownNegotiation 에 남는다.)
+procedure TGostopBoard.NegotiationDecide(const AJoin: Boolean);
+begin
+  var LP2 := False;
+  var LP3 := False;
+  // AI인 P4는 광값이 있을 때만 판매(0원 판매 방지)
+  var LP4 := (FTable4 <> nil) and (TFourPlayer.GwangCount(FTable4.Hand(3), CfgScore) > 0);
+
+  if FHumanLogical = 1 then
+  begin
+    LP2 := not AJoin;   // P2 포기
+    if not LP2 then
+    begin
+      LP3 := AiGiveUp(2);   // 사람(P2)이 참가했으니 이제 P3(AI)가 결정할 차례
+    end;
+  end
+  else
+  begin
+    LP3 := not AJoin;   // P3 포기 (P2는 이 다이얼로그 이전에 이미 참가로 결정됨)
+  end;
+
+  // 누군가 포기하면 P4가 그 자리를 메우므로 광팔기 자체가 없다
+  if LP2 or LP3 then
+  begin
+    LP4 := False;
+  end;
+
+  ResolveNegotiation(LP2, LP3, LP4);
 end;
 
 // 논리 좌석(0=선, 1=P2, 2=P3, 3=P4) → 물리 좌석. 선 기준 반시계로 배정된다.
@@ -2647,6 +2722,10 @@ procedure TGostopBoard.ResolveNegotiation(const AP2Give, AP3Give, AP4Sell: Boole
 begin
   FNegotiating := False;
   FNegAnimTimer.Enabled := False;   // 광 패 흔들림 정지
+  if Assigned(FNegDlg) then
+  begin
+    FNegDlg.Visible := False;   // 참가/포기 다이얼로그 숨김
+  end;
 
   // 연사: 이번 판에 포기한 자리를 기록한다(다음 판 강제참가 판정). 사람·AI 구분 없이 전 좌석.
   // 선(0)과 말번(3)은 포기 개념이 없으므로 항상 False로 덮여 연사 상태가 풀린다.
@@ -6445,53 +6524,8 @@ begin
     Exit;
   end;
 
-  // 참가/포기: 표준 다이얼로그 — 바닥패는 1장만 공개, 나머지는 뒷면(4인 맞고 정통 룰) + 하단 버튼
-  if (FTable4 <> nil) and (FTable4.Floor.Count > 0) then
-  begin
-    var CS := CardSize;
-    var LC := CenterRegion;
-    var LCX := (LC.Left + LC.Right) / 2;
-    var LCY := (LC.Top + LC.Bottom) / 2;
-
-    // 공개 안 된 나머지는 살짝 겹쳐 쌓인 뒷패로(뒷패와 같은 표현)
-    var LHiddenCount := FTable4.Floor.Count - 1;
-    for var I := LHiddenCount downto 1 do
-    begin
-      var LOff := I * 3.0;
-      DrawBack(RectF(LCX - CS.Width / 2 + LOff, LCY - CS.Height / 2 + LOff,
-        LCX + CS.Width / 2 + LOff, LCY + CS.Height / 2 + LOff));
-    end;
-
-    DrawFront(RectF(LCX - CS.Width / 2, LCY - CS.Height / 2, LCX + CS.Width / 2, LCY + CS.Height / 2), FTable4.Floor[0].AssetId);
-  end;
-
-  var LPanelW := Min(Width * 0.86, 760.0);
-  var LPanelH := 300.0;
-  var LPanel := DrawStdDialog('이번 판, 붙으시겠습니까?', LPanelW, LPanelH);
-
-  if (FTable4 <> nil) and (FTable4.PlayerCount = 4) then
-  begin
-    var LHand := FTable4.Hand(FHumanLogical);
-    var LSaleCards := TFourPlayer.SaleCards(LHand, CfgScore);
-    var LRaiseIds: TArray<string>;
-    for var LSaleCard in LSaleCards do
-    begin
-      LRaiseIds := LRaiseIds + [LSaleCard.AssetId];
-    end;
-
-    var LHandRegion := RectF(LPanel.Left + 24, LPanel.Top + 60, LPanel.Right - 24, LPanel.Bottom - 88);
-    DrawHandList(LHand, LHandRegion, False, LRaiseIds);
-  end;
-
-  var LBtnW := 140.0;
-  var LBtnH := 48.0;
-  var LGap := 30.0;
-  var LCX := (LPanel.Left + LPanel.Right) / 2;
-  var LBtnY := LPanel.Bottom - LBtnH - 18;
-  FBtnJoin := DrawStdButton(RectF(LCX - LBtnW - LGap / 2, LBtnY, LCX - LGap / 2, LBtnY + LBtnH), '참가', dbkPrimary);
-  FBtnGiveUp := DrawStdButton(RectF(LCX + LGap / 2, LBtnY, LCX + LGap / 2 + LBtnW, LBtnY + LBtnH), '포기', dbkDanger);
-
-  EndStdDialog;
+  // 참가/포기는 자기완결 다이얼로그(FNegDlg)가 그린다 — 여기선 배경(자리 영역)만 그리고 끝낸다.
+  // (바닥패는 원래 중앙에 그렸으나 목함 패널에 완전히 가려져 보이지 않았으므로 생략.)
 end;
 
 // 정산 줄에 표시할 아바타 비트맵. 승자=환호, 패자=슬픔(없으면 평상시로 폴백). 인덱스 없으면 nil
@@ -9133,42 +9167,16 @@ begin
   end;
 end;
 
+// 광팔기(FNegIsSell=True) 결정만 여기서 처리한다 — 이 화면은 목함 다이얼로그가 아니라 보드에 직접
+// 그려지므로 클릭을 보드가 받는다. 참가/포기는 자식 다이얼로그(FNegDlg)가 직접 받아 NegotiationDecide 로.
 procedure TGostopBoard.MouseDownNegotiation(const LPoint: TPointF);
 begin
-  var LLeft := FBtnJoin.Contains(LPoint);
-  var LRight := FBtnGiveUp.Contains(LPoint);
+  var LLeft := FBtnJoin.Contains(LPoint);      // 광팔기
+  var LRight := FBtnGiveUp.Contains(LPoint);   // 안팔기
   if LLeft or LRight then
   begin
     TGostopAudio.Instance.Play('ui_click');
-    var LP2 := False;
-    var LP3 := False;
-    // AI인 P4는 광값이 있을 때만 판매(0원 판매 방지)
-    var LP4 := (FTable4 <> nil) and (TFourPlayer.GwangCount(FTable4.Hand(3), CfgScore) > 0);
-    if FNegIsSell then
-    begin
-      LP4 := LLeft;   // 사람이 P4: 광팔기=왼쪽, 안팔기=오른쪽
-    end
-    else
-    if FHumanLogical = 1 then
-    begin
-      LP2 := LRight;  // P2 포기=오른쪽
-      if not LP2 then
-      begin
-        LP3 := AiGiveUp(2);   // 사람(P2)이 참가했으니 이제 P3(AI)가 결정할 차례
-      end;
-    end
-    else
-    begin
-      LP3 := LRight;  // P3 포기=오른쪽 (P2는 이 다이얼로그 이전에 이미 참가로 결정됨)
-    end;
-
-    // 누군가 포기하면 P4가 그 자리를 메우므로 광팔기 자체가 없다
-    if LP2 or LP3 then
-    begin
-      LP4 := False;
-    end;
-
-    ResolveNegotiation(LP2, LP3, LP4);
+    ResolveNegotiation(False, False, LLeft);   // 사람=P4: 광팔기=왼쪽
   end;
 end;
 

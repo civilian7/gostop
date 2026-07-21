@@ -17,7 +17,10 @@ uses
 type
   /// <summary>프로그램 정보 다이얼로그(정적 — 버전·오픈소스 출처·저작권 표시, 닫기만).</summary>
   TProgramInfoDialog = class(TGostopDialog)
+  strict private
+    FBtnClose: TDialogButton;
   strict protected
+    procedure BuildButtons; override;
     procedure DrawContent(const ACanvas: TCanvas; const APanel: TRectF); override;
   public
     constructor Create(AOwner: TComponent); override;
@@ -39,6 +42,15 @@ constructor TProgramInfoDialog.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
   SetupDialog('프로그램 정보', 480, 360);
+end;
+
+procedure TProgramInfoDialog.BuildButtons;
+begin
+  FBtnClose := AddButton('닫기', dbkNeutral,
+    procedure
+    begin
+      Dismiss;
+    end);
 end;
 
 procedure TProgramInfoDialog.DrawContent(const ACanvas: TCanvas; const APanel: TRectF);
@@ -82,12 +94,8 @@ begin
   ACanvas.DrawLabel(RectF(APanel.Left, LY, APanel.Right, LY + 20),
     '(c) 2024-2026 copyright in fullbit computing.', $FF8A968A, 12);
 
-  AddButton(RectF(APanel.Left + APanel.Width / 2 - 70, APanel.Bottom - 54,
-    APanel.Left + APanel.Width / 2 + 70, APanel.Bottom - 16), '닫기', dbkNeutral,
-    procedure
-    begin
-      Dismiss;
-    end);
+  FBtnClose.Rect := RectF(APanel.Left + APanel.Width / 2 - 70, APanel.Bottom - 54,
+    APanel.Left + APanel.Width / 2 + 70, APanel.Bottom - 16);
 end;
 {$ENDREGION}
 

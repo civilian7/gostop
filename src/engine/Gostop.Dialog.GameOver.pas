@@ -44,9 +44,12 @@ type
     FButtonsEnabled: TFunc<Boolean>;  // 버튼 활성 여부(머니 카운트 완료 후)(라이브)
     FOnNext: TProc;              // [다음 판] 콜백
     FOnQuit: TProc;              // [그만하기]/[타이틀로] 콜백
+    FBtnNext: TDialogButton;     // 오링이면 nil(타이틀로만)
+    FBtnQuit: TDialogButton;
     function RowHeight(const ARow: TGameOverRow): Single;
   strict protected
     function  PanelHeight: Single; override;   // 결과 줄 수·승자 뱃지 유무에 따라 동적
+    procedure BuildButtons; override;
     procedure DrawContent(const ACanvas: TCanvas; const APanel: TRectF); override;
   public
     procedure Present(const ATitle: string; const ARows: TArray<TGameOverRow>; const AHumanBroke: Boolean;
@@ -129,6 +132,44 @@ begin
   FOnQuit := AOnQuit;
   SetupDialog(ATitle, 480.0, PanelHeight);   // 폭 고정, 높이는 PanelHeight(동적)로 프레임에 전달
   Popup;
+end;
+
+// 오링(휴먼 파산)이면 [타이틀로]만, 아니면 [다음 판]/[그만하기]. FHumanBroke 는 Present 에서 Popup 전에
+// 세팅되므로 여기서 올바르게 반영된다. 활성 여부는 DrawContent 에서 매 프레임 갱신한다.
+procedure TGameOverDialog.BuildButtons;
+begin
+  FBtnNext := nil;
+  if FHumanBroke then
+  begin
+    FBtnQuit := AddButton('타이틀로', dbkDanger,
+      procedure
+      begin
+        if Assigned(FOnQuit) then
+        begin
+          FOnQuit();
+        end;
+      end);
+  end
+  else
+  begin
+    FBtnNext := AddButton('다음 판', dbkPrimary,
+      procedure
+      begin
+        if Assigned(FOnNext) then
+        begin
+          FOnNext();
+        end;
+      end);
+
+    FBtnQuit := AddButton('그만하기', dbkDanger,
+      procedure
+      begin
+        if Assigned(FOnQuit) then
+        begin
+          FOnQuit();
+        end;
+      end);
+  end;
 end;
 
 procedure TGameOverDialog.DrawContent(const ACanvas: TCanvas; const APanel: TRectF);
@@ -302,41 +343,22 @@ begin
 
   LY := LY + COUNTDOWN_H;   // 카운트다운이 아직 안 떠도 자리는 확보(패널 높이 고정)
 
-  // 버튼(머니 카운트 완료 전엔 비활성)
+  // 버튼 위치·활성 갱신(버튼 자체는 BuildButtons 에서 생성). 머니 카운트 완료 전엔 비활성.
   var LEnabled := FButtonsEnabled();
   var LBtnW := 140.0;
   var LGap := 16.0;
-  if FHumanBroke then
+  if Assigned(FBtnNext) then
   begin
-    AddButton(RectF(LCX - LBtnW / 2, LY + 12, LCX + LBtnW / 2, LY + 12 + BTN_H), '타이틀로', dbkDanger,
-      procedure
-      begin
-        if Assigned(FOnQuit) then
-        begin
-          FOnQuit();
-        end;
-      end, LEnabled);
+    FBtnNext.Rect := RectF(LCX - LBtnW - LGap / 2, LY + 12, LCX - LGap / 2, LY + 12 + BTN_H);
+    FBtnNext.Enabled := LEnabled;
+    FBtnQuit.Rect := RectF(LCX + LGap / 2, LY + 12, LCX + LGap / 2 + LBtnW, LY + 12 + BTN_H);
   end
   else
   begin
-    AddButton(RectF(LCX - LBtnW - LGap / 2, LY + 12, LCX - LGap / 2, LY + 12 + BTN_H), '다음 판', dbkPrimary,
-      procedure
-      begin
-        if Assigned(FOnNext) then
-        begin
-          FOnNext();
-        end;
-      end, LEnabled);
-
-    AddButton(RectF(LCX + LGap / 2, LY + 12, LCX + LGap / 2 + LBtnW, LY + 12 + BTN_H), '그만하기', dbkDanger,
-      procedure
-      begin
-        if Assigned(FOnQuit) then
-        begin
-          FOnQuit();
-        end;
-      end, LEnabled);
+    FBtnQuit.Rect := RectF(LCX - LBtnW / 2, LY + 12, LCX + LBtnW / 2, LY + 12 + BTN_H);
   end;
+
+  FBtnQuit.Enabled := LEnabled;
 end;
 {$ENDREGION}
 

@@ -25,7 +25,10 @@ type
     FCardH: Single;
     FImages: TCardImageCache;    // 카드 이미지 캐시(보드 소유 — 참조만)
     FOnRespond: TProc<Boolean>;  // 결과 콜백(True=받기, False=거절)
+    FBtnYes: TDialogButton;
+    FBtnNo: TDialogButton;
   strict protected
+    procedure BuildButtons; override;
     procedure DrawContent(const ACanvas: TCanvas; const APanel: TRectF); override;
   public
     /// <summary>공개 패·콜백을 세팅하고 다이얼로그를 띄운다.</summary>
@@ -57,6 +60,27 @@ begin
   Popup;
 end;
 
+procedure TShodangDialog.BuildButtons;
+begin
+  FBtnYes := AddButton('받기', dbkPrimary,
+    procedure
+    begin
+      if Assigned(FOnRespond) then
+      begin
+        FOnRespond(True);
+      end;
+    end);
+
+  FBtnNo := AddButton('거절', dbkDanger,
+    procedure
+    begin
+      if Assigned(FOnRespond) then
+      begin
+        FOnRespond(False);
+      end;
+    end);
+end;
+
 procedure TShodangDialog.DrawContent(const ACanvas: TCanvas; const APanel: TRectF);
 begin
   // 공개 위협 패(가로로 겹쳐 나열, 원본 카드 크기의 0.7배)
@@ -84,23 +108,8 @@ begin
   var LCX := (APanel.Left + APanel.Right) / 2;
   var LBtnY := APanel.Bottom - LBtnH - 16;
 
-  AddButton(RectF(LCX - LBtnW - LGap / 2, LBtnY, LCX - LGap / 2, LBtnY + LBtnH), '받기', dbkPrimary,
-    procedure
-    begin
-      if Assigned(FOnRespond) then
-      begin
-        FOnRespond(True);
-      end;
-    end);
-
-  AddButton(RectF(LCX + LGap / 2, LBtnY, LCX + LGap / 2 + LBtnW, LBtnY + LBtnH), '거절', dbkDanger,
-    procedure
-    begin
-      if Assigned(FOnRespond) then
-      begin
-        FOnRespond(False);
-      end;
-    end);
+  FBtnYes.Rect := RectF(LCX - LBtnW - LGap / 2, LBtnY, LCX - LGap / 2, LBtnY + LBtnH);
+  FBtnNo.Rect := RectF(LCX + LGap / 2, LBtnY, LCX + LGap / 2 + LBtnW, LBtnY + LBtnH);
 end;
 {$ENDREGION}
 

@@ -26,8 +26,11 @@ type
     FCardH: Single;
     FImages: TCardImageCache;    // 카드 이미지 캐시(보드 소유 — 참조만)
     FOnDecide: TProc<Boolean>;   // 결과 콜백(True=참가, False=포기)
+    FBtnJoin: TDialogButton;
+    FBtnPass: TDialogButton;
   strict protected
     function  PanelWidth: Single; override;   // 보드 폭에 비례(넓은 손패 부채) — Paint 시점 컨트롤 크기 기준
+    procedure BuildButtons; override;
     procedure DrawContent(const ACanvas: TCanvas; const APanel: TRectF); override;
   public
     /// <summary>손패·콜백을 세팅하고 다이얼로그를 띄운다.</summary>
@@ -61,6 +64,27 @@ begin
   FImages := AImages;
   FOnDecide := AOnDecide;
   Popup;
+end;
+
+procedure TNegotiationDialog.BuildButtons;
+begin
+  FBtnJoin := AddButton('참가', dbkPrimary,
+    procedure
+    begin
+      if Assigned(FOnDecide) then
+      begin
+        FOnDecide(True);
+      end;
+    end);
+
+  FBtnPass := AddButton('포기', dbkDanger,
+    procedure
+    begin
+      if Assigned(FOnDecide) then
+      begin
+        FOnDecide(False);
+      end;
+    end);
 end;
 
 procedure TNegotiationDialog.DrawContent(const ACanvas: TCanvas; const APanel: TRectF);
@@ -100,23 +124,8 @@ begin
   var LCX := (APanel.Left + APanel.Right) / 2;
   var LBtnY := APanel.Bottom - LBtnH - 18;
 
-  AddButton(RectF(LCX - LBtnW - LGap / 2, LBtnY, LCX - LGap / 2, LBtnY + LBtnH), '참가', dbkPrimary,
-    procedure
-    begin
-      if Assigned(FOnDecide) then
-      begin
-        FOnDecide(True);
-      end;
-    end);
-
-  AddButton(RectF(LCX + LGap / 2, LBtnY, LCX + LGap / 2 + LBtnW, LBtnY + LBtnH), '포기', dbkDanger,
-    procedure
-    begin
-      if Assigned(FOnDecide) then
-      begin
-        FOnDecide(False);
-      end;
-    end);
+  FBtnJoin.Rect := RectF(LCX - LBtnW - LGap / 2, LBtnY, LCX - LGap / 2, LBtnY + LBtnH);
+  FBtnPass.Rect := RectF(LCX + LGap / 2, LBtnY, LCX + LGap / 2 + LBtnW, LBtnY + LBtnH);
 end;
 {$ENDREGION}
 

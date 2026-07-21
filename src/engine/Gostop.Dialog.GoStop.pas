@@ -21,7 +21,10 @@ type
   strict private
     FOnGo: TProc;
     FOnStop: TProc;
+    FBtnGo: TDialogButton;
+    FBtnStop: TDialogButton;
   strict protected
+    procedure BuildButtons; override;
     procedure DrawContent(const ACanvas: TCanvas; const APanel: TRectF); override;
   public
     /// <summary>현재 점수·콜백을 세팅하고 다이얼로그를 띄운다.</summary>
@@ -45,15 +48,9 @@ begin
   Popup;
 end;
 
-procedure TGoStopPromptDialog.DrawContent(const ACanvas: TCanvas; const APanel: TRectF);
+procedure TGoStopPromptDialog.BuildButtons;
 begin
-  var LBtnW := 120.0;
-  var LBtnH := 46.0;
-  var LGap := 24.0;
-  var LCX := (APanel.Left + APanel.Right) / 2;
-  var LBtnY := APanel.Bottom - LBtnH - 16;
-
-  AddButton(RectF(LCX - LBtnW - LGap / 2, LBtnY, LCX - LGap / 2, LBtnY + LBtnH), '고', dbkPrimary,
+  FBtnGo := AddButton('고', dbkPrimary,
     procedure
     begin
       if Assigned(FOnGo) then
@@ -62,7 +59,7 @@ begin
       end;
     end);
 
-  AddButton(RectF(LCX + LGap / 2, LBtnY, LCX + LGap / 2 + LBtnW, LBtnY + LBtnH), '스톱', dbkDanger,
+  FBtnStop := AddButton('스톱', dbkDanger,
     procedure
     begin
       if Assigned(FOnStop) then
@@ -70,6 +67,18 @@ begin
         FOnStop();
       end;
     end);
+end;
+
+procedure TGoStopPromptDialog.DrawContent(const ACanvas: TCanvas; const APanel: TRectF);
+begin
+  var LBtnW := 120.0;
+  var LBtnH := 46.0;
+  var LGap := 24.0;
+  var LCX := (APanel.Left + APanel.Right) / 2;
+  var LBtnY := APanel.Bottom - LBtnH - 16;
+
+  FBtnGo.Rect := RectF(LCX - LBtnW - LGap / 2, LBtnY, LCX - LGap / 2, LBtnY + LBtnH);
+  FBtnStop.Rect := RectF(LCX + LGap / 2, LBtnY, LCX + LGap / 2 + LBtnW, LBtnY + LBtnH);
 end;
 {$ENDREGION}
 

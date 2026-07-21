@@ -58,6 +58,16 @@ type
     StampFillRgb = TAlphaColor($00C81E1E);   // 도장 원판 채움
     StampLineRgb = TAlphaColor($00B01414);   // 도장 테두리
     StampTextRgb = TAlphaColor($00D42020);   // '나가리' 글자
+
+    // 다이얼로그 공통 프레임(옻칠 목함 느낌)
+    DialogDim        = TAlphaColor($88000000);   // 뒤 배경 딤
+    DialogShadow     = TAlphaColor($58000000);   // 패널 그림자
+    DialogGradTop    = TAlphaColor($FA2C3D30);   // 목함 배경 그라데이션 상단(밝은 짙은 녹)
+    DialogGradBottom = TAlphaColor($FA111A13);   // 하단(옻칠처럼 깊게)
+    DialogGold       = TAlphaColor($FFE8C868);   // 금색 외곽 테두리
+    DialogGoldInner  = TAlphaColor($30E8C868);   // 안쪽 은은한 이너라인
+    DialogGoldLine   = TAlphaColor($70E8C868);   // 제목 아래 구분선
+    TitleShadow      = TAlphaColor($C0000000);   // 제목 글자 그림자
   end;
 
 implementation

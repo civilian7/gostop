@@ -26,6 +26,7 @@ uses
   Gostop.Board.Animation in 'engine\Gostop.Board.Animation.pas',
   Gostop.Board.Avatar in 'engine\Gostop.Board.Avatar.pas',
   Gostop.Board.CardRender in 'engine\Gostop.Board.CardRender.pas',
+  Gostop.Board.Dialog in 'engine\Gostop.Board.Dialog.pas',
   Gostop.Board.Widgets in 'engine\Gostop.Board.Widgets.pas',
   Gostop.Board.OverlayRender in 'engine\Gostop.Board.OverlayRender.pas',
   Gostop.Board in 'engine\Gostop.Board.pas',

@@ -35,6 +35,7 @@ uses
   Gostop.Board.Animation,
   Gostop.Board.Avatar,
   Gostop.Board.CardRender,
+  Gostop.Board.Dialog,
   Gostop.Board.Widgets,
   Gostop.Board.OverlayRender,
   Gostop.Canvas.Helper,
@@ -7064,12 +7065,10 @@ begin
 end;
 
 // 표준 다이얼로그 패널 시작. (제목+크기)가 직전 프레임과 다르면 새로 등장한 것으로 보고
-// 팝인 애니메이션(살짝 작게 시작해 튀었다 정착)을 시작한다. 이 함수가 남긴 매트릭스는
-// 다이얼로그 내용을 전부 그린 뒤 EndStdDialog로 반드시 복원해야 한다(패널·내용이 함께 스케일되도록).
+// 렌더 본문(옻칠 목함 프레임 + 팝인)은 Gostop.Board.Dialog 로 분리. 여기서는 팝인 상태 추적
+// (어느 다이얼로그가 열렸는지 키로 감지·진행도)만 남기고 프레임 렌더는 위임한다.
 function TGostopBoard.DrawStdDialog(const ATitle: string; const AWidth, AHeight: Single): TRectF;
 begin
-  Canvas.FillRound(LocalRect, 0, $88000000);   // 배경 딤
-
   var LKey := Format('%s|%.0f|%.0f', [ATitle, AWidth, AHeight]);
   if LKey <> FDialogPopKey then
   begin
@@ -7078,63 +7077,14 @@ begin
     FDialogPopTimer.Enabled := True;
   end;
 
-  Result := RectF(Width / 2 - AWidth / 2, Height / 2 - AHeight / 2, Width / 2 + AWidth / 2, Height / 2 + AHeight / 2);
-
-  FDialogPreMatrix := Canvas.Matrix;
-  if FDialogPopT < 1 then
-  begin
-    // ease-out-back: 0에서 살짝 넘치듯(오버슈트) 1로 정착
-    const OVERSHOOT = 1.70158;
-    var LK := FDialogPopT - 1;
-    var LBack := 1 + (OVERSHOOT + 1) * LK * LK * LK + OVERSHOOT * LK * LK;
-    var LScale := 0.6 + LBack * 0.4;   // 60% 크기에서 시작해 튀며 100%로 정착
-
-    var LCx := (Result.Left + Result.Right) / 2;
-    var LCy := (Result.Top + Result.Bottom) / 2;
-    var LMx := TMatrix.CreateTranslation(-LCx, -LCy) * TMatrix.CreateScaling(LScale, LScale) * TMatrix.CreateTranslation(LCx, LCy);
-    Canvas.SetMatrix(LMx * FDialogPreMatrix);
-  end;
-
-  // 옻칠 목함 느낌: 판(펠트)과 톤이 이어지는 짙은 녹색 세로 그라데이션 + 금테.
-  // (이전의 절차 생성 나무 텍스처는 색이 겉돌아 제거)
-  // 뒤에 그림자를 깔아 떠 있는 느낌을 준다
-  Canvas.FillRound(RectF(Result.Left + 5, Result.Top + 7, Result.Right + 5, Result.Bottom + 7), 18, $58000000);
-
-  Canvas.Fill.Kind := TBrushKind.Gradient;
-  Canvas.Fill.Gradient.Style := TGradientStyle.Linear;
-  Canvas.Fill.Gradient.StartPosition.Point := PointF(0.5, 0);
-  Canvas.Fill.Gradient.StopPosition.Point := PointF(0.5, 1);
-  Canvas.Fill.Gradient.Color := $FA2C3D30;    // 상단: 펠트보다 살짝 밝은 짙은 녹색
-  Canvas.Fill.Gradient.Color1 := $FA111A13;   // 하단: 옻칠처럼 깊게 가라앉는 톤
-  Canvas.FillRect(Result, 18, 18, [TCorner.TopLeft, TCorner.TopRight, TCorner.BottomLeft, TCorner.BottomRight], 1);
-  Canvas.Fill.Kind := TBrushKind.Solid;
-
-  Canvas.StrokeRound(Result, 18, $FFE8C868, 2.5);   // 금색 외곽 테두리(액자 느낌)
-  Canvas.StrokeRound(RectF(Result.Left + 4, Result.Top + 4, Result.Right - 4, Result.Bottom - 4), 14, $30E8C868, 1);   // 안쪽 은은한 이너라인
-
-  if ATitle <> '' then
-  begin
-    // 제목: 그림자 얹은 금색 글자 + 아래 금색 구분선(중앙 ◆ 장식)으로 현판 느낌
-    DrawLabel(RectF(Result.Left + 1, Result.Top + 18, Result.Right + 1, Result.Top + 52), ATitle, $C0000000, 22);
-    DrawLabel(RectF(Result.Left, Result.Top + 16, Result.Right, Result.Top + 50), ATitle, TAlphaColors.Gold, 22);
-
-    var LCx := (Result.Left + Result.Right) / 2;
-    var LLineY := Result.Top + 56;
-    var LHalf := Min(Result.Width * 0.30, 150.0);
-    Canvas.Fill.Kind := TBrushKind.Solid;
-    Canvas.Fill.Color := $70E8C868;
-    Canvas.FillRect(RectF(LCx - LHalf, LLineY, LCx - 10, LLineY + 1), 0, 0, [], 1);
-    Canvas.FillRect(RectF(LCx + 10, LLineY, LCx + LHalf, LLineY + 1), 0, 0, [], 1);
-    Canvas.Fill.Color := $FFE8C868;
-    Canvas.FillPolygon([PointF(LCx, LLineY - 4), PointF(LCx + 4, LLineY), PointF(LCx, LLineY + 4), PointF(LCx - 4, LLineY)], 1);
-  end;
+  Result := TDialogFrame.Draw(Canvas, LocalRect, ATitle, AWidth, AHeight, FDialogPopT, FDialogPreMatrix);
 end;
 
 // DrawStdDialog가 남긴 팝인 매트릭스를 복원한다 — 그 다이얼로그의 내용(버튼·라벨·카드 등)을
 // 전부 그린 직후 반드시 호출해야, 패널과 내용이 함께 스케일되어 자연스럽게 등장한다.
 procedure TGostopBoard.EndStdDialog;
 begin
-  Canvas.SetMatrix(FDialogPreMatrix);
+  TDialogFrame.Restore(Canvas, FDialogPreMatrix);
 end;
 
 // AARRGGBB 색상의 RGB 채널을 ADelta만큼 밝게(양수)/어둡게(음수) 조정(호버·눌림 효과 공용).

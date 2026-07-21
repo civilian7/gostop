@@ -72,10 +72,12 @@ type
     FButtons: TObjectList<TDialogButton>;   // 표시 때 1회 생성(BuildButtons), 매 프레임 재생성 안 함
 
     FOnClose: TProc;
-    function  IsHot(const ARect: TRectF): Boolean;
-    function  IsPressed(const ARect: TRectF): Boolean;
     procedure PopTimerTick(Sender: TObject);
   strict protected
+    /// <summary>지금 마우스가 이 영역 위에 있는가(커스텀 렌더 요소의 호버 판정용).</summary>
+    function  IsHot(const ARect: TRectF): Boolean;
+    /// <summary>이 영역을 누른 채인가(눌림 효과용).</summary>
+    function  IsPressed(const ARect: TRectF): Boolean;
     /// <summary>서브클래스가 목함 패널(APanel) 안에 본문을 그리고, 자기 버튼의 Rect·Enabled 를 갱신한다.</summary>
     procedure DrawContent(const ACanvas: TCanvas; const APanel: TRectF); virtual; abstract;
     /// <summary>표시(Popup) 때 1회 호출 — 서브클래스가 AddButton 으로 버튼을 만들어 필드에 보관한다.</summary>

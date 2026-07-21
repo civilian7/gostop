@@ -44,6 +44,7 @@ uses
   Gostop.Dialog.GwangSale,
   Gostop.Dialog.Negotiation,
   Gostop.Dialog.GameOver,
+  Gostop.Dialog.Settings,
   Gostop.Canvas.Helper,
   Gostop.Fonts,
   Gostop.FourPlayer,
@@ -131,14 +132,10 @@ type
     // 최초 열 때 생성해 보드 자식으로 얹고, 이후엔 Popup/Dismiss 로 표시/숨김만 한다.
     FInfoDlg: TProgramInfoDialog;
 
-    // 게임 룰·플레이어 설정('새게임' 다이얼로그 1단계: 인원수+룰+아바타, INI 유지)
+    // 새게임(설정) — 인원수·난이도·아바타 선택. 자기완결 다이얼로그(Gostop.Dialog.Settings)로 분리.
+    // 아바타 피커는 보드-그림 유지(아바타 카드 클릭 시 이 다이얼로그가 숨고 피커가 뜬다 — 교대 표시).
     FConfig: TGameConfig;        // 게임 룰·플레이어 설정(피박/광박/고박/보너스/금액/시드/난이도)
-    FSettingsOpen: Boolean;      // 설정창 표시 중
-    FCfgAvatarRect: TRectF;      // 아바타 '변경' 값 영역(룰 토글·닉네임은 제거됨 — 표준 룰 고정)
-    FCfgCountRects: array [0 .. 2] of TRectF;  // 상단 인원수 카드(맞고/삼파전/광팔어유) 클릭 영역
-    FCfgSkillRects: array [0 .. 3] of TRectF;  // 상단 AI 난이도 카드(병아리/선수/타짜/신의손) 클릭 영역
-    FBtnCfgCancel: TRectF;      // 설정창 '취소'(타이틀로 복귀)
-    FBtnCfgNext: TRectF;        // 설정창 '다음'(대전 설정 다이얼로그로 진행)
+    FSettingsDlg: TSettingsDialog;
 
     // 대전 설정 다이얼로그: 슬롯머신 연출로 AI 배정, 내 시트(P1~PN) 선택, 관전 모드
     FMatchSetupOpen: Boolean;
@@ -520,7 +517,7 @@ type
     procedure DrawPauseOverlay;
     procedure DrawTitleMenu;
     procedure OpenHelpDoc(const AFileName: string);
-    procedure DrawSettings;
+    procedure ShowSettingsDialog;
     // 선택형 아바타 카드 렌더는 Gostop.Board.CardRender(TSelectCardRender)로 분리됨
     function  CfgScore: TScoreOptions;
     function  CfgRules: TRuleSet;
@@ -579,7 +576,6 @@ type
     // MouseDown 디스패치 분기(화면/상태별로 분리 — 각자 원래 항상 Exit로 끝나던 블록 그대로)
     procedure MouseDownGiri(const LPoint: TPointF);
     procedure MouseDownTitleArea(const LPoint: TPointF);
-    procedure MouseDownSettingsDialog(const LPoint: TPointF);
     procedure MouseDownMatchSetupDialog(const LPoint: TPointF);
     procedure MouseDownTitleButtons(const LPoint: TPointF);
     procedure MouseDownAvatarPicker(const LPoint: TPointF);
@@ -1218,6 +1214,11 @@ begin
   if Assigned(FGameOverDlg) then
   begin
     FGameOverDlg.Visible := False;
+  end;
+
+  if Assigned(FSettingsDlg) then
+  begin
+    FSettingsDlg.Visible := False;
   end;
 
   FHoverHand := -1;
@@ -5099,93 +5100,85 @@ begin
   Result := FConfig.ToDeckOptions;
 end;
 
-// 설정 행 값 순환(설정창에서 값 버튼 클릭)
-procedure TGostopBoard.DrawSettings;
-const
-  CARD_ROW_H = 106.0;
-  CARD_GAP = 12.0;
-  CARD_AREA_MAX_W = 440.0;   // 인원수·난이도 카드 영역 최대 폭(패널을 넓혀도 카드가 늘어나지 않게)
-  AV_CARD_SZ = 130.0;        // 아바타 카드 한 변(정사각형 — 원본 128x128 비율 유지, 안 찌그러짐)
+// 새게임(설정) 다이얼로그를 띄운다(최초 1회 생성). 인원수·난이도·아바타 선택은 콜백으로 보드가
+// 처리하고, 현재 선택값은 라이브 접근자로 넘겨 다이얼로그가 매 프레임 강조한다. 아바타 '변경'은 이
+// 다이얼로그를 숨기고 보드가 그리는 아바타 피커를 연다(교대 표시라 z-order 안 겹침). 재개(피커 후)도 이걸로.
+procedure TGostopBoard.ShowSettingsDialog;
 begin
-  var LPanelW := 480.0;
-  // 인원수·난이도 카드 2행 + 정사각형 아바타 카드 1행(룰 토글·닉네임 제거 — 표준 룰 고정)
-  var LPanelH := 56 + 2 * CARD_ROW_H + AV_CARD_SZ + CARD_GAP * 2 + 72;
-  var LPanel := RectF(Width / 2 - LPanelW / 2, Height / 2 - LPanelH / 2,
-    Width / 2 + LPanelW / 2, Height / 2 + LPanelH / 2);
+  if FSettingsDlg = nil then
+  begin
+    FSettingsDlg := TSettingsDialog.Create(Self);   // Owner=보드(자동 해제)
+    FSettingsDlg.Parent := Self;                     // Parent 먼저 지정
+    FSettingsDlg.Align := TAlignLayout.Contents;     // 보드 전체를 덮는 모달 오버레이
+  end;
 
-  Canvas.FillRound(LPanel, 14, $F02E3A2E);
-  Canvas.StrokeRound(LPanel, 14, $FFFFD54A, 2);
-  DrawLabel(RectF(LPanel.Left, LPanel.Top + 12, LPanel.Right, LPanel.Top + 46), '새게임', TAlphaColors.Gold, 22);
-
-  // 상단 카드 영역: 라벨 없이 아바타 삽화로 인원수(3장)·AI 난이도(4장)를 보여줌. 열 개수는 다르지만
-  // 두 줄 모두 같은 전체 폭에 맞춰 카드 폭만 달라진다. 카드 영역은 패널 폭과 무관하게 상한 + 가운데 정렬.
-  var LCardAreaW := Min(LPanel.Width - 40, CARD_AREA_MAX_W);
-  var LCardAreaL := (LPanel.Left + LPanel.Right) / 2 - LCardAreaW / 2;
-  var LCardAreaR := LCardAreaL + LCardAreaW;
-  var LCardY := LPanel.Top + 56;
-
-  var LSeg3Gap := CARD_GAP;
-  var LSeg3W := (LCardAreaW - LSeg3Gap * 2) / 3;
   LoadAvatarPool;
-  for var LSeg := 0 to 2 do
-  begin
-    var LSegCount := LSeg + 2;
-    var LSegRect := RectF(LCardAreaL + LSeg * (LSeg3W + LSeg3Gap), LCardY,
-      LCardAreaL + LSeg * (LSeg3W + LSeg3Gap) + LSeg3W, LCardY + CARD_ROW_H);
-    FCfgCountRects[LSeg] := LSegRect;
-
-    // 인원수만큼 아바타를 풀에서 뽑아 렌더러에 넘긴다(렌더러는 게임 상태를 모른다)
-    var LStackAv: TArray<TBitmap>;
-    SetLength(LStackAv, LSegCount);
-    if Assigned(FAvatarPool) and (FAvatarPool.Count > 0) then
-    begin
-      for var K := 0 to LSegCount - 1 do
-      begin
-        LStackAv[K] := FAvatarPool[K mod FAvatarPool.Count];
-      end;
-    end;
-
-    TSelectCardRender.AvatarStack(Canvas, LSegRect, LStackAv, GAME_MODE_LABELS[LSegCount],
-      LSegCount = FSetupCount, IsHot(LSegRect), IsPressed(LSegRect));
-  end;
-
-  LCardY := LCardY + CARD_ROW_H + CARD_GAP;
-  var LSeg4Gap := CARD_GAP * 0.75;
-  var LSeg4W := (LCardAreaW - LSeg4Gap * 3) / 4;
   LoadSkillAvatarPool;
-  for var LSeg := 0 to 3 do
-  begin
-    var LSegRect := RectF(LCardAreaL + LSeg * (LSeg4W + LSeg4Gap), LCardY,
-      LCardAreaL + LSeg * (LSeg4W + LSeg4Gap) + LSeg4W, LCardY + CARD_ROW_H);
-    FCfgSkillRects[LSeg] := LSegRect;
-    var LSkillBmp: TBitmap := nil;
-    if Assigned(FSkillAvatarPool) and (LSeg < FSkillAvatarPool.Count) then
+
+  var LModel: TSettingsModel;
+  LModel.ModeLabels := [GAME_MODE_LABELS[2], GAME_MODE_LABELS[3], GAME_MODE_LABELS[4]];
+  LModel.SkillLabels := [AI_SKILL_LABELS[0], AI_SKILL_LABELS[1], AI_SKILL_LABELS[2], AI_SKILL_LABELS[3]];
+  LModel.SkillValues := [AI_SKILL_VALUES[0], AI_SKILL_VALUES[1], AI_SKILL_VALUES[2], AI_SKILL_VALUES[3]];
+  LModel.AvatarPool := FAvatarPool;
+  LModel.SkillPool := FSkillAvatarPool;
+
+  LModel.CurCount :=
+    function: Integer
     begin
-      LSkillBmp := FSkillAvatarPool[LSeg];
+      Result := FSetupCount;
+    end;
+  LModel.CurSkill :=
+    function: Integer
+    begin
+      Result := FConfig.AiSkill;
+    end;
+  LModel.CurAvatarIdx :=
+    function: Integer
+    begin
+      Result := FHumanAvatarIdx;
     end;
 
-    TSelectCardRender.Avatar(Canvas, LSegRect, LSkillBmp, AI_SKILL_LABELS[LSeg],
-      AI_SKILL_VALUES[LSeg] = FConfig.AiSkill, IsHot(LSegRect), IsPressed(LSegRect));
-  end;
+  LModel.OnCount :=
+    procedure(ACount: Integer)
+    begin
+      FSetupCount := ACount;
+      Repaint;
+    end;
+  LModel.OnSkill :=
+    procedure(ASkill: Integer)
+    begin
+      FConfig.AiSkill := ASkill;
+      FConfig.SyncMoneyPerPoint;   // 점당 금액은 게임 레벨에 자동 연동
+      SaveSettings;
+      Repaint;
+    end;
+  LModel.OnAvatarClick :=
+    procedure
+    begin
+      // 아바타 피커를 연다 — 이 다이얼로그는 숨고, 보드가 피커를 그린다(선택 후 다시 뜸)
+      FSettingsDlg.Visible := False;
+      LoadAvatarPool;
+      if FAvatarPool.Count > 0 then
+      begin
+        FAvatarPicking := True;
+      end;
 
-  // 아바타: 현재 내 아바타를 정사각형 큰 카드로 표시(클릭 → 선택 팝업). 원본이 정사각형이라 카드도
-  // 정사각형이어야 안 찌그러진다. 캡션 '변경'으로 클릭 가능함을 알리고, 선택 스타일(금색)로 강조.
-  var LAvY := LCardY + CARD_ROW_H + CARD_GAP;
-  var LAvCardL := (LPanel.Left + LPanel.Right) / 2 - AV_CARD_SZ / 2;
-  FCfgAvatarRect := RectF(LAvCardL, LAvY, LAvCardL + AV_CARD_SZ, LAvY + AV_CARD_SZ);
+      Repaint;
+    end;
+  LModel.OnCancel :=
+    procedure
+    begin
+      FSettingsDlg.Visible := False;   // 타이틀로 복귀
+      Repaint;
+    end;
+  LModel.OnNext :=
+    procedure
+    begin
+      FSettingsDlg.Visible := False;
+      OpenMatchSetup(FSetupCount);
+    end;
 
-  var LMyAvBmp: TBitmap := nil;
-  if Assigned(FAvatarPool) and (FHumanAvatarIdx >= 0) and (FHumanAvatarIdx < FAvatarPool.Count) then
-  begin
-    LMyAvBmp := FAvatarPool[FHumanAvatarIdx];
-  end;
-
-  TSelectCardRender.Avatar(Canvas, FCfgAvatarRect, LMyAvBmp, '변경',
-    True, IsHot(FCfgAvatarRect), IsPressed(FCfgAvatarRect));
-
-  // 취소 · 다음(대전 설정으로 진행)
-  FBtnCfgCancel := DrawStdButton(RectF(Width / 2 - 150, LPanel.Bottom - 56, Width / 2 - 10, LPanel.Bottom - 16), '취소', dbkNeutral);
-  FBtnCfgNext := DrawStdButton(RectF(Width / 2 + 10, LPanel.Bottom - 56, Width / 2 + 150, LPanel.Bottom - 16), '다음', dbkPrimary);
+  FSettingsDlg.Present(LModel);
 end;
 
 // 아바타 인덱스 → 실명풍 이름(범위 밖이면 빈 문자열)
@@ -6992,23 +6985,19 @@ begin
   if FGame = nil then
   begin
     // 게임풍 타이틀 메뉴(대전 설정/설정/종료)
-    if FSettingsOpen then
-    begin
-      DrawSettings;
-      if FAvatarPicking then
-      begin
-        DrawAvatarPicker;
-      end;
-    end
-    else
     if FMatchSetupOpen then
     begin
       DrawMatchSetup;
     end
     else
     begin
+      // 타이틀 메뉴는 항상 배경으로 그린다(설정·프로그램정보 다이얼로그는 그 위 자식 컨트롤).
       DrawTitleMenu;
-      // 프로그램 정보는 자식 컨트롤(FInfoDlg)이 스스로 그린다 — 여기서 그리지 않는다.
+      // 아바타 피커만 보드-그림(설정 다이얼로그가 숨은 채 그 위에 뜬다)
+      if FAvatarPicking then
+      begin
+        DrawAvatarPicker;
+      end;
     end;
 
     Exit;
@@ -8513,25 +8502,8 @@ end;
 // 타이틀 화면(게임 없음) 클릭 디스패치: 프로그램정보 → 설정창 → 대전설정 다이얼로그 → 타이틀 버튼 순
 procedure TGostopBoard.MouseDownTitleArea(const LPoint: TPointF);
 begin
-  // 프로그램 정보 다이얼로그는 자식 컨트롤(FInfoDlg)이 클릭을 직접 받으므로 여기서 처리하지 않는다.
-  if FSettingsOpen then
-  begin
-    MouseDownSettingsDialog(LPoint);
-    Exit;
-  end;
-
-  if FMatchSetupOpen then
-  begin
-    MouseDownMatchSetupDialog(LPoint);
-    Exit;
-  end;
-
-  MouseDownTitleButtons(LPoint);
-end;
-
-procedure TGostopBoard.MouseDownSettingsDialog(const LPoint: TPointF);
-begin
-  // 아바타 선택 오버레이가 떠 있으면 그것부터
+  // 프로그램정보·설정 다이얼로그는 자식 컨트롤이 클릭을 직접 받는다. 아바타 피커(설정 다이얼로그가
+  // 숨은 채 보드가 그림)와 대전설정만 여기서 처리.
   if FAvatarPicking then
   begin
     for var K := 0 to FAvatarRects.Count - 1 do
@@ -8545,63 +8517,17 @@ begin
     end;
 
     FAvatarPicking := False;
-    Repaint;
+    ShowSettingsDialog;   // 설정으로 복귀(바뀐 아바타 반영)
     Exit;
   end;
 
-  // 인원수: 2/3/4 중 클릭한 칸으로 즉시 선택(3분할 버튼)
-  for var LSeg := 0 to 2 do
+  if FMatchSetupOpen then
   begin
-    if FCfgCountRects[LSeg].Contains(LPoint) then
-    begin
-      TGostopAudio.Instance.Play('ui_click');
-      FSetupCount := LSeg + 2;
-      Repaint;
-      Exit;
-    end;
-  end;
-
-  // AI 난이도: 하수/중수/고수/최고수 중 클릭한 칸으로 즉시 선택(4분할 버튼)
-  for var LSeg := 0 to 3 do
-  begin
-    if FCfgSkillRects[LSeg].Contains(LPoint) then
-    begin
-      TGostopAudio.Instance.Play('ui_click');
-      FConfig.AiSkill := AI_SKILL_VALUES[LSeg];
-      FConfig.SyncMoneyPerPoint;   // 점당 금액은 게임 레벨에 자동 연동
-      SaveSettings;
-      Repaint;
-      Exit;
-    end;
-  end;
-
-  // 아바타: 선택 오버레이 열기
-  if FCfgAvatarRect.Contains(LPoint) then
-  begin
-    TGostopAudio.Instance.Play('ui_click');
-    LoadAvatarPool;
-    if FAvatarPool.Count > 0 then
-    begin
-      FAvatarPicking := True;
-    end;
-
-    Repaint;
+    MouseDownMatchSetupDialog(LPoint);
     Exit;
   end;
 
-  if FBtnCfgCancel.Contains(LPoint) then
-  begin
-    TGostopAudio.Instance.Play('ui_click');
-    FSettingsOpen := False;
-    Repaint;
-  end
-  else
-  if FBtnCfgNext.Contains(LPoint) then
-  begin
-    TGostopAudio.Instance.Play('ui_click');
-    FSettingsOpen := False;
-    OpenMatchSetup(FSetupCount);
-  end;
+  MouseDownTitleButtons(LPoint);
 end;
 
 procedure TGostopBoard.MouseDownMatchSetupDialog(const LPoint: TPointF);
@@ -8686,8 +8612,7 @@ begin
       end;
     end;
 
-    FSettingsOpen := True;
-    Repaint;
+    ShowSettingsDialog;
   end
   else
   if FBtnMenuExit.Contains(LPoint) and Assigned(FOnExitRequest) then

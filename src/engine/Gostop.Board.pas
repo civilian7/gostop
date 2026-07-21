@@ -43,6 +43,7 @@ uses
   Gostop.Dialog.Shodang,
   Gostop.Dialog.GwangSale,
   Gostop.Dialog.Negotiation,
+  Gostop.Dialog.GameOver,
   Gostop.Canvas.Helper,
   Gostop.Fonts,
   Gostop.FourPlayer,
@@ -171,6 +172,7 @@ type
     FStatus: string;
     FResultRows: TArray<TResultRow>;
     FResultTitle: string;   // 정산창 제목(판돈 배수 안내, 없으면 빈 문자열) — FStakes 갱신 전 값 보존
+    FGameOverDlg: TGameOverDialog;   // 정산 다이얼로그(자기완결 컴포넌트) — 렌더만, 애니·플로우는 보드
     FAwaitingGoStop: Boolean;
 
     // 정산창 머니 카운트 애니메이션(승자=백단위로 차오름/패자=백단위로 깎임, 모든 줄이 동시 시작·종료)
@@ -212,7 +214,6 @@ type
     FShodangDlg: TShodangDialog;                 // 수락/거절 다이얼로그(자기완결 컴포넌트)
     FBtnJoin: TRectF;
     FBtnGiveUp: TRectF;
-    FBtnNext: TRectF;
     FGameOverTimer: TTimer;     // 게임종료 팝업 방치 시 자동진행 카운트다운
     FGameOverRemain: Single;    // 남은 시간(초, 실수 — 숫자 축소 애니메이션용)
     FGameOverSw: TStopwatch;    // 카운트다운을 벽시계로 재기 위한 스톱워치
@@ -288,7 +289,6 @@ type
     FPickTo: TPointF;
     FPickT: Single;
     FPickTimer: TTimer;
-    FBtnQuit: TRectF;             // 게임 종료 팝업 '중지' 버튼
 
     // 국진(9월 열끗) → 쌍피 이동 연출. 게임이 끝나고 정산이 국진을 쌍피로 해석했을 때,
     // 획득 더미 안에서 열끗 무리 → 피 무리로 카드가 옮겨가는 걸 보여준다.
@@ -561,7 +561,6 @@ type
     function SeatRegion(const APos: TSeatPos): TRectF;
     function CenterRegion: TRectF;
     procedure DrawNegotiation;
-    procedure DrawGameOver;
     procedure GameOverContinue;
     procedure GameOverQuit;
     procedure GameOverTimerTick(Sender: TObject);
@@ -593,7 +592,7 @@ type
     procedure MouseDownAvatarPicker(const LPoint: TPointF);
     procedure MouseDownSeonPick(const LPoint: TPointF);
     procedure MouseDownBonusDraw(const LPoint: TPointF);
-    procedure MouseDownGameOver(const LPoint: TPointF);
+    procedure ShowGameOverDialog;
     procedure MouseDownFlipChoice(const LPoint: TPointF);
     procedure MouseDownNegotiation(const LPoint: TPointF);
     procedure MouseDownFloorChoice(const LPoint: TPointF);
@@ -1221,6 +1220,11 @@ begin
   if Assigned(FNegDlg) then
   begin
     FNegDlg.Visible := False;
+  end;
+
+  if Assigned(FGameOverDlg) then
+  begin
+    FGameOverDlg.Visible := False;
   end;
 
   FHoverHand := -1;
@@ -3518,6 +3522,7 @@ begin
     TGostopAudio.Instance.Play('lose');
   end;
 
+  ShowGameOverDialog;   // 결과 줄·카운트다운·버튼은 자기완결 다이얼로그가 그린다(애니·플로우는 보드)
   Repaint;
 end;
 
@@ -6588,6 +6593,11 @@ end;
 procedure TGostopBoard.GameOverContinue;
 begin
   FGameOverTimer.Enabled := False;
+  if Assigned(FGameOverDlg) then
+  begin
+    FGameOverDlg.Visible := False;
+  end;
+
   var LStartPos := spTop;
   if FGame.Winner >= 0 then
   begin
@@ -6601,6 +6611,10 @@ end;
 procedure TGostopBoard.GameOverQuit;
 begin
   FGameOverTimer.Enabled := False;
+  if Assigned(FGameOverDlg) then
+  begin
+    FGameOverDlg.Visible := False;
+  end;
 
   // 휴먼이 오링된 채로 나가는 경우: 대기실(타이틀)로 나가며 시드머니를 리필하고
   // 그 사실을 개인 이력에 기록(오링된 상대 캐릭터 교체는 AI 쪽 별도 로직이라 여기선 상관없음)
@@ -6662,231 +6676,66 @@ begin
   end;
 end;
 
-procedure TGostopBoard.DrawGameOver;
+// 정산 다이얼로그를 결과 줄과 함께 띄운다(최초 1회 생성). 아바타는 보드가 미리 골라 주입하고,
+// 실시간 값(머니 진행·카운트다운·버튼 활성)은 TFunc 접근자로 넘겨 다이얼로그가 매 프레임 읽는다.
+// 애니·자동진행 플로우는 보드가 그대로 소유(타이머 Repaint 가 이 자식 다이얼로그도 다시 그린다).
+procedure TGostopBoard.ShowGameOverDialog;
 begin
-  var LN := Length(FResultRows);
-  if LN = 0 then
+  if Length(FResultRows) = 0 then
   begin
     Exit;
   end;
 
-  // 중앙 오버레이 패널 — 줄마다 큰 아바타(승자=환호/패자=슬픔) + 박 뱃지 + 우측정렬 금액 + 다음게임 버튼
-  // 패널 폭은 창 크기에 비례시키지 않고 콘텐츠에 맞춘 고정폭(다른 표준 다이얼로그들과 동일한 방식)
-  var LRowH := 108.0;
-  var LAvSize := 84.0;
-  var LWinAvSize := 100.0;
-  var LAmountColW := 130.0;   // 금액은 패널 오른쪽 끝이 아니라 이 고정폭 안에서만 우측 정렬(간격 과다 방지)
-  var LBtnH := 44.0;
-  var LTopPad := 20.0;
-  if FResultTitle <> '' then
+  if FGameOverDlg = nil then
   begin
-    LTopPad := 52.0;   // 판돈 배수 제목이 있으면 그만큼 위쪽 여백 확보
+    FGameOverDlg := TGameOverDialog.Create(Self);   // Owner=보드(자동 해제)
+    FGameOverDlg.Parent := Self;                     // Parent 먼저 지정
+    FGameOverDlg.Align := TAlignLayout.Contents;     // 보드 전체를 덮는 모달 오버레이
   end;
 
-  // 자동 진행 카운트다운 표시 영역 — 실제로 뜨기 전(머니 카운트 애니메이션 중)에도 항상 자리를
-  // 확보해 둔다. 그렇지 않으면 카운트다운이 나타나는 순간 패널 높이(=DrawStdDialog의 팝인 키)가
-  // 바뀌어 정산창이 닫혔다 다시 열리는 것처럼 튕겨 보인다.
-  var LCountdownH := 56.0;
-
-  // 승자 줄은 점수 내역 뱃지(광(3)·열끗(3)·청단(3) 등)가 있으면 한 줄 더 필요해 그만큼 늘림
-  const SCORE_ROW_EXTRA_H = 32.0;
-  var LRowHeights: TArray<Single>;
-  SetLength(LRowHeights, LN);
-  var LRowsTotalH := 0.0;
-  for var I := 0 to LN - 1 do
+  var LRows: TArray<TGameOverRow>;
+  SetLength(LRows, Length(FResultRows));
+  for var I := 0 to High(FResultRows) do
   begin
-    LRowHeights[I] := LRowH;
-    if FResultRows[I].IsWinner and (Length(FResultRows[I].ScoreParts) > 0) then
-    begin
-      LRowHeights[I] := LRowH + SCORE_ROW_EXTRA_H;
-    end;
-
-    LRowsTotalH := LRowsTotalH + LRowHeights[I];
+    var LSrc := FResultRows[I];
+    LRows[I].Avatar := ResultAvatarBitmap(LSrc.AvatarIdx, LSrc.IsWinner, Length(LSrc.Flags) > 0);
+    LRows[I].IsWinner := LSrc.IsWinner;
+    LRows[I].HasAmount := LSrc.HasAmount;
+    LRows[I].Amount := LSrc.Amount;
+    LRows[I].BalanceAfter := LSrc.BalanceAfter;
+    LRows[I].Flags := LSrc.Flags;
+    LRows[I].ScoreParts := LSrc.ScoreParts;
+    LRows[I].ScoreTotal := LSrc.ScoreTotal;
+    LRows[I].Text := LSrc.Text;
   end;
 
-  var LPanelH := LTopPad + LRowsTotalH + 18 + LCountdownH + LBtnH + 18;
-  var LPanel := DrawStdDialog(FResultTitle, 480.0, LPanelH);
-  var LCX := (LPanel.Left + LPanel.Right) / 2;
-  var LAmountR0 := LPanel.Right - 18 - LAmountColW;
-
-  var LY := LPanel.Top + LTopPad;
-  for var I := 0 to LN - 1 do
-  begin
-    var LRow := FResultRows[I];
-    var LAvSz := LAvSize;
-    if LRow.IsWinner then
-    begin
-      LAvSz := LWinAvSize;
-    end;
-
-    var LBmp := ResultAvatarBitmap(LRow.AvatarIdx, LRow.IsWinner, Length(LRow.Flags) > 0);
-    var LTextLeft := LPanel.Left + 18;
-    if Assigned(LBmp) then
-    begin
-      var LAvR := RectF(LPanel.Left + 16, LY + (LRowH - LAvSz) / 2,
-        LPanel.Left + 16 + LAvSz, LY + (LRowH - LAvSz) / 2 + LAvSz);
-      Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), LAvR, 1, False);
-      LTextLeft := LAvR.Right + 14;
-    end;
-
-    if LRow.HasAmount then
-    begin
-      // 박 뱃지(아바타 오른쪽, 둥근 라벨로 나열)
-      var LBadgeH := 24.0;
-      var LBadgeY := LY + (LRowH - LBadgeH) / 2;
-      var LBadgeX := LTextLeft;
-      TGostopFonts.Apply(Canvas, 13);
-      for var LFlag in LRow.Flags do
-      begin
-        var LBadgeW := Canvas.TextWidth(LFlag) + 20;
-        var LBadgeR := RectF(LBadgeX, LBadgeY, LBadgeX + LBadgeW, LBadgeY + LBadgeH);
-        Canvas.FillRound(LBadgeR, LBadgeH / 2, $FF8E2430);
-        DrawLabel(LBadgeR, LFlag, TAlphaColors.White, 13);
-        LBadgeX := LBadgeR.Right + 6;
-      end;
-
-      // 금액 두 줄(천단위 콤마, 고정폭 금액란 안에서 우측 정렬):
-      // 위=보유한 돈(크게, 강조), 아래=이번 판 손익(±N원만 — "이번 판" 접두어는 군더더기라 생략)
-      var LAmtR := RectF(LAmountR0 - 20, LY, LPanel.Right - 18, LY + LRowH);
-      var LBalR := RectF(LAmtR.Left, LAmtR.Top + LRowH * 0.10, LAmtR.Right, LAmtR.Top + LRowH * 0.58);
-      var LNetR := RectF(LAmtR.Left, LBalR.Bottom, LAmtR.Right, LAmtR.Bottom - LRowH * 0.06);
-
-      var LBalColor := TAlphaColors.White;
-      var LBalSize := 24.0;
-      if LRow.IsWinner then
-      begin
-        LBalColor := TAlphaColors.Gold;
-        LBalSize := 27.0;
-      end;
-
-      // 머니 카운트 애니메이션: 승자는 백단위로 차오르고 패자는 백단위로 깎여내려감(모든 줄이
-      // FMoneyCountT 하나를 공유해 동시에 시작·종료됨). 진행 중엔 100원 단위로 스냅해서 보여준다.
-      var LDisplayBalance := LRow.BalanceAfter;
-      if FMoneyCountT < 1 then
-      begin
-        var LEase := 1 - Power(1 - FMoneyCountT, 3);
-        var LBefore := LRow.BalanceAfter - LRow.Amount;
-        LDisplayBalance := LBefore + Round(LRow.Amount * LEase / 100) * 100;
-      end;
-
-      Canvas.Fill.Color := LBalColor;
-      TGostopFonts.Apply(Canvas, LBalSize);
-      Canvas.FillText(LBalR, Format('%s원', [FormatFloat('#,##0', LDisplayBalance)]),
-        False, 1, [], TTextAlign.Trailing, TTextAlign.Center);
-
-      var LNetSign := '';
-      if LRow.Amount > 0 then
-      begin
-        LNetSign := '+';
-      end;
-
-      var LNetColor := $FFB8C4B8;   // 무승부·0원 등 중립 톤
-      if LRow.Amount > 0 then
-      begin
-        LNetColor := $FF7ED9A0;     // 이득(연한 초록)
-      end
-      else
-      if LRow.Amount < 0 then
-      begin
-        LNetColor := $FFE08080;     // 손실(연한 빨강)
-      end;
-
-      Canvas.Fill.Color := LNetColor;
-      TGostopFonts.Apply(Canvas, 14);
-      Canvas.FillText(LNetR, Format('%s%s원', [LNetSign, FormatFloat('#,##0', LRow.Amount)]),
-        False, 1, [], TTextAlign.Trailing, TTextAlign.Center);
-    end
-    else
-    begin
-      var LTextColor := TAlphaColors.White;
-      var LFontSize := 17.0;
-      if LRow.IsWinner then
-      begin
-        LTextColor := TAlphaColors.Gold;
-        LFontSize := 21.0;
-      end;
-
-      DrawLabel(RectF(LTextLeft, LY, LPanel.Right - 18, LY + LRowH), LRow.Text, LTextColor, LFontSize);
-    end;
-
-    // 승자 점수 내역(광(3)·열끗(3)·청단(3) 등) — 박 뱃지와 같은 둥근 뱃지 스타일, 아바타 아래 별도 줄
-    if LRow.IsWinner and (Length(LRow.ScoreParts) > 0) then
-    begin
-      var LScoreBadgeH := 24.0;
-      var LScoreBadgeY := LY + LRowH + (SCORE_ROW_EXTRA_H - LScoreBadgeH) / 2;
-      var LScoreBadgeX := LPanel.Left + 18;
-      TGostopFonts.Apply(Canvas, 13);
-      for var LPart in LRow.ScoreParts do
-      begin
-        var LScoreBadgeW := Canvas.TextWidth(LPart) + 20;
-        var LScoreBadgeR := RectF(LScoreBadgeX, LScoreBadgeY, LScoreBadgeX + LScoreBadgeW, LScoreBadgeY + LScoreBadgeH);
-        Canvas.FillRound(LScoreBadgeR, LScoreBadgeH / 2, $FF2E5F4E);
-        Canvas.StrokeRound(LScoreBadgeR, LScoreBadgeH / 2, $FF5FA98A, 1);
-        DrawLabel(LScoreBadgeR, LPart, TAlphaColors.White, 13);
-        LScoreBadgeX := LScoreBadgeR.Right + 6;
-      end;
-
-      // 합계 점수(고·박 적용 전) — 다른 뱃지들과 구분되도록 금색으로 강조
-      var LTotalText := Format('합계(%d)', [LRow.ScoreTotal]);
-      var LTotalBadgeW := Canvas.TextWidth(LTotalText) + 20;
-      var LTotalBadgeR := RectF(LScoreBadgeX, LScoreBadgeY, LScoreBadgeX + LTotalBadgeW, LScoreBadgeY + LScoreBadgeH);
-      Canvas.FillRound(LTotalBadgeR, LScoreBadgeH / 2, $FF6B5610);
-      Canvas.StrokeRound(LTotalBadgeR, LScoreBadgeH / 2, TAlphaColors.Gold, 1);
-      DrawLabel(LTotalBadgeR, LTotalText, TAlphaColors.Gold, 13);
-    end;
-
-    LY := LY + LRowHeights[I];
-  end;
-
-  // 자동 진행 카운트다운(가운데, 숫자가 크게 나타났다가 작아지는 애니메이션 — 매초 반복)
-  if FGameOverTimer.Enabled then
-  begin
-    var LCdCY := LY + LCountdownH / 2 - 6;
-    var LSecLeft := Trunc(FGameOverRemain) + 1;
-    if LSecLeft < 1 then
-    begin
-      LSecLeft := 1;
-    end;
-
-    var LLocalT := Frac(FGameOverRemain);
-    if FGameOverRemain <= 0 then
-    begin
-      LLocalT := 0;
-    end;
-
-    var LScale := 1.0 + LLocalT * 0.9;   // 매초 시작(1.9배 큼) → 그 초가 끝날수록(1.0배) 작아짐
-    var LBaseR := 20.0;
-    var LR := LBaseR * LScale;
-    var LCircle := RectF(LCX - LR, LCdCY - LR, LCX + LR, LCdCY + LR);
-    Canvas.FillCircle(LCircle, $302E7D32);
-    Canvas.StrokeCircle(LCircle, $FFFFD54A, 2);
-    DrawLabel(LCircle, IntToStr(LSecLeft), TAlphaColors.White, 16 * LScale);
-    DrawLabel(RectF(LCX - 100, LCdCY + LBaseR + 6, LCX + 100, LCdCY + LBaseR + 22), '자동 진행까지', $FF8A968A, 11);
-  end;
-
-  LY := LY + LCountdownH;   // 카운트다운이 아직 안 떠도 자리는 항상 확보(패널 크기 고정)
-
-  // 버튼: 내가 파산했으면 타이틀로 복귀만, 아니면 새게임(이어가기)/중지 2개
-  // 머니 카운트 애니메이션이 끝나기 전(FGameOverReady=False)엔 비활성 표시하고 클릭도 무시한다
-  // (MouseDownGameOver에서 재확인)
-  var LBtnW := 140.0;
-  var LGap := 16.0;
   var LHumanBroke := (not FSpectator) and (FHumanIndex >= 0) and (FMoney[spBottom] <= 0);
-  if LHumanBroke then
-  begin
-    FBtnNext := TRectF.Empty;
-    FBtnQuit := DrawStdButton(RectF(LCX - LBtnW / 2, LY + 12, LCX + LBtnW / 2, LY + 12 + LBtnH), '타이틀로',
-      dbkDanger, FGameOverReady);
-  end
-  else
-  begin
-    FBtnNext := DrawStdButton(RectF(LCX - LBtnW - LGap / 2, LY + 12, LCX - LGap / 2, LY + 12 + LBtnH), '다음 판',
-      dbkPrimary, FGameOverReady);
-    FBtnQuit := DrawStdButton(RectF(LCX + LGap / 2, LY + 12, LCX + LGap / 2 + LBtnW, LY + 12 + LBtnH), '그만하기',
-      dbkDanger, FGameOverReady);
-  end;
 
-  EndStdDialog;
+  FGameOverDlg.Present(FResultTitle, LRows, LHumanBroke,
+    function: Single
+    begin
+      Result := FMoneyCountT;
+    end,
+    function: Boolean
+    begin
+      Result := FGameOverTimer.Enabled;
+    end,
+    function: Single
+    begin
+      Result := FGameOverRemain;
+    end,
+    function: Boolean
+    begin
+      Result := FGameOverReady;
+    end,
+    procedure
+    begin
+      GameOverContinue;
+    end,
+    procedure
+    begin
+      GameOverQuit;
+    end);
 end;
 
 // 고·스톱 다이얼로그를 현재 점수로 띄운다(최초 1회 생성해 보드 자식으로 얹음). 결과는 HumanGo/HumanStop
@@ -7378,11 +7227,7 @@ begin
   end
   else
   begin
-    // 연출이 아직 남아 정산창을 미루는 중(FGameOverPending)이면 그리지 않는다
-    if (FGame.Phase = gpFinished) and (not FGameOverPending) and (not FReplacing) then
-    begin
-      DrawGameOver;
-    end;
+    // 정산창은 자식 컨트롤(FGameOverDlg)이 스스로 그린다(표시는 MaybeBeginGameOver, 숨김은 continue/quit).
 
     // 고·스톱 프롬프트는 자식 컨트롤(FGoStopDlg)이 스스로 그린다(표시/숨김은 AfterAction 이 동기화).
 
@@ -8751,12 +8596,7 @@ begin
     Exit;
   end;
 
-  // 게임 종료: 새게임(이전 승자가 선) / 중지(매치 종료)
-  if (FGame <> nil) and (FGame.Phase = gpFinished) then
-  begin
-    MouseDownGameOver(LPoint);
-    Exit;
-  end;
+  // 게임 종료 정산창의 버튼 클릭은 자식 컨트롤(FGameOverDlg)이 직접 받으므로 여기서 처리하지 않는다.
 
   // 고/스톱 대기는 자식 컨트롤(FGoStopDlg)이 클릭을 직접 받으므로 여기서 처리하지 않는다.
 
@@ -9113,27 +8953,6 @@ begin
         Break;
       end;
     end;
-  end;
-end;
-
-procedure TGostopBoard.MouseDownGameOver(const LPoint: TPointF);
-begin
-  // 머니 카운트 애니메이션이 끝나기 전엔 버튼이 비활성 표시이므로 클릭도 무시
-  if not FGameOverReady then
-  begin
-    Exit;
-  end;
-
-  if FBtnNext.Contains(LPoint) then
-  begin
-    TGostopAudio.Instance.Play('ui_click');
-    GameOverContinue;
-  end
-  else
-  if FBtnQuit.Contains(LPoint) then
-  begin
-    TGostopAudio.Instance.Play('ui_click');
-    GameOverQuit;
   end;
 end;
 

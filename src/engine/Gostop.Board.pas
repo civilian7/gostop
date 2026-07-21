@@ -35,6 +35,7 @@ uses
   Gostop.Board.Animation,
   Gostop.Board.CardRender,
   Gostop.Board.Widgets,
+  Gostop.Board.OverlayRender,
   Gostop.Canvas.Helper,
   Gostop.Fonts,
   Gostop.FourPlayer,
@@ -3747,11 +3748,7 @@ end;
 // 회색 반투명으로 흐릿하게 깔아 카드를 가리지 않게 하고, 숫자만 또렷하게 얹는다.
 procedure TGostopBoard.DrawCapturedCount(const ACenterX, ACenterY: Single; const ACount: Integer);
 begin
-  var LS := CapturedBadgeSize;
-  var LR := RectF(ACenterX - LS.Width / 2, ACenterY - LS.Height / 2,
-    ACenterX + LS.Width / 2, ACenterY + LS.Height / 2);
-  Canvas.FillCircle(LR, $99787878);
-  DrawLabel(LR, ACount.ToString, $FFFFF4D0, LS.Height * 0.56, True);
+  TOverlayRender.CapturedCount(Canvas, ACenterX, ACenterY, ACount, CapturedBadgeSize);
 end;
 
 // 획득 패를 하나의 촘촘한 가로 부채로 그린다(광→열끗→띠→피 정렬, 마지막 장이 온전히 보임).
@@ -7586,9 +7583,7 @@ end;
 
 procedure TGostopBoard.DrawPauseOverlay;
 begin
-  Canvas.FillRound(LocalRect, 0, $A0000000);
-  DrawLabel(RectF(0, Height * 0.44, Width, Height * 0.52), '일시정지', TAlphaColors.Gold, 40);
-  DrawLabel(RectF(0, Height * 0.52, Width, Height * 0.57), '스페이스바 또는 하단 재개 버튼을 눌러 재개', TAlphaColors.White, 18);
+  TOverlayRender.PauseOverlay(Canvas, LocalRect);
 end;
 
 // 스페이스바 등 외부 단축키에서 호출 — 일시정지 상태를 켜고 끈다
@@ -7842,6 +7837,7 @@ begin
   Repaint;
 end;
 
+// 렌더 본문은 Gostop.Board.OverlayRender 로 분리됨. 텍스트·중앙영역·흔들림오프셋만 뽑아 위임.
 procedure TGostopBoard.DrawEffectBanner;
 begin
   if FEffectText = '' then
@@ -7849,20 +7845,7 @@ begin
     Exit;
   end;
 
-  // 바닥패 중앙에 텍스트 폭에 맞춰(고정폭 아님) 표시 — 예전엔 화면폭의 64%를 항상 차지하며
-  // P1(위) 자리 근처에 떠서, 짧은 문구("뻑!" 등)일 때 불필요하게 넓고 위치도 어색했음
-  var LCen := CenterRegion;
-  // 흔들기 연출 중이라도 배너는 제자리에 둔다(글자가 같이 떨리면 읽기 어렵다)
-  var LMidX := (LCen.Left + LCen.Right) / 2 - ShakeOffsetX;
-  var LMidY := (LCen.Top + LCen.Bottom) / 2;
-
-  TGostopFonts.Apply(Canvas, 42);
-  var LRectW := Canvas.TextWidth(FEffectText) + 56;
-  var LRectH := 78.0;
-  var LRect := RectF(LMidX - LRectW / 2, LMidY - LRectH / 2, LMidX + LRectW / 2, LMidY + LRectH / 2);
-  Canvas.FillRound(LRect, 16, $B0201008);
-  Canvas.StrokeRound(LRect, 16, $FFFFD54A, 2);
-  DrawLabel(LRect, FEffectText, $FFFFE14A, 42);
+  TOverlayRender.EffectBanner(Canvas, FEffectText, CenterRegion, ShakeOffsetX);
 end;
 
 // 나가리(무승부) 연출을 시작한다. 모든 좌석의 먹은 패를 스냅샷으로 떠, 각 좌석 아바타에서
@@ -8041,6 +8024,7 @@ end;
 // 좌석 아바타 옆, 카드 영역과 겹치지 않는 "빈" 쪽에 대사 말풍선 + 꼬리를 그린다.
 // PlayerPanelRect 배치상 손패는 항상 아바타의 특정 한쪽에 붙어 있으므로(P1=왼쪽·P3=오른쪽·
 // P2=아래·P4=위), 그 반대쪽이 상대적으로 비어 있는 방향이다.
+// 렌더 본문은 Gostop.Board.OverlayRender 로 분리됨. 텍스트·아바타rect·방향만 뽑아 위임.
 procedure TGostopBoard.DrawSpeechBubble;
 begin
   if FSpeechText = '' then
@@ -8048,54 +8032,14 @@ begin
     Exit;
   end;
 
-  var LAvR := SeatAvatarRect(FSpeechSeat);
-  var LAvCx := (LAvR.Left + LAvR.Right) / 2;
-  var LAvCy := (LAvR.Top + LAvR.Bottom) / 2;
-
-  var LDX: Single;
-  var LDY := 0.0;   // 방향은 좌우 고정이라 세로 성분은 항상 0
-  // P1(spTop)·P2(spLeft)는 오른쪽, P3(spBottom)·P4(spRight)는 왼쪽으로 고정 지정
-  case FSpeechSeat of
-    spTop, spLeft:
-      begin
-        LDX := 1;
-      end;
-  else
-    begin
-      LDX := -1;     // spBottom, spRight
-    end;
+  // P1(spTop)·P2(spLeft)는 오른쪽(+1), P3(spBottom)·P4(spRight)는 왼쪽(-1)으로 고정
+  var LDirX: Single := -1;
+  if FSpeechSeat in [spTop, spLeft] then
+  begin
+    LDirX := 1;
   end;
 
-  TGostopFonts.Apply(Canvas, 14);
-  var LTextW := EnsureRange(Canvas.TextWidth(FSpeechText) + 30, 70, 200);
-  var LTextH := 40.0;
-
-  var LOffset := LAvR.Width / 2 + Max(LTextW, LTextH) / 2 + 14;
-  var LBx := LAvCx + LDX * LOffset;
-  var LBy := LAvCy + LDY * LOffset;
-  var LR := RectF(LBx - LTextW / 2, LBy - LTextH / 2, LBx + LTextW / 2, LBy + LTextH / 2);
-
-  const BUBBLE_FILL = $F0F5EEDD;
-  Canvas.FillRound(LR, 12, BUBBLE_FILL);
-  Canvas.StrokeRound(LR, 12, $FF8A7048, 1.5);
-
-  // 말꼬리: 말풍선에서 아바타를 향하는 작은 삼각형
-  var LTailW := 14.0;
-  var LTailLen := 12.0;
-  var LTailBaseCx := LBx - LDX * (LTextW / 2 - 2);
-  var LTailBaseCy := LBy - LDY * (LTextH / 2 - 2);
-  var LPerpX := -LDY;
-  var LPerpY := LDX;
-  var LTailTip := PointF(LTailBaseCx - LDX * LTailLen, LTailBaseCy - LDY * LTailLen);
-  var LTailP1 := PointF(LTailBaseCx + LPerpX * LTailW / 2, LTailBaseCy + LPerpY * LTailW / 2);
-  var LTailP2 := PointF(LTailBaseCx - LPerpX * LTailW / 2, LTailBaseCy - LPerpY * LTailW / 2);
-  Canvas.Fill.Kind := TBrushKind.Solid;
-  Canvas.Fill.Color := BUBBLE_FILL;
-  Canvas.FillPolygon([LTailTip, LTailP1, LTailP2], 1);
-
-  Canvas.Fill.Color := $FF3A2A18;
-  TGostopFonts.Apply(Canvas, 14);
-  Canvas.FillText(LR, FSpeechText, True, 1, [], TTextAlign.Center, TTextAlign.Center);
+  TOverlayRender.SpeechBubble(Canvas, FSpeechText, SeatAvatarRect(FSpeechSeat), LDirX);
 end;
 
 procedure TGostopBoard.PlayTurnSound;

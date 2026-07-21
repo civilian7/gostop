@@ -23,6 +23,7 @@ uses
   Gostop.SaveGame in 'engine\Gostop.SaveGame.pas',
   Gostop.Board.Settlement in 'engine\Gostop.Board.Settlement.pas',
   Gostop.Board.Animation in 'engine\Gostop.Board.Animation.pas',
+  Gostop.Board.Avatar in 'engine\Gostop.Board.Avatar.pas',
   Gostop.Board.CardRender in 'engine\Gostop.Board.CardRender.pas',
   Gostop.Board.Widgets in 'engine\Gostop.Board.Widgets.pas',
   Gostop.Board.OverlayRender in 'engine\Gostop.Board.OverlayRender.pas',

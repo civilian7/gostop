@@ -33,6 +33,7 @@ uses
   Gostop.Settings,
   Gostop.Board.Layout,
   Gostop.Board.Animation,
+  Gostop.Board.Avatar,
   Gostop.Board.CardRender,
   Gostop.Board.Widgets,
   Gostop.Board.OverlayRender,
@@ -350,8 +351,9 @@ type
     FEffectGap: Boolean;
     FTurnSpecialKind: TPlayEventKind;   // 이번 턴 대표 특수 이벤트(먹기 단계에 재생)
     FTurnSpecialPri: Integer;
-    FAngrySeats: set of TSeatPos;       // 피를 뺏겨 화난 표정으로 보일 좌석(3초 후 원복)
-    FAngryTimer: TTimer;
+    // 좌석별 자기완결 아바타 액터(표정 상태·전환 애니를 스스로 관리). 화난 표정 등은
+    // FAvatarActors[pos].HoldExpression 명령만 하면 지정시간 뒤 알아서 평상시로 돌아온다.
+    FAvatarActors: array [TSeatPos] of TAvatarActor;
 
     // 캐릭터 말풍선(턴 시작마다 일정 확률로 그 좌석 캐릭터의 대사를 잠깐 띄움)
     FSpeechText: string;
@@ -465,7 +467,6 @@ type
     procedure SpeechTimerTick(Sender: TObject);
     procedure DrawSpeechBubble;
     procedure EffectTimerTick(Sender: TObject);
-    procedure AngryTimerTick(Sender: TObject);
     procedure CollectTurnEffects;
     procedure QueueEffect(const AText: string);
     procedure ShowNextQueuedEffect;
@@ -980,10 +981,6 @@ begin
   FSpeechTimer.Enabled := False;
   FSpeechTimer.OnTimer := SpeechTimerTick;
   FLastSpeechGameIndex := -1;
-  FAngryTimer := TTimer.Create(Self);
-  FAngryTimer.Interval := 3000;
-  FAngryTimer.Enabled := False;
-  FAngryTimer.OnTimer := AngryTimerTick;
   FSeonTimer := TTimer.Create(Self);
   FSeonTimer.Interval := 600;
   FSeonTimer.Enabled := False;
@@ -1032,6 +1029,10 @@ begin
   FShakeAnim := nil;
 
   FAnimMgr := TAnimationManager.Create(Self);   // Self 를 IAnimationHost 로 전달
+  for var LP := Low(TSeatPos) to High(TSeatPos) do
+  begin
+    FAvatarActors[LP] := TAvatarActor.Create(FAnimMgr);   // 매니저 생성 뒤에 주입
+  end;
   FNagariAnim := nil;
   FFoldTimer := TTimer.Create(Self);
   FFoldTimer.Interval := 16;    // ~60fps
@@ -1078,6 +1079,11 @@ begin
   FreeAndNil(FHandRects);
   FreeAndNil(FGiriRects);
   FreeAndNil(FGiriDeck);
+  for var LP := Low(TSeatPos) to High(TSeatPos) do
+  begin
+    FAvatarActors[LP].Free;
+  end;
+
   FNagariAnim := nil;         // 매니저가 소유(OwnsObjects) — 아래 매니저 해제 시 함께 정리
   FreeAndNil(FAnimMgr);
   inherited Destroy;
@@ -1115,7 +1121,14 @@ begin
   begin
     FEffectTimer.Enabled := False;
   end;
-  FAngrySeats := [];
+
+  for var LP := Low(TSeatPos) to High(TSeatPos) do
+  begin
+    if Assigned(FAvatarActors[LP]) then
+    begin
+      FAvatarActors[LP].Reset;   // 표정 평상시로(홀드 애니는 아래 FAnimMgr.Clear 가 제거)
+    end;
+  end;
   FSpeechText := '';
   if Assigned(FSpeechTimer) then
   begin
@@ -6034,13 +6047,13 @@ begin
   var LAv := SeatAvatarRect(APos);
   var LInfo := RectF(LBox.Left + 8, LAv.Bottom + 6, LBox.Right - 8, LBox.Bottom - 4);
 
-  // 아바타 그리기 — 피 뺏긴 직후 3초는 화남 표정(FAngrySeats, 없으면 평상시로 폴백)
+  // 아바타 그리기 — 피 뺏긴 직후 3초는 화남 표정(아바타 액터가 관리, 없으면 평상시로 폴백)
   var LAvDrawn := False;
   var LAvIdx := FSeatAvatar[APos];
   if Assigned(FAvatarPool) and (LAvIdx >= 0) and (LAvIdx < FAvatarPool.Count) then
   begin
     var LBmp: TBitmap := nil;
-    if (APos in FAngrySeats) and Assigned(FAvatarAngryPool) and (LAvIdx < FAvatarAngryPool.Count) then
+    if (FAvatarActors[APos].Expression = aeAngry) and Assigned(FAvatarAngryPool) and (LAvIdx < FAvatarAngryPool.Count) then
     begin
       LBmp := FAvatarAngryPool[LAvIdx];
     end;
@@ -7733,21 +7746,14 @@ begin
     end;
   end;
 
-  // 피 뺏김: 뺏긴 좌석을 3초간 화난 표정으로(자뻑·뻑 회수·3장 쓸어먹기 등 모든 pekPiSteal 공통)
-  var LGotAngry := False;
+  // 피 뺏김: 뺏긴 좌석을 3초간 화난 표정으로(자뻑·뻑 회수·3장 쓸어먹기 등 모든 pekPiSteal 공통).
+  // 명령만 하면 아바타 액터가 좌석별로 3초 뒤 알아서 평상시로 되돌린다(전역 타이머 없이 자기완결).
   for var LEvt in FTurnEvents do
   begin
     if (LEvt.Kind = pekPiSteal) and (LEvt.VictimIndex >= 0) then
     begin
-      Include(FAngrySeats, PhysicalPos(LEvt.VictimIndex));
-      LGotAngry := True;
+      FAvatarActors[PhysicalPos(LEvt.VictimIndex)].HoldExpression(aeAngry, 3.0);
     end;
-  end;
-
-  if LGotAngry then
-  begin
-    FAngryTimer.Enabled := False;
-    FAngryTimer.Enabled := True;   // 표시 시간 리셋
   end;
 end;
 
@@ -7825,17 +7831,6 @@ begin
   Repaint;
 end;
 
-procedure TGostopBoard.AngryTimerTick(Sender: TObject);
-begin
-  if FPaused then
-  begin
-    Exit;
-  end;
-
-  FAngryTimer.Enabled := False;
-  FAngrySeats := [];
-  Repaint;
-end;
 
 // 렌더 본문은 Gostop.Board.OverlayRender 로 분리됨. 텍스트·중앙영역·흔들림오프셋만 뽑아 위임.
 procedure TGostopBoard.DrawEffectBanner;

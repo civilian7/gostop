@@ -41,6 +41,7 @@ uses
   Gostop.Dialog.ProgramInfo,
   Gostop.Dialog.GoStop,
   Gostop.Dialog.Shodang,
+  Gostop.Dialog.GwangSale,
   Gostop.Canvas.Helper,
   Gostop.Fonts,
   Gostop.FourPlayer,
@@ -237,10 +238,12 @@ type
     FFoldPendingCount: Integer;   // 협상에서 정해진 빠지는 자리의 손패 장수(연출 대기분)
     FFoldPendingPos: TSeatPos;
 
-    // 광 판매 발표 오버레이(협상 후 광을 판 경우: 판 광 패 + 광값 이동 표시)
+    // 광 판매 발표(협상 후 광을 판 경우: 판 광 패 발표) — 렌더/클릭은 자기완결 다이얼로그(FGwangDlg),
+    // FGwangShow 는 발표 진행 중 게이팅 플래그(입력·busy 가드), FGwangTimer 는 자동진행 유지.
     FGwangShow: Boolean;
     FGwangCards: TArray<THwatuCard>;   // 판매자가 판 광 패
     FGwangTimer: TTimer;               // 발표 후 자동 진행
+    FGwangDlg: TGwangSaleDialog;       // 발표 다이얼로그(자기완결 컴포넌트)
 
     // 오링(파산) 좌석 신규 플레이어 교체 연출(최대 동시 2명, 화면 밖에서 등장→빈자리로).
     // 진행·렌더는 TSeatEntranceAnimation(애니 매니저)이 맡고, 여기서는 입력·렌더 게이팅만 한다.
@@ -398,7 +401,7 @@ type
     procedure FoldSitOutThenPlay;
     procedure FoldTimerTick(Sender: TObject);
     procedure DrawSitOutFold;
-    procedure DrawGwangSale;
+    procedure ShowGwangSaleDialog;
     procedure GwangTimerTick(Sender: TObject);
     procedure FinishGwangSale;
     function  ActivePhysicalSeats: TArray<TSeatPos>;
@@ -1204,6 +1207,11 @@ begin
   if Assigned(FShodangDlg) then
   begin
     FShodangDlg.Visible := False;
+  end;
+
+  if Assigned(FGwangDlg) then
+  begin
+    FGwangDlg.Visible := False;
   end;
 
   FHoverHand := -1;
@@ -2701,9 +2709,7 @@ begin
   begin
     FGwangShow := True;
     FGwangTimer.Enabled := True;   // 발표 후 자동으로 손패 합류 연출 → StartPlay
-    FNegAnimPhase := 0;
-    FNegAnimTimer.Enabled := True;   // 발표 광 패 좌우 흔들림
-    Repaint;
+    ShowGwangSaleDialog;           // 흔들림은 다이얼로그가 자체 타이머로 구동
   end
   else
   begin
@@ -2752,13 +2758,17 @@ end;
 procedure TGostopBoard.FinishGwangSale;
 begin
   FGwangTimer.Enabled := False;
-  FNegAnimTimer.Enabled := False;   // 발표 흔들림 정지
   if not FGwangShow then
   begin
     Exit;
   end;
 
   FGwangShow := False;
+  if Assigned(FGwangDlg) then
+  begin
+    FGwangDlg.Visible := False;   // 다이얼로그 숨김(흔들림 타이머는 스스로 멈춘다)
+  end;
+
   FoldSitOutThenPlay;   // 판 광 패 발표가 끝났으니 그 자리 손패를 뒷패로 합치는 연출
 end;
 
@@ -2890,51 +2900,32 @@ begin
 end;
 
 // 광 판매 발표 오버레이: 판 광 패 + "지불자들 → 판매자: 광값" 이동 표시(닉네임 사용)
-procedure TGostopBoard.DrawGwangSale;
+// 광 팔기 발표 다이얼로그를 판매자 아바타·판 광 패와 함께 띄운다(최초 1회 생성). 클릭 스킵은
+// FinishGwangSale 콜백으로, 자동진행은 FGwangTimer 로, 숨김은 FinishGwangSale 에서 처리한다.
+procedure TGostopBoard.ShowGwangSaleDialog;
 begin
-  var LSeller := SeatLabel(FGwang.SellerSeat);
+  if FGwangDlg = nil then
+  begin
+    FGwangDlg := TGwangSaleDialog.Create(Self);   // Owner=보드(자동 해제)
+    FGwangDlg.Parent := Self;                      // Parent 먼저 지정
+    FGwangDlg.Align := TAlignLayout.Contents;      // 보드 전체를 덮는 모달 오버레이
+  end;
 
-  // 표준 다이얼로그(딤 + 중앙 패널 + 제목) — 닉네임은 아바타 아래에 표시하므로 제목엔 되풀이하지 않음
-  var LPanel := DrawStdDialog('광 팔기!', Max(Width * 0.5, 460.0), 260.0);
-  var LBodyCy := (LPanel.Top + LPanel.Bottom) / 2 + 10;   // 제목 영역만큼 살짝 아래로
-
-  // 좌측: 판매자 아바타(크게) + 아래에 닉네임
-  var LAvSz := 130.0;
-  var LAvColW := Max(LAvSz, 150.0);
-  var LAvCx := LPanel.Left + 24 + LAvColW / 2;
   var LSellerPos := TSeatPos((Ord(FNextStartPos) + FGwang.SellerSeat) mod 4);
-  var LAvBmp := ResultAvatarBitmap(FSeatAvatar[LSellerPos], True, False);
-  var LAvR := RectF(LAvCx - LAvSz / 2, LBodyCy - LAvSz / 2 - 12, LAvCx + LAvSz / 2, LBodyCy + LAvSz / 2 - 12);
-  if Assigned(LAvBmp) then
+  var LAvBmp := ResultAvatarBitmap(FSeatAvatar[LSellerPos], True, False);   // 환호 포즈
+
+  var LAssets: TArray<string> := nil;
+  for var I := 0 to High(FGwangCards) do
   begin
-    Canvas.DrawBitmap(LAvBmp, RectF(0, 0, LAvBmp.Width, LAvBmp.Height), LAvR, 1, False);
+    LAssets := LAssets + [FGwangCards[I].AssetId];
   end;
 
-  DrawLabel(RectF(LAvCx - LAvColW / 2, LAvR.Bottom + 8, LAvCx + LAvColW / 2, LAvR.Bottom + 34), LSeller, TAlphaColors.Gold, 18);
-
-  // 우측: 판 광 패(가로 나열, 아바타 열을 뺀 나머지 공간에 가운데 정렬)
-  var CS := CardSize;
-  var LCW := CS.Width * 0.8;
-  var LCH := CS.Height * 0.8;
-  var LN := Length(FGwangCards);
-  if LN > 0 then
-  begin
-    var LCardAreaL := LPanel.Left + 24 + LAvColW + 20;
-    var LCardAreaR := LPanel.Right - 24;
-    var LTotW := LCW + (LN - 1) * LCW * 1.12;
-    var LStartX := (LCardAreaL + LCardAreaR) / 2 - LTotW / 2;
-    for var I := 0 to LN - 1 do
+  var LCS := CardSize;
+  FGwangDlg.Present(SeatLabel(FGwang.SellerSeat), LAvBmp, LAssets, LCS.Width, LCS.Height, FImages,
+    procedure
     begin
-      var LCX := LStartX + I * LCW * 1.12;
-      // 좌우로 흔드는 효과(카드마다 위상 어긋남)
-      var LPh := FNegAnimPhase + I * 0.9;
-      var LDX := Sin(LPh) * LCW * 0.16;
-      var LAng := Sin(LPh) * 3.0;
-      DrawCardRotated(LCX + LCW / 2 + LDX, LBodyCy, LCW, LCH, LAng, FGwangCards[I].AssetId, False);
-    end;
-  end;
-
-  EndStdDialog;
+      FinishGwangSale;
+    end);
 end;
 
 procedure TGostopBoard.StartPlay;
@@ -7263,10 +7254,9 @@ begin
     Exit;
   end;
 
-  // 광 판매 발표
+  // 광 판매 발표는 자식 컨트롤(FGwangDlg)이 그린다 — 여기선 뒤 게임 렌더를 멈춘다(딤은 다이얼로그가 깐다).
   if FGwangShow then
   begin
-    DrawGwangSale;
     Exit;
   end;
 
@@ -8631,12 +8621,7 @@ begin
 
   // AI 쇼당 수락/거절은 자식 컨트롤(FShodangDlg)이 클릭을 직접 받으므로 여기서 처리하지 않는다.
 
-  // 광 판매 발표: 아무 곳이나 클릭하면 즉시 진행(스킵)
-  if FGwangShow then
-  begin
-    FinishGwangSale;
-    Exit;
-  end;
+  // 광 판매 발표의 클릭 스킵은 자식 컨트롤(FGwangDlg)이 직접 받으므로 여기서 처리하지 않는다.
 
   // 우하단 크레딧 → GitHub 저장소 열기
   if FCreditRect.Contains(LPoint) then

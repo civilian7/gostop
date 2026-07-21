@@ -33,6 +33,7 @@ uses
   Gostop.Dialog.ProgramInfo in 'engine\Gostop.Dialog.ProgramInfo.pas',
   Gostop.Dialog.GoStop in 'engine\Gostop.Dialog.GoStop.pas',
   Gostop.Dialog.Shodang in 'engine\Gostop.Dialog.Shodang.pas',
+  Gostop.Dialog.GwangSale in 'engine\Gostop.Dialog.GwangSale.pas',
   Gostop.Board in 'engine\Gostop.Board.pas',
   Main in 'Main.pas' {frmMain};
 

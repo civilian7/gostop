@@ -29,6 +29,9 @@ type
     /// <summary>뒷면(ABackColor 색)을 그린다. 실패 시 붉은 상자.</summary>
     class procedure Back(const ACanvas: TCanvas; const ARect: TRectF;
       const AImages: TCardImageCache; const ABackColor: string); static;
+    /// <summary>중심 좌표·각도로 앞면을 회전시켜 그린다(각 0이면 회전 없이 Front). 매트릭스는 원복된다.</summary>
+    class procedure FrontRotated(const ACanvas: TCanvas; const ACenterX, ACenterY, ACardW, ACardH, AAngle: Single;
+      const AImages: TCardImageCache; const AAssetId: string); static;
   end;
 
   /// <summary>
@@ -53,6 +56,7 @@ implementation
 {$REGION 'uses'}
 uses
   System.Math,
+  System.Math.Vectors,
   Gostop.Canvas.Helper,
   Gostop.Palette;
 {$ENDREGION}
@@ -78,6 +82,27 @@ begin
     ACanvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), ARect, 1, False);
   except
     ACanvas.FillRound(ARect, 3, TAlphaColors.Darkred);
+  end;
+end;
+
+class procedure TCardFaceRender.FrontRotated(const ACanvas: TCanvas; const ACenterX, ACenterY, ACardW, ACardH, AAngle: Single;
+  const AImages: TCardImageCache; const AAssetId: string);
+begin
+  var LR := RectF(ACenterX - ACardW / 2, ACenterY - ACardH / 2, ACenterX + ACardW / 2, ACenterY + ACardH / 2);
+  if IsZero(AAngle) then
+  begin
+    Front(ACanvas, LR, AImages, AAssetId);
+    Exit;
+  end;
+
+  var LSaved := ACanvas.Matrix;
+  var LRot := TMatrix.CreateTranslation(-ACenterX, -ACenterY) * TMatrix.CreateRotation(DegToRad(AAngle)) *
+    TMatrix.CreateTranslation(ACenterX, ACenterY);
+  ACanvas.SetMatrix(LRot * LSaved);
+  try
+    Front(ACanvas, LR, AImages, AAssetId);
+  finally
+    ACanvas.SetMatrix(LSaved);
   end;
 end;
 {$ENDREGION}

@@ -11,10 +11,26 @@ interface
 uses
   System.Types,
   System.UITypes,
-  FMX.Graphics;
+  FMX.Graphics,
+  Gostop.CardImages;
 {$ENDREGION}
 
 type
+  /// <summary>
+  ///   화투 카드 앞/뒷면 렌더러(캔버스 무관). 이미지 캐시(TCardImageCache)와 대상 Canvas·rect·에셋
+  ///   식별자만 받아 그린다 — 보드뿐 아니라 다이얼로그처럼 자기 Canvas 를 가진 곳에서도 카드를 그릴 수
+  ///   있게 한다(보드 Canvas 하드코딩 제거). 이미지 로드 실패 시 흰/붉은 상자 폴백.
+  /// </summary>
+  TCardFaceRender = record
+  public
+    /// <summary>앞면(AAssetId)을 그린다. 실패 시 흰 상자 + 에셋명 라벨.</summary>
+    class procedure Front(const ACanvas: TCanvas; const ARect: TRectF;
+      const AImages: TCardImageCache; const AAssetId: string); static;
+    /// <summary>뒷면(ABackColor 색)을 그린다. 실패 시 붉은 상자.</summary>
+    class procedure Back(const ACanvas: TCanvas; const ARect: TRectF;
+      const AImages: TCardImageCache; const ABackColor: string); static;
+  end;
+
   /// <summary>
   ///   선택형 아바타 카드 렌더러. 공통 배경 셸 + 아바타 1장(난이도) / 아바타 N장 겹침(인원수)을
   ///   그린다. 선택·호버·눌림 상태에 따라 배경 명암과 테두리가 달라진다(보드의 버튼 상태 효과와 동일).
@@ -39,6 +55,31 @@ uses
   System.Math,
   Gostop.Canvas.Helper,
   Gostop.Palette;
+{$ENDREGION}
+
+{$REGION 'TCardFaceRender'}
+class procedure TCardFaceRender.Front(const ACanvas: TCanvas; const ARect: TRectF;
+  const AImages: TCardImageCache; const AAssetId: string);
+begin
+  try
+    var LBmp := AImages.ScaledFront(AAssetId, Round(ARect.Width * ACanvas.Scale), Round(ARect.Height * ACanvas.Scale));
+    ACanvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), ARect, 1, False);
+  except
+    ACanvas.FillRound(ARect, 3, TAlphaColors.White);
+    ACanvas.DrawLabel(ARect, AAssetId, TAlphaColors.Black, 8);
+  end;
+end;
+
+class procedure TCardFaceRender.Back(const ACanvas: TCanvas; const ARect: TRectF;
+  const AImages: TCardImageCache; const ABackColor: string);
+begin
+  try
+    var LBmp := AImages.ScaledBack(ABackColor, Round(ARect.Width * ACanvas.Scale), Round(ARect.Height * ACanvas.Scale));
+    ACanvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), ARect, 1, False);
+  except
+    ACanvas.FillRound(ARect, 3, TAlphaColors.Darkred);
+  end;
+end;
 {$ENDREGION}
 
 {$REGION 'TSelectCardRender'}

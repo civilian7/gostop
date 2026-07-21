@@ -40,6 +40,7 @@ uses
   Gostop.Board.OverlayRender,
   Gostop.Dialog.ProgramInfo,
   Gostop.Dialog.GoStop,
+  Gostop.Dialog.Shodang,
   Gostop.Canvas.Helper,
   Gostop.Fonts,
   Gostop.FourPlayer,
@@ -205,8 +206,7 @@ type
     FShodangPendAiOpp: Integer;                  // 다른 상대(AI) 인덱스
     FShodangPendAiAccept: Boolean;               // 다른 상대(AI) 수락 여부(선결정)
     FShodangCards: TArray<string>;               // 공개할 위협 패(AssetId)
-    FBtnShodangYes: TRectF;                      // 받기(수락)
-    FBtnShodangNo: TRectF;                       // 거절
+    FShodangDlg: TShodangDialog;                 // 수락/거절 다이얼로그(자기완결 컴포넌트)
     FBtnJoin: TRectF;
     FBtnGiveUp: TRectF;
     FBtnNext: TRectF;
@@ -566,7 +566,7 @@ type
     procedure AiCallShodang(const ACaller: Integer);
     procedure ResolveShodang(const ACaller, AOppA, AOppB: Integer; const AAccA, AAccB: Boolean);
     procedure HumanRespondShodang(const AAccept: Boolean);
-    procedure DrawShodangPrompt;
+    procedure ShowShodangDialog;
     function  DrawStdDialog(const ATitle: string; const AWidth, AHeight: Single): TRectF;
     procedure EndStdDialog;
     procedure DialogPopTick(Sender: TObject);
@@ -579,7 +579,6 @@ type
 
     // MouseDown 디스패치 분기(화면/상태별로 분리 — 각자 원래 항상 Exit로 끝나던 블록 그대로)
     procedure MouseDownGiri(const LPoint: TPointF);
-    procedure MouseDownShodangPrompt(const LPoint: TPointF);
     procedure MouseDownTitleArea(const LPoint: TPointF);
     procedure MouseDownSettingsDialog(const LPoint: TPointF);
     procedure MouseDownMatchSetupDialog(const LPoint: TPointF);
@@ -1195,6 +1194,18 @@ begin
   FGameOverReady := False;
 
   FReplacing := False;   // 등장 연출 애니는 위 FAnimMgr.Clear 가 제거
+
+  // 게임 중 다이얼로그(자식 컨트롤)는 판 정리 시 숨긴다
+  if Assigned(FGoStopDlg) then
+  begin
+    FGoStopDlg.Visible := False;
+  end;
+
+  if Assigned(FShodangDlg) then
+  begin
+    FShodangDlg.Visible := False;
+  end;
+
   FHoverHand := -1;
   FHoverBonus := -1;
   FHoverGiri := -1;
@@ -3663,23 +3674,12 @@ end;
 
 procedure TGostopBoard.DrawFront(const R: TRectF; const AAssetId: string);
 begin
-  try
-    var LBmp := FImages.ScaledFront(AAssetId, Round(R.Width * Canvas.Scale), Round(R.Height * Canvas.Scale));
-    Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), R, 1, False);
-  except
-    Canvas.FillRound(R, 3, TAlphaColors.White);
-    DrawLabel(R, AAssetId, TAlphaColors.Black, 8);
-  end;
+  TCardFaceRender.Front(Canvas, R, FImages, AAssetId);
 end;
 
 procedure TGostopBoard.DrawBack(const R: TRectF);
 begin
-  try
-    var LBmp := FImages.ScaledBack(FBackColor, Round(R.Width * Canvas.Scale), Round(R.Height * Canvas.Scale));
-    Canvas.DrawBitmap(LBmp, RectF(0, 0, LBmp.Width, LBmp.Height), R, 1, False);
-  except
-    Canvas.FillRound(R, 3, TAlphaColors.Darkred);
-  end;
+  TCardFaceRender.Back(Canvas, R, FImages, FBackColor);
 end;
 
 // 획득 패를 광→열끗→띠→피 순으로 정렬한 인덱스 시퀀스(연속 부채용)
@@ -7152,7 +7152,7 @@ begin
       FShodangCards := FShodangCards + [LT.CardId];
     end;
 
-    Repaint;
+    ShowShodangDialog;
     if Assigned(FOnStateChanged) then
     begin
       FOnStateChanged(Self);
@@ -7174,42 +7174,32 @@ begin
   end;
 
   FShodangPending := False;
+  if Assigned(FShodangDlg) then
+  begin
+    FShodangDlg.Visible := False;
+  end;
+
   ResolveShodang(FShodangPendCaller, FHumanIndex, FShodangPendAiOpp, AAccept, FShodangPendAiAccept);
 end;
 
 // AI 쇼당 → 사람에게 수락/거절 묻는 표준 다이얼로그(공개 패 + [받기][거절])
-procedure TGostopBoard.DrawShodangPrompt;
+// 쇼당 수락/거절 다이얼로그를 공개 위협 패와 함께 띄운다(최초 1회 생성). 결과는 HumanRespondShodang
+// 콜백으로 돌아온다. 숨김은 HumanRespondShodang(응답)과 ClearGame(판 정리)에서 처리한다.
+procedure TGostopBoard.ShowShodangDialog;
 begin
-  var LPanel := DrawStdDialog(Format('%s 쇼당! — 받으시겠습니까?', [FGame.Player(FShodangPendCaller).Name]), Max(Width * 0.4, 420.0), 260.0);
-
-  // 공개 패
-  var CS := CardSize;
-  var LCW := CS.Width * 0.7;
-  var LCH := CS.Height * 0.7;
-  var LN := Length(FShodangCards);
-  if LN > 0 then
+  if FShodangDlg = nil then
   begin
-    var LTotW := LCW + (LN - 1) * LCW * 1.2;
-    var LSX := (LPanel.Left + LPanel.Right) / 2 - LTotW / 2;
-    var LCY := LPanel.Top + 62;
-    for var I := 0 to LN - 1 do
-    begin
-      DrawFront(RectF(LSX + I * LCW * 1.2, LCY, LSX + I * LCW * 1.2 + LCW, LCY + LCH), FShodangCards[I]);
-    end;
+    FShodangDlg := TShodangDialog.Create(Self);   // Owner=보드(자동 해제)
+    FShodangDlg.Parent := Self;                    // Parent 먼저 지정
+    FShodangDlg.Align := TAlignLayout.Contents;    // 보드 전체를 덮는 모달 오버레이
   end;
 
-  DrawLabel(RectF(LPanel.Left, LPanel.Bottom - 96, LPanel.Right, LPanel.Bottom - 74),
-    '받으면 이 판 나가리(둘 다 받을 때), 거절 시 밀리면 독박', $FFB8C4B8, 13);
-
-  var LBtnW := 130.0;
-  var LBtnH := 46.0;
-  var LGap := 24.0;
-  var LCX := (LPanel.Left + LPanel.Right) / 2;
-  var LBtnY := LPanel.Bottom - LBtnH - 16;
-  FBtnShodangYes := DrawStdButton(RectF(LCX - LBtnW - LGap / 2, LBtnY, LCX - LGap / 2, LBtnY + LBtnH), '받기', dbkPrimary);
-  FBtnShodangNo := DrawStdButton(RectF(LCX + LGap / 2, LBtnY, LCX + LGap / 2 + LBtnW, LBtnY + LBtnH), '거절', dbkDanger);
-
-  EndStdDialog;
+  var LCS := CardSize;
+  FShodangDlg.Present(FGame.Player(FShodangPendCaller).Name, FShodangCards, LCS.Width, LCS.Height, FImages,
+    procedure(AAccept: Boolean)
+    begin
+      HumanRespondShodang(AAccept);
+    end);
 end;
 
 procedure TGostopBoard.PaintGame;
@@ -7376,11 +7366,7 @@ begin
     DrawShodangButton;
   end;
 
-  // AI 쇼당 → 사람 수락/거절 대기 다이얼로그(최상단 모달)
-  if FShodangPending then
-  begin
-    DrawShodangPrompt;
-  end;
+  // AI 쇼당 → 사람 수락/거절 대기 다이얼로그(FShodangDlg)는 자식 컨트롤이 스스로 그린다.
 
   // 캐릭터 말풍선(턴 시작마다 일정 확률로)
   DrawSpeechBubble;
@@ -8643,12 +8629,7 @@ begin
     Exit;
   end;
 
-  // AI 쇼당 → 사람 수락/거절 응답(최상단 모달)
-  if FShodangPending then
-  begin
-    MouseDownShodangPrompt(LPoint);
-    Exit;
-  end;
+  // AI 쇼당 수락/거절은 자식 컨트롤(FShodangDlg)이 클릭을 직접 받으므로 여기서 처리하지 않는다.
 
   // 광 판매 발표: 아무 곳이나 클릭하면 즉시 진행(스킵)
   if FGwangShow then
@@ -8828,21 +8809,6 @@ begin
       BeginGiriClose(K);
       Exit;
     end;
-  end;
-end;
-
-procedure TGostopBoard.MouseDownShodangPrompt(const LPoint: TPointF);
-begin
-  if FBtnShodangYes.Contains(LPoint) then
-  begin
-    TGostopAudio.Instance.Play('ui_click');
-    HumanRespondShodang(True);
-  end
-  else
-  if FBtnShodangNo.Contains(LPoint) then
-  begin
-    TGostopAudio.Instance.Play('ui_click');
-    HumanRespondShodang(False);
   end;
 end;
 
